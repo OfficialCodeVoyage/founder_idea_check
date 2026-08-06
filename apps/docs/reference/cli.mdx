@@ -1,0 +1,164 @@
+---
+title: CLI Reference
+description: "@chat-js/cli command reference"
+---
+
+## Overview
+
+`@chat-js/cli` scaffolds new ChatJS applications. It walks you through selecting an AI gateway, features, and auth providers, then generates a fully configured Next.js project.
+
+## Installation
+
+No installation is required. Run it directly with `npx`:
+
+```bash
+npx @chat-js/cli@latest create my-app
+```
+
+Or install globally:
+
+```bash
+npm install -g @chat-js/cli
+chat-js create my-app
+```
+
+## Commands
+
+### `create`
+
+Scaffold a new ChatJS app. This is the default command, so you can omit the word `create` and pass the directory directly.
+
+```bash
+npx @chat-js/cli@latest create [directory] [options]
+npx @chat-js/cli@latest [directory] [options]
+```
+
+**Arguments**
+
+| Argument    | Description                                                          |
+| ----------- | -------------------------------------------------------------------- |
+| `directory` | Target directory for the project. Prompted interactively if omitted. |
+
+**Options**
+
+| Flag                                      | Default  | Description                                                                  |
+| ----------------------------------------- | -------- | ---------------------------------------------------------------------------- |
+| `-y, --yes`                               | `false`  | Skip prompts and use the scaffold defaults.                                  |
+| `--no-install`                            | —        | Skip automatic dependency installation.                                      |
+| `--electron` / `--no-electron`            | Prompted | Include or exclude the Electron desktop app.                                 |
+| `-r, --registry <url>`                    | Default registry | Use a registry URL or local path template.                            |
+| `--package-manager <bun\|npm\|pnpm\|yarn>` | Inferred | Override the package manager used for installation and next steps.       |
+| `--from-git <url>`                        | Built-in scaffold | Clone from a Git repository instead of the built-in scaffold.         |
+| `--storage-provider <provider>`           | Prompted when needed | Select a Files SDK provider such as `vercel-blob`, `s3`, `r2`, or `gcs`. |
+| `--storage-config <json>`                 | —        | Supply non-secret Files SDK adapter options as JSON.                         |
+
+The CLI first checks for a package-manager lockfile, then checks the invoking tool. Running through `npx` or npm selects npm. If neither signal exists, npm is the default. Pass `--package-manager` to override the result.
+
+After scaffolding, the CLI prints the exact environment variables required for your chosen configuration.
+
+Use `npx @chat-js/cli@latest --version` or `chat-js --version` after a global installation to print the CLI version.
+
+---
+
+### `add`
+
+```bash
+npx @chat-js/cli@latest add [tools...]
+```
+
+Install one or more registry tools into an existing ChatJS project. The command reads the tool destination from `chat.config.ts`.
+
+| Flag                   | Default           | Description                                      |
+| ---------------------- | ----------------- | ------------------------------------------------ |
+| `-y, --yes`            | `false`           | Skip the installation confirmation.              |
+| `-o, --overwrite`      | `false`           | Overwrite existing tool files without prompting. |
+| `-c, --cwd <cwd>`      | Current directory | Run against another ChatJS project.               |
+| `-r, --registry <url>` | Default registry  | Use a registry URL or local path template.        |
+
+```bash
+npx @chat-js/cli@latest add word-count
+```
+
+---
+
+### `config`
+
+Print the fully resolved `chat.config.ts`, including gateway defaults.
+
+```bash
+npx @chat-js/cli@latest config
+```
+
+| Flag              | Default           | Description                        |
+| ----------------- | ----------------- | ---------------------------------- |
+| `-c, --cwd <cwd>` | Current directory | Read another ChatJS project config. |
+
+## What gets generated
+
+The `create` command copies the built-in template and then writes a tailored `chat.config.ts`. The generated project structure is:
+
+```
+my-app/
+├── app/                    # Next.js App Router pages and layouts
+│   ├── (auth)/             # Auth-related routes
+│   ├── (chat)/             # Chat interface routes
+│   ├── api/                # API route handlers
+│   └── layout.tsx
+├── components/             # Shared UI components
+├── hooks/                  # React hooks
+├── lib/                    # Core logic (AI, auth, DB, config schema)
+├── providers/              # React context providers
+├── trpc/                   # tRPC router
+├── chat.config.ts          # Your app configuration (generated)
+├── drizzle.config.ts       # Database schema config
+├── next.config.ts
+├── package.json
+└── tsconfig.json
+```
+
+`chat.config.ts` is written with your chosen gateway, features, and auth providers pre-filled. All other config fields are set to sensible defaults with inline comments.
+
+## Examples
+
+**Interactive setup (recommended)**
+
+```bash
+npx @chat-js/cli@latest create my-chat-app
+```
+
+**Skip prompts, use all defaults**
+
+```bash
+npx @chat-js/cli@latest create my-chat-app --yes
+```
+
+Defaults include Vercel AI Gateway, GitHub OAuth, parallel responses, document tools, no Electron app, and npm when invoked through `npx`.
+
+**Create without installing dependencies**
+
+```bash
+npx @chat-js/cli@latest create my-chat-app --no-install
+```
+
+**Use npm for install + printed next steps**
+
+```bash
+npx @chat-js/cli@latest create my-chat-app --package-manager npm
+```
+
+**Clone from a custom git repository**
+
+```bash
+npx @chat-js/cli@latest create my-chat-app --from-git https://github.com/your-org/your-fork
+```
+
+**Full flow after scaffolding**
+
+```bash
+npx @chat-js/cli@latest create my-chat-app --package-manager npm
+cd my-chat-app
+cp .env.example .env.local
+# Fill in the env vars printed by the CLI
+npm run db:push
+npm run dev
+```

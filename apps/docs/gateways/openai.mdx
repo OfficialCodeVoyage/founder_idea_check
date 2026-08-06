@@ -1,0 +1,67 @@
+---
+title: "OpenAI Gateway"
+description: "Connect directly to the OpenAI API"
+---
+
+The OpenAI gateway connects ChatJS directly to the [OpenAI API](https://platform.openai.com/docs/api-reference) using the `@ai-sdk/openai` provider SDK. Use this when you only need OpenAI models and want the simplest setup with type-safe model IDs.
+
+## Setup
+
+1. Follow the [OpenAI quickstart](https://developers.openai.com/api/docs/quickstart) to create an API key
+2. Add to `.env.local`:
+
+```bash
+OPENAI_API_KEY=sk-...
+```
+
+3. Set the gateway in your config:
+
+```typescript title="chat.config.ts"
+const config: ConfigInput = {
+  ai: {
+    gateway: "openai",
+    workflows: {
+      chat: "gpt-5-mini",
+      title: "gpt-5-nano",
+      // ...
+    },
+    // ...
+  },
+};
+```
+
+## Authentication
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | Required. Your OpenAI API key |
+
+## Available Models
+
+All models available to your API key (GPT, DALL-E, and embedding models). The full list is fetched at runtime and cached for 1 hour.
+
+## Model IDs
+
+Unlike the Vercel and OpenRouter gateways which use `provider/model` format, the OpenAI gateway uses bare model IDs since all models come from OpenAI:
+
+- `gpt-5-mini`
+- `gpt-5-nano`
+- `gpt-4o`
+- `o3-mini`
+
+The gateway provides **type-safe model IDs** extracted from the `@ai-sdk/openai` SDK, giving you autocomplete in `chat.config.ts`.
+
+## Image Generation
+
+The OpenAI gateway supports dedicated image models through `createImageModel()`:
+
+- `gpt-image-1`
+- `gpt-image-1.5`
+- `dall-e-3`
+
+This enables the built-in [Image Generation](/features/image-generation) feature.
+
+## Related
+
+- [Gateways Overview](/gateways/overview) for the full gateway comparison
+- [Vercel Gateway](/gateways/vercel) for multi-provider access via a single key

@@ -1,0 +1,108 @@
+---
+title: Neon Branching
+description: Isolated database environments for safe schema development
+---
+
+## Problem
+
+Schema changes during development can corrupt or pollute your main database. You need isolated environments to test migrations without affecting production data.
+
+## Solution
+
+Neon's branching feature creates instant copy-on-write database branches from your main database. Each branch is isolated, cheap (only stores diffs), and can be created/deleted in seconds.
+
+## Implementation
+
+### Setup
+
+Install and authenticate the Neon CLI:
+
+```bash
+# Install Neon CLI
+npm install -g neonctl
+
+# Authenticate
+neonctl auth
+```
+
+Set context to your project (find project ID in your Neon dashboard):
+
+```bash
+neonctl set-context --project-id <your-project-id>
+```
+
+This creates a `.neon` file in the current directory (gitignored).
+
+### How It Works
+
+Instead of updating `.env.local`, the branch name is stored in a `.neon-branch` file (gitignored). The `scripts/with-db.sh` wrapper reads this file at runtime and injects the correct `DATABASE_URL` when running database commands.
+
+This means your `.env.local` stays pointing to main, and branch switching is instant.
+
+### Helper Scripts
+
+The `package.json` scripts use three bash scripts under `scripts/`:
+
+```json title="package.json"
+{
+  "scripts": {
+    "db:branch:start": "bash -c 'N=${1:-dev-local}; bun db:branch:create $N && bun db:branch:use $N' --",
+    "db:branch:stop": "bash -c 'N=${1:-dev-local}; bun db:branch:use main && bun db:branch:delete $N' --",
+    "db:branch:use": "bash scripts/db-branch-use.sh",
+    "db:branch:create": "bash scripts/db-branch-create.sh",
+    "db:branch:delete": "bash scripts/db-branch-delete.sh",
+    "db:branch:list": "bunx neonctl branches list"
+  }
+}
+```
+
+## Usage
+
+### Development Workflow
+
+```bash
+# Start working on schema changes
+bun db:branch:start
+
+# Your app now uses the dev branch (DATABASE_URL injected via with-db.sh)
+bun dev
+
+# Make schema changes
+bun db:generate   # Generate migration
+bun db:migrate    # Apply migration
+
+# When done, clean up and switch back to main
+bun db:branch:stop
+```
+
+### Commands Reference
+
+| Command                          | Description                                        |
+| -------------------------------- | -------------------------------------------------- |
+| `bun db:branch:start [name]`     | Create branch and switch to it (default: dev-local) |
+| `bun db:branch:stop [name]`      | Switch to main and delete branch                   |
+| `bun db:branch:use [name]`       | Switch to existing branch (writes `.neon-branch`)  |
+| `bun db:branch:use main`         | Switch back to main (removes `.neon-branch`)       |
+| `bun db:branch:create [name]`    | Create branch only                                 |
+| `bun db:branch:delete [name]`    | Delete branch only                                 |
+| `bun db:branch:list`             | List all branches                                  |
+
+Default branch name is `dev-local` if not specified.
+
+## Considerations
+
+**Benefits:**
+- Instant branch creation (copy-on-write, no data duplication)
+- Test destructive migrations safely
+- Multiple developers can have separate branches
+- Branches inherit data from parent at creation time
+
+**Trade-offs:**
+- Requires Neon PostgreSQL (not compatible with other providers)
+- Branch data becomes stale relative to main over time
+- Free tier has limited branch count
+
+**Alternatives:**
+- Docker-based local PostgreSQL for full isolation
+- Schema-only branches (no data) for simpler cases
+- Supabase branching for Supabase users

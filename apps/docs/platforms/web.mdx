@@ -1,0 +1,49 @@
+---
+title: "Web"
+description: "Run ChatJS as a web app in development and production"
+---
+
+ChatJS is a web app first. When you scaffold a new project, the browser experience is the default runtime: local development, production deployments, authentication, model access, and all core product features work on the web without any extra platform wrapper.
+
+## What you get by default
+
+The generated app is a standard Next.js application with the ChatJS product stack already wired in:
+
+- App Router-based UI and routes
+- Authentication with Better Auth
+- Streaming chat, tools, attachments, and projects
+- Model gateways and provider configuration
+- Production deployment support for Vercel, Docker, and self-hosted environments
+
+If you do nothing platform-specific, you are building and shipping the web app.
+
+## Development
+
+The normal development flow is:
+
+```bash
+npx @chat-js/cli@latest create my-app
+cd my-app
+bun install
+bun run dev
+```
+
+That starts the ChatJS web app locally, usually at `http://localhost:3000`.
+
+For the full setup flow, environment variables, and first-run checklist, see [Quickstart](/quickstart).
+
+## Production deployment
+
+You can deploy the web app to any environment that supports Next.js. ChatJS documents three common paths:
+
+- [Vercel](/deployment/vercel) for the recommended hosted setup
+- [Docker](/deployment/docker) for containerized deployment
+- [Self-hosted](/deployment/self-hosted) for general Node.js platforms
+
+The production base URL comes from `appUrl` in `chat.config.ts`, and that value is also reused by other platform integrations like the desktop app.
+
+## Relationship to Desktop
+
+The desktop app is an optional Electron wrapper around this same web app. It loads your deployed ChatJS site in a native shell and adds desktop-specific behavior such as deep-link auth, tray integration, and auto-updates.
+
+If you want the native desktop wrapper, see [Desktop](/platforms/desktop).

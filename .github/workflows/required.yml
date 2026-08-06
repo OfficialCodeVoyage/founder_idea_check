@@ -1,0 +1,20 @@
+name: Required
+
+on:
+  pull_request:
+
+jobs:
+  gate:
+    name: Required
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Wait for required workflows
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          # ============================================
+          # REQUIRED CHECKS - Add/remove check names here
+          # ============================================
+          check-regexp: ^(Docs|Lint|Typecheck|Unit|Playwright|CLI Scaffold)$
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10

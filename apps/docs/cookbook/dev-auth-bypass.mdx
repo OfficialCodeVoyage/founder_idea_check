@@ -1,0 +1,93 @@
+---
+title: Dev Auth Bypass
+description: Auto-authenticate AI agents for browser testing
+---
+
+## Overview
+
+The `/api/dev-login` route allows AI agents to authenticate automatically during development. This enables automated browser testing without manual login flows.
+
+<Callout type="warning">Only works when `NODE_ENV=development`. Returns 404 in production.</Callout>
+
+## Usage
+
+Have the agent navigate its browser to `/api/dev-login` on the app URL. This
+creates a dev user session and redirects to the app with valid auth cookies.
+
+## Agent Setup
+
+Use any browser-capable agent or browser automation tool. Navigate to
+`/api/dev-login` on the app URL before testing authenticated features so that
+the browser receives the session cookie.
+
+## How It Works
+
+1. Creates a `dev@localhost` user if it doesn't exist
+2. Generates a new session with 30-day expiry
+3. Sets a signed `better-auth.session_token` cookie
+4. Redirects to home page
+
+## Code
+
+```ts title="app/api/dev-login/route.ts"
+import { serializeSignedCookie } from "better-call";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db/client";
+import { session, user } from "@/lib/db/schema";
+import { env } from "@/lib/env";
+
+export async function GET() {
+  if (process.env.NODE_ENV !== "development") {
+    return new Response("Not found", { status: 404 });
+  }
+
+  const devEmail = "dev@localhost";
+  let [devUser] = await db.select().from(user).where(eq(user.email, devEmail));
+
+  if (!devUser) {
+    const id = crypto.randomUUID();
+    [devUser] = await db
+      .insert(user)
+      .values({
+        id,
+        email: devEmail,
+        name: "Dev User",
+        emailVerified: true,
+      })
+      .returning();
+  }
+
+  const token = crypto.randomUUID();
+  const now = new Date();
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  await db.insert(session).values({
+    id: crypto.randomUUID(),
+    userId: devUser.id,
+    token,
+    expiresAt,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const signedSessionCookie = await serializeSignedCookie(
+    "better-auth.session_token",
+    token,
+    env.AUTH_SECRET,
+    {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      expires: expiresAt,
+    }
+  );
+
+  const headers = new Headers({ Location: "/" });
+  headers.append("Set-Cookie", signedSessionCookie);
+
+  return new Response(null, {
+    status: 302,
+    headers,
+  });
+}
+```

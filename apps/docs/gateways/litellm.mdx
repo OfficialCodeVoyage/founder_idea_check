@@ -1,0 +1,107 @@
+---
+title: "LiteLLM Gateway"
+description: "Route requests through a LiteLLM proxy to access 100+ LLM providers"
+---
+
+The LiteLLM gateway connects ChatJS to a [LiteLLM proxy](https://docs.litellm.ai/) server, giving you unified access to 100+ LLM providers (OpenAI, Anthropic, Google, Azure, AWS Bedrock, and more) through a single endpoint.
+
+## Why LiteLLM?
+
+- **Unified API** - Call any LLM provider using the OpenAI format
+- **Centralized key management** - Store all provider API keys on the proxy, not in the client
+- **Spend tracking** - Monitor usage and costs across all providers in one place
+- **Load balancing** - Distribute requests across multiple deployments of the same model
+- **Fallbacks** - Automatically retry with a different provider if one fails
+
+## Setup
+
+1. Deploy a LiteLLM proxy server ([quickstart guide](https://docs.litellm.ai/docs/simple_proxy)) and note the URL. If your proxy requires authentication, also note a master key or virtual key.
+
+2. Set the proxy URL and optional API key in `.env.local`:
+
+```bash
+LITELLM_BASE_URL=http://localhost:4000   # Your LiteLLM proxy URL, without /v1
+LITELLM_API_KEY=sk-...                   # Optional; only if your proxy requires auth
+```
+
+3. Set the gateway in your config:
+
+```typescript title="chat.config.ts"
+const config: ConfigInput = {
+  ai: {
+    gateway: "litellm",
+    workflows: {
+      chat: "openai/gpt-4o",
+      title: "openai/gpt-4o-mini",
+      // ...
+    },
+    // ...
+  },
+};
+```
+
+<Callout type="note">
+Model IDs must match the model names configured in your LiteLLM proxy. These typically follow the `provider/model` format (e.g., `openai/gpt-4o`, `anthropic/claude-sonnet-4-20250514`).
+</Callout>
+
+## Authentication
+
+| Variable | Description |
+|----------|-------------|
+| `LITELLM_BASE_URL` | Required. The base URL of your LiteLLM proxy (e.g., `http://localhost:4000`) |
+| `LITELLM_API_KEY` | Optional. A master key or virtual key for your LiteLLM proxy |
+
+## Available Models
+
+Models are fetched at runtime from your LiteLLM proxy's `/v1/models` endpoint and cached for 1 hour. The available models depend entirely on what you have configured in your proxy's `config.yaml`.
+
+### Example proxy configuration
+
+```yaml title="litellm_config.yaml"
+model_list:
+  - model_name: openai/gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: anthropic/claude-sonnet-4-20250514
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+```
+
+## Image Generation
+
+Image generation support depends on the models available through your LiteLLM proxy. If your proxy is configured with an image generation model (e.g., `dall-e-3`), enable it in your config:
+
+```typescript title="chat.config.ts"
+const config: ConfigInput = {
+  ai: {
+    gateway: "litellm",
+    tools: {
+      image: { enabled: true, default: "dall-e-3" },
+    },
+  },
+};
+```
+
+## Using the LiteLLM Python SDK
+
+You can also interact with your LiteLLM proxy using the Python SDK:
+
+```python
+from litellm import completion
+
+response = completion(
+    model="openai/gpt-4o",
+    messages=[{"role": "user", "content": "Hello!"}],
+    api_base="http://localhost:4000",  # your proxy URL
+    api_key="sk-...",                  # optional; your proxy key if required
+)
+print(response.choices[0].message.content)
+```
+
+## Related
+
+- [Gateways Overview](/gateways/overview) for the full gateway comparison
+- [LiteLLM Documentation](https://docs.litellm.ai/) for proxy setup and configuration
+- [Custom Gateway](/gateways/custom) if you need more control than this gateway provides

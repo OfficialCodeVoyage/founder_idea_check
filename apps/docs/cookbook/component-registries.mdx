@@ -1,0 +1,33 @@
+---
+title: Component Registries
+description: Add shadcn and AI Elements components to your app
+---
+
+ChatJS uses two component libraries/registries: [shadcn/ui](https://ui.shadcn.com) and [AI Elements](https://ai-sdk.dev/elements/overview). Both are shadcn-style, Tailwind-friendly, and theme via the same CSS variables in `app/globals.css`.
+
+## shadcn/ui components
+
+[shadcn/ui](https://ui.shadcn.com) components are added to `components/ui` and use your theme CSS variables from `app/globals.css`.
+
+```bash
+bunx shadcn@latest add <component>
+```
+
+## AI Elements components
+
+AI Elements is a shadcn-compatible component registry focused on AI UX ([docs](https://ai-sdk.dev/elements/overview)). In this repo, AI Elements components live in `components/ai-elements`.
+
+```bash
+bunx ai-elements@latest add <component>
+```
+
+After installing, import from `@/components/ai-elements/...` and style them like any other component.
+
+## The `extra/` pattern (local tweaks on top of registries)
+
+Sometimes we need tiny local wrappers/patches on top of upstream shadcn or AI Elements components (usually to bridge an upstream gap or carry a temporary workaround).
+
+- **shadcn tweaks**: `components/ui/extra/*` (example: `ScrollArea` that accepts a `viewportRef`)
+- **AI Elements tweaks**: `components/ai-elements/extra/*` (example: `ConversationContent` wired to the tweaked `ScrollArea`)
+
+Rule of thumb: **don’t edit upstream registry components unless you have to**; prefer putting local glue/tweaks in `extra/` so future `bunx shadcn@latest add` / `bunx ai-elements@latest add` updates stay clean.

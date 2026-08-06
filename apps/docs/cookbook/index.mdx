@@ -1,0 +1,81 @@
+---
+title: Cookbook
+description: Reusable patterns to copy into any project
+---
+
+The Cookbook contains self-contained, portable patterns you can copy into any AI chat application. Unlike the main docs which focus on ChatJS installation and configuration, these recipes work independently of ChatJS.
+
+
+## Recipes by Category
+
+### Streaming
+
+Patterns for handling real-time AI response streams.
+
+<CardGroup cols={2}>
+  <Card title="Resumable Streams" href="/cookbook/resumable-streams">
+    Continue AI responses after connection interruptions using Redis pub/sub
+  </Card>
+  <Card title="Tool Part" href="/cookbook/tool-part">
+    Connect backend tools to frontend UI components with loading states
+  </Card>
+</CardGroup>
+
+### Models
+
+Patterns for the model system.
+
+<CardGroup cols={2}>
+  <Card title="Auto-Updating Models" href="/cookbook/auto-updating-models">
+    Fetch model catalogs at runtime with fallback to a static snapshot
+  </Card>
+</CardGroup>
+
+### Data
+
+Database patterns and state management.
+
+<CardGroup cols={2}>
+  <Card title="Next.js Chat Transition" href="/cookbook/next-chat-transition">
+    Preserve first-message chat state while navigating through the App Router
+  </Card>
+  <Card title="Credit Tracking" href="/cookbook/credit-tracking">
+    Track and limit AI usage with credit budgets
+  </Card>
+  <Card title="Neon Branching" href="/cookbook/neon-branching">
+    Isolated database environments for schema development
+  </Card>
+</CardGroup>
+
+### Auth
+
+Authentication patterns for AI applications.
+
+<CardGroup cols={2}>
+  <Card title="Dev Auth Bypass" href="/cookbook/dev-auth-bypass">
+    Auto-authenticate AI agents for browser testing
+  </Card>
+</CardGroup>
+
+### AI UX
+
+User experience patterns for chat interfaces.
+
+<CardGroup cols={2}>
+  <Card title="Follow-up Questions" href="/cookbook/follow-up-questions">
+    Generate contextual follow-up suggestions after AI responses
+  </Card>
+  <Card title="Chat Layout" href="/cookbook/chat-layout">
+    Resizable split-panel layout with collapsible secondary panel
+  </Card>
+</CardGroup>
+
+### Development
+
+Workflow patterns for local development.
+
+<CardGroup cols={2}>
+  <Card title="Git Worktrees" href="/cookbook/git-worktrees">
+    Parallel development environments without branch switching
+  </Card>
+</CardGroup>

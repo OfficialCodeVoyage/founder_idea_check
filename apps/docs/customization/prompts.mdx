@@ -1,0 +1,60 @@
+---
+title: Prompts
+description: Customize system prompts and AI behavior
+---
+
+## Overview
+
+Customize how your AI assistant behaves by modifying system prompts in `lib/ai/prompts.ts`.
+
+## System Prompt
+
+The main system prompt defines your assistant's personality, capabilities, and response format:
+
+```ts
+export const systemPrompt = () => `You are a friendly assistant!
+
+## Your Goals
+- Stay concious and aware of the guidelines.
+- Stay efficient and focused on the user's needs, do not take extra steps.
+- Provide accurate, concise, and well-formatted responses.
+- Avoid hallucinations or fabrications. Stick to verified facts and provide proper citations.
+- Follow formatting guidelines strictly.
+- Markdown is supported in the response and you can use it to format the response.
+- Do not use $ for currency, use USD instead always.
+
+## Content Rules:
+  - Responses must be informative, long and very detailed which address the question's answer straight forward instead of taking it to the conclusion.
+  - Use structured answers with markdown format and tables too.
+  - If a diagram is needed, return it in a fenced mermaid code block.
+
+### Citation rules:
+- Insert citation right after the relevant sentence/paragraph — not in a footer
+- Format exactly: [Source Title](URL)
+- Cite only the most relevant hits and avoid fluff
+
+Today's Date: ${new Date().toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+  weekday: "short",
+})}
+`;
+```
+
+The prompt is a function so dynamic values like the current date can be injected.
+
+## Artifact Prompts
+
+Artifact-specific instructions (for code, sheets, and text documents) are defined in the tool descriptions rather than as separate prompts. See `lib/ai/tools/` for the artifact tool implementations where these instructions are embedded.
+
+## Per-Project Prompts
+
+When projects are enabled, users can set custom instructions per project that get appended to the system prompt. This allows different behavior for different use cases without modifying the base prompt.
+
+## Best Practices
+
+- Keep prompts focused and specific
+- Include examples of desired output format when relevant
+- Test changes with various inputs to ensure consistent behavior
+- Use functions for prompts that need dynamic values

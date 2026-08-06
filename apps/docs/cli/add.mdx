@@ -1,0 +1,60 @@
+---
+title: add
+description: Add a tool to an existing ChatJS project
+---
+
+```bash
+npx @chat-js/cli@latest add [tools...] [options]
+```
+
+## Arguments
+
+| Argument   | Description                         |
+| ---------- | ----------------------------------- |
+| `tools…`   | One or more tool names to install.  |
+
+## Options
+
+| Flag                    | Default | Description                                                    |
+| ----------------------- | ------- | -------------------------------------------------------------- |
+| `-y, --yes`             | `false` | Skip confirmation prompt.                                      |
+| `-o, --overwrite`       | `false` | Overwrite existing installed files without prompting.          |
+| `-c, --cwd <cwd>`       | `cwd`   | Working directory (where `chat.config.ts` lives).              |
+| `-r, --registry <url>`  | —       | Registry URL or local path template. Overrides `CHATJS_REGISTRY_URL`. |
+
+## Examples
+
+```bash
+# Install a single tool
+npx @chat-js/cli@latest add word-count
+
+# Install multiple tools, skip confirmation
+npx @chat-js/cli@latest add word-count pdf-summary --yes
+
+# Use a local registry (monorepo development)
+npx @chat-js/cli@latest add word-count \
+  --registry ./packages/registry/items/{name}.json \
+  --cwd apps/chat
+```
+
+## What it does
+
+For each tool name, the command:
+
+1. Fetches `{name}.json` from the registry
+2. Recursively resolves any `registryDependencies`
+3. Writes the tool's files into your project (under the path configured in `chat.config.ts`)
+4. Installs any npm dependencies the resolved items declare
+5. Warns if the installed items declare missing environment variables
+6. Injects imports and registrations into the CLI-managed registry files at `tools/chatjs/tools.ts` and `tools/chatjs/ui.ts` by default
+
+## Environment variables
+
+| Variable               | Description                                        |
+| ---------------------- | -------------------------------------------------- |
+| `CHATJS_REGISTRY_URL`  | Default registry URL template. The `{name}` placeholder is replaced with the tool name. Useful for pointing to a local registry without passing `--registry` every time. |
+
+## Related
+
+- [Adding Tools](/cookbook/add-tools) — step-by-step walkthrough
+- [Tools](/cookbook/tools) — how to build and publish a tool

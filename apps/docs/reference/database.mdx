@@ -1,0 +1,44 @@
+---
+title: Database
+description: PostgreSQL database management commands and schema workflow
+---
+
+## Overview
+
+ChatJS uses **PostgreSQL** with **Drizzle ORM** for type-safe, schema-first database access. The schema is defined in `apps/chat/lib/db/schema.ts` — edit it to change the database structure.
+
+---
+
+## Database Management
+
+Run these commands from the `apps/chat` directory:
+
+```bash
+# Push schema changes directly to the database (dev only — no migration file)
+bun db:push
+
+# Open Drizzle Studio at https://local.drizzle.studio
+bun db:studio
+
+# Generate a migration file from schema changes
+bun db:generate
+
+# Run pending migration files against the database
+bun db:migrate
+```
+
+- **`db:push`** — fastest for local iteration; skips migration files. Not safe for production.
+- **`db:generate` + `db:migrate`** — the production workflow; creates a versioned SQL file and applies it.
+- **`db:studio`** — inspect, query, and edit data via a browser UI.
+
+---
+
+## Schema Changes
+
+All schema changes start in `apps/chat/lib/db/schema.ts`. After editing:
+
+1. Run `bun db:generate` to produce a migration file in `drizzle/`.
+2. Review the generated SQL to confirm the diff is correct.
+3. Run `bun db:migrate` to apply it.
+
+For production schema changes, use Neon branching to isolate the change first. See [Neon Branching](/cookbook/neon-branching).

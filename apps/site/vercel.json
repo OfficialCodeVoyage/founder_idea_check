@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "bun install",
+  "buildCommand": "bun run build",
+  "rewrites": [
+    {
+      "source": "/docs",
+      "destination": "https://chat-js-docs.vercel.app/docs"
+    },
+    {
+      "source": "/docs/:match*",
+      "destination": "https://chat-js-docs.vercel.app/docs/:match*"
+    }
+  ]
+}

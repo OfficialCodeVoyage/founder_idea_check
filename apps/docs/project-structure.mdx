@@ -1,0 +1,169 @@
+---
+title: "Project Structure"
+description: "How ChatJS is organized"
+---
+
+## Directory Overview
+
+```
+├── app/                    # Next.js App Router
+│   ├── (auth)/            # Auth routes (login, register)
+│   ├── (chat)/            # Main chat interface
+│   ├── api/               # API routes (chat, auth, trpc)
+│   └── actions/           # Server Actions
+│
+├── components/
+│   ├── ai-elements/       # AI Elements registry components
+│   ├── chat/              # Chat UI components
+│   ├── part/              # Tool part renderers
+│   ├── settings/          # Settings pages
+│   └── ui/                # shadcn/ui components
+│
+├── lib/
+│   ├── ai/                # AI SDK integration, tools, prompts
+│   │   └── gateways/      # Gateway abstraction (Vercel, OpenRouter)
+│   ├── db/                # Database schema, queries, and data access
+│   ├── models/            # Model types and utilities
+│   └── stores/            # Zustand stores
+│
+├── trpc/                   # tRPC routers and procedures
+├── hooks/                  # React hooks
+├── providers/              # React context providers
+├── evals/                  # AI evaluation tests
+└── scripts/                # Build and dev scripts
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `chat.config.ts` | Central configuration (features, models, branding) |
+| `lib/config.ts` | Parsed config export with defaults |
+| `lib/env.ts` | Environment variable validation (t3-env) |
+| `lib/storage-provider.ts` | Selected Files SDK adapter and non-secret options |
+| `lib/file-storage.ts` | Provider-agnostic file operations |
+| `lib/auth.ts` | Better Auth server configuration |
+| `lib/auth-client.ts` | Better Auth client configuration |
+| `lib/db/schema.ts` | Drizzle ORM database schema |
+| `proxy.ts` | Route protection middleware |
+
+## App Router Structure
+
+### Route Groups
+
+- `(auth)` - Authentication pages, shared layout without chat UI
+- `(chat)` - Main application, chat interface layout
+
+### API Routes
+
+```
+app/api/
+├── auth/[...all]/    # Better Auth handler
+├── chat/             # AI streaming endpoint
+├── trpc/[trpc]/      # tRPC handler
+└── cron/             # Scheduled tasks
+```
+
+## Components Architecture
+
+### UI Layer
+
+```
+components/
+├── ui/               # Base components (shadcn/ui)
+│   └── extra/        # Local tweaks on shadcn components
+├── ai-elements/      # AI Elements components
+│   └── extra/        # Local tweaks on AI Elements
+├── chat/             # Chat-specific components
+└── part/             # Tool result renderers
+```
+
+### Part Components
+
+Tool results are rendered by part components in `components/part/`. Each tool has a corresponding component:
+
+```
+components/part/
+├── web-search-part.tsx
+├── code-execution-part.tsx
+├── image-generation-part.tsx
+└── ...
+```
+
+See [Tool Part Pattern](/cookbook/tool-part) for implementation details.
+
+## Library Structure
+
+### AI Integration
+
+```
+lib/ai/
+├── gateways/          # Gateway abstraction
+│   ├── types.ts       # GatewayProvider interface
+│   ├── index.ts       # Gateway registry + getActiveGateway()
+│   ├── vercel-gateway.ts
+│   └── openrouter-gateway.ts
+├── models.ts          # Model fetching and caching
+├── models.generated.ts # Fallback model list
+├── tools/             # Tool definitions
+│   ├── web-search.ts
+│   ├── code-execution.ts
+│   └── ...
+└── prompts/           # System prompts
+```
+
+### Data Layer
+
+```
+lib/
+├── db/
+│   ├── schema.ts      # Drizzle schema
+│   ├── queries.ts     # Database queries (chats, messages, users)
+│   ├── credits.ts     # Credit balance queries
+│   └── client.ts      # Database connection
+└── stores/            # Client state (Zustand)
+```
+
+## Configuration Flow
+
+```
+chat.config.ts        # Define features, models, branding
+       ↓
+lib/config.ts          # Parse defaults and export config
+       ↓
+lib/env.ts             # Validate environment variables
+       ↓
+Runtime                # Features toggle based on config + env
+```
+
+## Data Flow
+
+```
+Client Component
+       ↓
+tRPC Procedure (or Server Action)
+       ↓
+Database Queries (lib/db/)
+       ↓
+Drizzle ORM
+       ↓
+PostgreSQL
+```
+
+## AI Streaming Flow
+
+```
+Client (useChat hook)
+       ↓
+POST /api/chat
+       ↓
+Vercel AI SDK (streamText)
+       ↓
+Gateway Abstraction → Provider (OpenAI, Anthropic, etc.)
+       ↓
+Stream response with tool calls
+       ↓
+Tool execution (if needed)
+       ↓
+Client renders parts
+```

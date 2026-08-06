@@ -1,0 +1,71 @@
+---
+title: Reasoning
+description: Extended thinking for supported models
+---
+
+## Overview
+
+Models that support reasoning can "think" before answering, producing higher-quality responses for complex questions. When a reasoning-capable model is available, ChatJS automatically creates two variants in the model selector so you can toggle reasoning on or off per conversation.
+
+## How it works
+
+### Automatic model splitting
+
+When a model is tagged with `reasoning` by the gateway, ChatJS creates two entries in the model selector:
+
+| Variant | Model ID | Behavior |
+| ------- | -------- | -------- |
+| Reasoning | `openai/gpt-5-reasoning` | Extended thinking enabled |
+| Standard | `openai/gpt-5` | No extended thinking |
+
+Both variants point to the same underlying API model. The `-reasoning` suffix controls whether reasoning options are sent with the request.
+
+### UI
+
+When a model responds with reasoning content, the UI renders a collapsible "Thinking" section above the answer. You can expand it to inspect the model's chain of thought.
+
+While the model is still generating, the reasoning section streams in real time.
+
+### Cross-model compatibility
+
+Reasoning parts are automatically stripped from message history before sending to the LLM. This prevents errors when a user switches between a reasoning and non-reasoning model mid-conversation.
+
+## Supported providers
+
+Each provider activates reasoning differently. ChatJS handles this automatically based on the model's `owned_by` field.
+
+| Provider | Mechanism | Notes |
+| -------- | --------- | ----- |
+| OpenAI | `reasoningSummary` provider option | gpt-5 family uses `reasoningEffort: "low"` |
+| Anthropic | `thinking` provider option | Budget of 4096 tokens |
+| Google | `thinkingConfig` provider option | Budget of 10,000 tokens |
+| xAI | `extractReasoningMiddleware` | Parses `<think>` tags from the response |
+
+## Customization
+
+### Adjusting reasoning budgets
+
+Modify the token budgets in `lib/ai/providers.ts` inside the `getModelProviderOptions` function:
+
+```ts
+// Anthropic thinking budget
+anthropic: {
+  thinking: {
+    type: "enabled",
+    budgetTokens: 4096, // Increase for deeper reasoning
+  },
+}
+
+// Google thinking budget
+google: {
+  thinkingConfig: {
+    thinkingBudget: 10_000, // Increase for deeper reasoning
+  },
+}
+```
+
+### Disabling reasoning variants
+
+To hide reasoning variants for a specific model, add the base model ID to `disabledModels` in `chat.config.ts`. The reasoning variant is derived from the base model, so disabling the base model removes both variants.
+
+To disable reasoning globally, you would need to modify `buildAppModels` in `lib/ai/app-models.ts` to skip the reasoning branch.

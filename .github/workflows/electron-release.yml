@@ -1,0 +1,177 @@
+name: Publish Desktop Artifacts
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/electron/package.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  prepare:
+    name: Prepare desktop artifact publish
+    runs-on: ubuntu-22.04
+    outputs:
+      should_release: ${{ steps.versions.outputs.should_release }}
+      tag: ${{ steps.versions.outputs.tag }}
+      version: ${{ steps.versions.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: versions
+        name: Determine release version
+        shell: bash
+        run: |
+          VERSION=$(python3 - <<'PY'
+          import json
+          with open("apps/electron/package.json") as f:
+              print(json.load(f)["version"])
+          PY
+          )
+
+          SHOULD_RELEASE=true
+
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            PREVIOUS_VERSION=$(python3 - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          try:
+              raw = subprocess.check_output(
+                  ["git", "show", "${{ github.event.before }}:apps/electron/package.json"],
+                  text=True,
+                  stderr=subprocess.DEVNULL,
+              )
+          except subprocess.CalledProcessError:
+              print("")
+              sys.exit(0)
+
+          print(json.loads(raw)["version"])
+          PY
+            )
+
+            if [ -n "$PREVIOUS_VERSION" ] && [ "$PREVIOUS_VERSION" = "$VERSION" ]; then
+              SHOULD_RELEASE=false
+            fi
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=@chat-js/electron@$VERSION" >> "$GITHUB_OUTPUT"
+          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS
+            os: macos-latest
+            platform: darwin
+            arch: universal
+          - label: Windows
+            os: windows-latest
+            platform: win32
+            arch: x64
+          - label: Linux
+            os: ubuntu-22.04
+            platform: linux
+            arch: x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - run: bun install --frozen-lockfile
+
+      - name: Install Linux packaging dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot rpm
+
+      - name: Build Forge distributables
+        working-directory: apps/electron
+        run: bun run make -- --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: apps/electron/out/make/**/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish desktop artifacts
+    permissions:
+      contents: write
+    needs: [prepare, build]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/electron-release-assets
+
+      - name: Create package release tag and GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          TAG_SHA=$(git rev-list -n 1 "refs/tags/$RELEASE_TAG" 2>/dev/null || true)
+          if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "$RELEASE_TAG already points to $TAG_SHA; refusing to publish assets from $GITHUB_SHA." >&2
+            exit 1
+          fi
+
+          if ! git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
+            git tag "$RELEASE_TAG" "$GITHUB_SHA"
+            git push origin "$RELEASE_TAG"
+          fi
+
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --title "@chat-js/electron $RELEASE_VERSION" \
+              --notes "Desktop artifact release for @chat-js/electron $RELEASE_VERSION." \
+              --target "$GITHUB_SHA"
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          mapfile -t files < <(find /tmp/electron-release-assets -type f)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release assets found."
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber

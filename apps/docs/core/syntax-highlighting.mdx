@@ -1,0 +1,82 @@
+---
+title: "Syntax Highlighting"
+description: "Beautiful code formatting with themes"
+---
+
+ChatJS renders AI responses with full syntax highlighting for code blocks, powered by [Streamdown](https://streamdown.ai).
+
+## How It Works
+
+### Backend: Markdown in Responses
+
+The system prompt instructs models to use markdown formatting, including fenced code blocks:
+
+```typescript title="lib/ai/prompts.ts"
+export const systemPrompt = () => `You are a friendly assistant!
+
+## Your Goals
+- Markdown is supported in the response and you can use it to format the response.
+
+## Content Rules:
+- Use structured answers with markdown format and tables too.
+- If a diagram is needed, return it in a fenced mermaid code block.
+`;
+```
+
+Models return code in standard markdown fenced blocks:
+
+````markdown
+```typescript
+function greet(name: string) {
+  return `Hello, ${name}!`;
+}
+```
+````
+
+### Frontend: Streamdown Rendering
+
+The `Response` component wraps [Streamdown](https://streamdown.ai), a markdown renderer optimized for AI streaming:
+
+```tsx title="components/ai-elements/response.tsx"
+import { Streamdown } from "streamdown";
+
+export const Response = memo(
+  ({ className, ...props }: ResponseProps) => (
+    <Streamdown
+      className={cn(
+        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        className
+      )}
+      {...props}
+    />
+  )
+);
+```
+
+Streamdown handles:
+
+- **Syntax highlighting** for 100+ languages via [Shiki](https://shiki.style)
+- **Streaming-safe parsing** that doesn't break mid-token
+- **Mermaid diagrams** rendered inline
+- **Math equations** with KaTeX support
+- **Tables, lists, and formatting** with proper styling
+
+## Supported Languages
+
+Streamdown supports all languages supported by Shiki, including:
+
+| Category | Languages |
+|----------|-----------|
+| Web | TypeScript, JavaScript, HTML, CSS, JSON |
+| Backend | Python, Go, Rust, Java, C#, Ruby, PHP |
+| Systems | C, C++, Zig, Assembly |
+| Data | SQL, GraphQL, YAML, TOML |
+| Shell | Bash, PowerShell, Fish |
+| Markup | Markdown, LaTeX, XML |
+
+## Theming
+
+Syntax highlighting automatically adapts to light/dark mode. The theme is configured in Streamdown and uses VS Code-compatible color schemes.
+
+To customize the code theme, see the [Streamdown documentation](https://streamdown.ai).
+

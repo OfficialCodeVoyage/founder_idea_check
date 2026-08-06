@@ -1,0 +1,36 @@
+---
+title: Evaluations
+description: Test and measure AI agent quality with Evalite
+---
+
+ChatJS uses [Evalite](https://v1.evalite.dev) to evaluate AI agent outputs. Evaluations help you measure response quality, catch regressions, and iterate on prompts with confidence.
+
+## How It Works
+
+Evaluations follow a simple structure:
+
+1. **Data**: Test cases with inputs and expected outputs
+2. **Task**: The AI operation being evaluated
+3. **Scorers**: Functions that grade the output
+
+Results are stored in SQLite and displayed in a web UI.
+
+## Running Evaluations
+
+```bash
+# Watch mode (re-runs on file changes)
+bun eval:dev
+
+# View results UI
+bun eval:serve
+```
+
+## Writing Evaluations
+
+Create files with the `.eval.ts` extension in the `evals/` directory. See existing evals for examples.
+
+Use `runCoreChatAgentEval` from `lib/ai/eval-agent.ts` to wrap the core chat agent for evaluation contexts.
+
+## Custom Scorers
+
+Scorers receive the output, expected value, and input. Return a number between 0 and 1. Evalite also provides built-in scorers like `exactMatch`, `answerCorrectness`, and `answerRelevancy`.

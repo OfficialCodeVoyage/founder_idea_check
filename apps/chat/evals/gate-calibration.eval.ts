@@ -36,7 +36,20 @@ import { type GateFixture, PHASE_ONE_FIXTURES } from "./fixtures/gate-phase-01";
  * numbers come out lenient, the first lever is raising THIS model, not editing
  * prompts.
  *
- * COST: 12 fixtures x 2 runs = 24 judge calls per full run.
+ * COST, measured rather than estimated (see the token totals this eval prints):
+ * 12 fixtures x 2 runs = 24 judge calls = ~90,700 input + ~23,300 output
+ * tokens, i.e. ~3,780 in / ~970 out per gate call. That per-call figure is the
+ * one worth remembering: it is what every assessed founder turn costs.
+ *
+ * RESULTS as of 2026-08-19 on gpt-5.6-terra:
+ *   no bad transcript advances  100%   (4/4 bad BLOCK on both runs)
+ *   exact verdict               100%   (12/12)
+ *   within band                 100%
+ *   deterministic                92%   (11/12)
+ * The single wobble is a GOOD fixture flipping PASS<->WARN between runs, and it
+ * has moved fixture between runs — so it is a rate of about 1 in 12, not one
+ * bad fixture. It has never flipped toward advance on a bad or mediocre
+ * transcript, which is the direction that would matter.
  */
 
 const GATE_MODEL_ID = config.ai.workflows.chat;

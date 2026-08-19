@@ -26,10 +26,51 @@ const LENIENT_SCHEMA_OPTIONS = {
   openai: { strictJsonSchema: false },
 } as const;
 
+/**
+ * What a call actually cost, in tokens. Reported rather than logged so the
+ * caller decides what to do with it.
+ *
+ * WHY THIS EXISTS: this is a BYOK product — the spend is the user's, on their
+ * key, and a gated workflow makes several model calls per turn (one extraction,
+ * one judge) where a chat wrapper makes one. "It felt expensive" is not a bug
+ * report anyone can act on. Step 5's research fan-out additionally needs a
+ * pre-flight budget cap that REFUSES TO START, and a cap needs a meter.
+ */
+export type ModelUsage = {
+  /** Which seam spent it: "phase-gate" or "phase-extract". */
+  functionId: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+};
+
+export type UsageSink = (usage: ModelUsage) => void;
+
+function reportUsage(
+  onUsage: UsageSink | undefined,
+  functionId: string,
+  usage:
+    | {
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+      }
+    | undefined
+): void {
+  onUsage?.({
+    functionId,
+    inputTokens: usage?.inputTokens ?? null,
+    outputTokens: usage?.outputTokens ?? null,
+    totalTokens: usage?.totalTokens ?? null,
+  });
+}
+
 export function createModelGateJudge({
   model,
+  onUsage,
 }: {
   model: LanguageModel;
+  onUsage?: UsageSink;
 }): GateJudge {
   return async ({ system, prompt }) => {
     const response = await generateText({
@@ -40,14 +81,17 @@ export function createModelGateJudge({
       providerOptions: LENIENT_SCHEMA_OPTIONS,
       experimental_telemetry: { isEnabled: true, functionId: "phase-gate" },
     });
+    reportUsage(onUsage, "phase-gate", response.usage);
     return response.output;
   };
 }
 
 export function createModelFactExtractor({
   model,
+  onUsage,
 }: {
   model: LanguageModel;
+  onUsage?: UsageSink;
 }): FactExtractor {
   return async ({ system, prompt }) => {
     const response = await generateText({
@@ -58,6 +102,7 @@ export function createModelFactExtractor({
       providerOptions: LENIENT_SCHEMA_OPTIONS,
       experimental_telemetry: { isEnabled: true, functionId: "phase-extract" },
     });
+    reportUsage(onUsage, "phase-extract", response.usage);
     return response.output;
   };
 }

@@ -3,7 +3,10 @@ import { getLanguageModel } from "@/lib/ai/providers";
 import { config } from "@/lib/config";
 import { PHASE_ONE } from "@/lib/phases/definitions";
 import { evaluateGate } from "@/lib/phases/gate";
-import { createModelGateJudge } from "@/lib/phases/model-adapters";
+import {
+  createModelGateJudge,
+  type ModelUsage,
+} from "@/lib/phases/model-adapters";
 import { loadPersonaPrompt, loadPrompt } from "@/lib/phases/runtime";
 import type { GateDecisionValue } from "@/lib/phases/types";
 import { type GateFixture, PHASE_ONE_FIXTURES } from "./fixtures/gate-phase-01";
@@ -55,11 +58,19 @@ type FixtureResult = {
   /** First run's reason — the sentence that names the rule that fired. */
   reason: string;
   missing: string[];
+  /** Tokens this fixture cost across all of its runs. BYOK: the spend is the
+   *  user's, and "is the gate worth what it costs" needs a meter to answer. */
+  inputTokens: number;
+  outputTokens: number;
 };
 
 async function runFixture(fixture: GateFixture): Promise<FixtureResult> {
   const model = await getLanguageModel(GATE_MODEL_ID);
-  const judge = createModelGateJudge({ model });
+  const usage: ModelUsage[] = [];
+  const judge = createModelGateJudge({
+    model,
+    onUsage: (u) => usage.push(u),
+  });
   const input = {
     phase: PHASE_ONE,
     personaPrompt: loadPersonaPrompt(),
@@ -95,6 +106,8 @@ async function runFixture(fixture: GateFixture): Promise<FixtureResult> {
     deterministic: new Set(decisions).size === 1,
     reason: firstReason,
     missing: firstMissing,
+    inputTokens: usage.reduce((n, u) => n + (u.inputTokens ?? 0), 0),
+    outputTokens: usage.reduce((n, u) => n + (u.outputTokens ?? 0), 0),
   };
 }
 

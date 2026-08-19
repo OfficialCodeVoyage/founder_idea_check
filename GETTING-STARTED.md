@@ -24,9 +24,17 @@ Both run on **offset ports** so they cannot collide with anything already on 543
 
 ```bash
 docker run -d --name ic-pg    -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres \
-  -e POSTGRES_DB=ideacheck -p 5433:5432 postgres:17-alpine
+  -e POSTGRES_DB=ideacheck -p 5433:5432 pgvector/pgvector:pg17
 docker run -d --name ic-redis -p 6380:6379 redis:7-alpine
 ```
+
+> The Postgres image is `pgvector/pgvector:pg17`, not `postgres:17-alpine`. It is
+> plain Postgres 17 plus the `vector` extension, which `ProjectFact.embedding`
+> needs — on the stock image the first migration fails with
+> `type "vector" does not exist`. Already have an `ic-pg` on the stock image?
+> You can keep your data: `docker rm -f ic-pg`, then re-run the command above
+> adding `-v <your-volume>:/var/lib/postgresql/data`. The data directory is
+> compatible, so nothing is lost.
 
 Already created them once? `docker start ic-pg ic-redis`.
 

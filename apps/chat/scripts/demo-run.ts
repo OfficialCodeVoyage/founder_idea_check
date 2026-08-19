@@ -34,9 +34,47 @@ const { extractFacts, reconcileFacts } = await import("../lib/phases/extract");
 const { createModelGateJudge, createModelFactExtractor } = await import(
   "../lib/phases/model-adapters"
 );
+type ModelUsage = import("../lib/phases/model-adapters").ModelUsage;
 const { readFileSync } = await import("node:fs");
 
 type Turn = { role: "user" | "assistant"; text: string };
+
+/**
+ * Every model call this script makes, metered. This is a BYOK product: the
+ * spend is the user's, and a gated workflow makes two calls per turn (extract,
+ * then judge) where a chat wrapper makes one. Printing the meter is the only
+ * way "is the gate worth what it costs" becomes an answerable question.
+ */
+const USAGE: ModelUsage[] = [];
+const meter = (u: ModelUsage) => USAGE.push(u);
+
+function summariseUsage(label: string) {
+  const byFn = new Map<
+    string,
+    { calls: number; input: number; output: number }
+  >();
+  for (const u of USAGE) {
+    const row = byFn.get(u.functionId) ?? { calls: 0, input: 0, output: 0 };
+    row.calls++;
+    row.input += u.inputTokens ?? 0;
+    row.output += u.outputTokens ?? 0;
+    byFn.set(u.functionId, row);
+  }
+  process.stdout.write(`\n  TOKENS (${label})\n`);
+  let totalIn = 0;
+  let totalOut = 0;
+  for (const [fn, row] of byFn) {
+    process.stdout.write(
+      `    ${fn.padEnd(14)} ${String(row.calls).padStart(3)} calls  in ${row.input.toLocaleString().padStart(8)}  out ${row.output.toLocaleString().padStart(7)}\n`
+    );
+    totalIn += row.input;
+    totalOut += row.output;
+  }
+  process.stdout.write(
+    `    ${"TOTAL".padEnd(14)} ${String(USAGE.length).padStart(3)} calls  in ${totalIn.toLocaleString().padStart(8)}  out ${totalOut.toLocaleString().padStart(7)}\n`
+  );
+  return { totalIn, totalOut, calls: USAGE.length };
+}
 type Fact = { key: string; value: string; confidence: number };
 
 /**
@@ -165,7 +203,10 @@ async function runScenario(name: keyof typeof SCENARIOS) {
   for (const [i, turn] of pairTurns(scenario.turns).entries()) {
     const extracted = await extractFacts(
       {
-        extract: createModelFactExtractor({ model: cheapModel }),
+        extract: createModelFactExtractor({
+          model: cheapModel,
+          onUsage: meter,
+        }),
         onError: (e, stage) => process.stdout.write(`  ! ${stage}: ${e}\n`),
       },
       { phase: PHASE_ONE, personaPrompt, turn, knownFacts: facts }
@@ -193,7 +234,7 @@ async function runScenario(name: keyof typeof SCENARIOS) {
 
   // 2. The gate.
   const verdict = await evaluateGate(
-    { judge: createModelGateJudge({ model: chatModel }) },
+    { judge: createModelGateJudge({ model: chatModel, onUsage: meter }) },
     {
       phase: PHASE_ONE,
       personaPrompt,
@@ -238,6 +279,8 @@ for (const name of names) {
 }
 
 process.stdout.write(`\n${"═".repeat(78)}\nSUMMARY\n`);
+summariseUsage(names.join(" + "));
+process.stdout.write("\n");
 for (const [name, decision] of Object.entries(results)) {
   process.stdout.write(`  ${name.padEnd(8)} → ${decision}\n`);
 }

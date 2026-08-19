@@ -14,6 +14,7 @@ import {
   uniqueIndex,
   uuid,
   varchar,
+  vector,
 } from "drizzle-orm/pg-core";
 import { encryptedJson, encryptedText } from "./encrypted-text";
 
@@ -507,6 +508,32 @@ export const projectFact = pgTable(
       onDelete: "set null",
     }),
     extractedAt: timestamp("extractedAt").notNull().defaultNow(),
+
+    /**
+     * Semantic vector over "key: value", used to choose WHICH earlier facts get
+     * injected into a later phase's prompt. Nullable on purpose: a fact whose
+     * embedding call failed must still be a fact, and the keyword selector
+     * still ranks it. Never let an embedding failure make a fact invisible.
+     *
+     * WIDTH IS A SCHEMA DECISION, not a model one. 1536 = text-embedding-3-small,
+     * and it is the largest width pgvector will actually INDEX — hnsw/ivfflat
+     * cap at 2000 dimensions (verified live against pgvector 0.8.6:
+     * "column cannot have more than 2000 dimensions for hnsw index"). That is
+     * why text-embedding-3-large's native 3072 is not an option; the upgrade
+     * path is 3-large with dimensions:1536, which is a re-embed, not a
+     * migration. See DATA-LAYER.md.
+     */
+    embedding: vector("embedding", { dimensions: 1536 }),
+    /**
+     * WHICH model produced `embedding`, and at what width. Stored per row, not
+     * inferred from config, so that (a) a re-embed after a model change is
+     * incremental — find the rows whose model differs — and (b) a mismatch is
+     * DETECTABLE rather than silently producing meaningless cosine distances
+     * between two different vector spaces.
+     */
+    embeddingModel: varchar("embeddingModel", { length: 128 }),
+    embeddingDims: integer("embeddingDims"),
+    embeddedAt: timestamp("embeddedAt"),
   },
   (t) => ({
     ProjectFact_project_id_idx: index("ProjectFact_project_id_idx").on(
@@ -515,9 +542,28 @@ export const projectFact = pgTable(
     ProjectFact_project_key_unique: uniqueIndex(
       "ProjectFact_project_key_unique"
     ).on(t.projectId, t.key),
+    /**
+     * Cosine, matching the distance function the selector uses. An HNSW index
+     * over a mostly-NULL column is harmless — pgvector skips NULLs — so this is
+     * safe to create before anything is embedded.
+     */
+    ProjectFact_embedding_idx: index("ProjectFact_embedding_idx").using(
+      "hnsw",
+      t.embedding.op("vector_cosine_ops")
+    ),
     confidence_chk: check(
       "ProjectFact_confidence_range",
       sql`${t.confidence} BETWEEN 0 AND 100`
+    ),
+    /**
+     * The vector space is only coherent if every row in it came from the same
+     * model at the same width. This makes "embedding present but unlabelled"
+     * — the state that silently poisons a similarity search — unrepresentable.
+     */
+    embedding_labelled_chk: check(
+      "ProjectFact_embedding_labelled",
+      sql`(${t.embedding} IS NULL) = (${t.embeddingModel} IS NULL)
+          AND (${t.embedding} IS NULL) = (${t.embeddingDims} IS NULL)`
     ),
   })
 );

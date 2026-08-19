@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
+
+/** Hoisted: biome's useTopLevelRegex — recompiling per call in a hot map. */
+const AXIS_PATTERN = /axis-(\d+)/;
+
+import { EMBEDDING_DIMENSIONS } from "../embeddings/text";
 import {
   approxTokenCount,
   buildFactBlock,
   DeterministicFactSelector,
-  EMBEDDING_SELECTOR_NOT_CONFIGURED,
   EmbeddingFactSelector,
   FACT_BLOCK_HEADING,
+  type FactEmbedder,
   type FactSelector,
   pinnedFactKeys,
   renderFactLine,
@@ -402,11 +407,141 @@ describe("the selector seams", () => {
     ]);
   });
 
-  it("EmbeddingFactSelector fails loudly until an embedder is configured", async () => {
-    const selector = new EmbeddingFactSelector();
+  // ───────────────────────────────────────────────────────────────────────────
+  // EmbeddingFactSelector. No network, no key: the embedder is a closure that
+  // returns hand-built vectors, so every property below is exact rather than
+  // "roughly ranks better".
+  // ───────────────────────────────────────────────────────────────────────────
 
-    await expect(selector.select([], OPTS)).rejects.toThrow(
-      EMBEDDING_SELECTOR_NOT_CONFIGURED
-    );
+  /** A unit vector pointing along one axis, at the real column width. */
+  function axis(i: number): number[] {
+    const v = new Array<number>(EMBEDDING_DIMENSIONS).fill(0);
+    v[i] = 1;
+    return v;
+  }
+
+  /** Embeds the query onto axis 0; each fact onto the axis its value names. */
+  function axisEmbedder(): FactEmbedder {
+    return (texts: string[]) =>
+      Promise.resolve(
+        texts.map((text) => {
+          const match = AXIS_PATTERN.exec(text);
+          return axis(match ? Number(match[1]) : 0);
+        })
+      );
+  }
+
+  it("ranks by cosine similarity to the query", async () => {
+    const selector = new EmbeddingFactSelector({ embed: axisEmbedder() });
+    // Same confidence and same timestamp, so relevance is the ONLY difference.
+    const facts = [
+      inert("far_note", 60, MID, "axis-7"),
+      inert("near_note", 60, MID, "axis-0"),
+    ];
+
+    const ranked = await selector.select(facts, OPTS);
+
+    expect(ranked.ranked.map((s) => s.fact.key)).toEqual([
+      "near_note",
+      "far_note",
+    ]);
+    // cos=1 -> 100, cos=0 -> 50 under the (1+cos)/2 map.
+    expect(ranked.ranked[0]?.components.relevance).toBe(100);
+    expect(ranked.ranked[1]?.components.relevance).toBe(50);
+  });
+
+  it("reuses a stored vector instead of re-embedding it", async () => {
+    const seen: string[][] = [];
+    const selector = new EmbeddingFactSelector({
+      embed: (texts) => {
+        seen.push(texts);
+        return Promise.resolve(texts.map(() => axis(0)));
+      },
+    });
+    const warm: StoredFact = {
+      ...inert("warm_note", 60, MID),
+      embedding: axis(0),
+    };
+    const cold = inert("cold_note", 60, MID, "axis-1");
+
+    await selector.select([warm, cold], OPTS);
+
+    // One call, and the warm fact's text is NOT in it.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toHaveLength(2); // the query + the cold fact only
+    expect(seen[0]?.join(" ")).not.toContain("warm note");
+  });
+
+  it("ignores a stored vector of the wrong width rather than trusting it", async () => {
+    const selector = new EmbeddingFactSelector({ embed: axisEmbedder() });
+    const wrongWidth: StoredFact = {
+      ...inert("stale_note", 60, MID, "axis-0"),
+      embedding: [1, 0, 0],
+    };
+
+    const ranked = await selector.select([wrongWidth], OPTS);
+
+    // Re-embedded onto axis 0, so it scores as an exact match rather than 0.
+    expect(ranked.ranked[0]?.components.relevance).toBe(100);
+  });
+
+  it("falls back to the keyword selector when the embedder throws", async () => {
+    const errors: unknown[] = [];
+    const selector = new EmbeddingFactSelector({
+      embed: () => Promise.reject(new Error("provider down")),
+      onFallback: (e) => errors.push(e),
+    });
+    const facts = [inert("alpha_note", 90, MID), inert("zeta_note", 50, MID)];
+
+    const ranked = await selector.select(facts, OPTS);
+
+    // Degraded, never empty — an empty fact block would turn a retrieval
+    // outage into a phase BLOCK the founder cannot clear by answering.
+    expect(ranked.ranked.map((s) => s.fact.key)).toEqual([
+      "alpha_note",
+      "zeta_note",
+    ]);
+    expect(errors).toHaveLength(1);
+  });
+
+  it("falls back when the embedder returns the wrong number of vectors", async () => {
+    const errors: unknown[] = [];
+    const selector = new EmbeddingFactSelector({
+      embed: () => Promise.resolve([axis(0)]),
+      onFallback: (e) => errors.push(e),
+    });
+
+    const ranked = await selector.select([inert("alpha_note", 90, MID)], OPTS);
+
+    expect(ranked.ranked).toHaveLength(1);
+    expect(errors).toHaveLength(1);
+  });
+
+  it("keeps a pinned fact first even when it is semantically distant", async () => {
+    const selector = new EmbeddingFactSelector({ embed: axisEmbedder() });
+    const pinnedKey = [...pinnedFactKeys(PHASE_ONE)][0] as string;
+    const facts = [
+      inert("near_note", 90, MID, "axis-0"),
+      inert(pinnedKey, 10, MID, "axis-9"),
+    ];
+
+    const ranked = await selector.select(facts, OPTS);
+
+    expect(ranked.ranked[0]?.fact.key).toBe(pinnedKey);
+    expect(ranked.ranked[0]?.pinned).toBe(true);
+  });
+
+  it("produces the same SelectedFacts shape as the deterministic selector", async () => {
+    const facts = [inert("alpha_note", 90, MID), inert("zeta_note", 50, MID)];
+    const opts: SelectFactsOptions = { ...OPTS, maxFacts: 1 };
+
+    const embedded = await new EmbeddingFactSelector({
+      embed: axisEmbedder(),
+    }).select(facts, opts);
+    const keyword = new DeterministicFactSelector().select(facts, opts);
+
+    expect(Object.keys(embedded).sort()).toEqual(Object.keys(keyword).sort());
+    expect(embedded.ranked).toHaveLength(1);
+    expect(embedded.omitted).toHaveLength(1);
   });
 });

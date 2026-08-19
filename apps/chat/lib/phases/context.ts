@@ -1,3 +1,9 @@
+import {
+  cosineSimilarity,
+  EMBEDDING_DIMENSIONS,
+  factEmbeddingText,
+  similarityToScore,
+} from "../embeddings/text";
 import { renderFacts, renderTranscript } from "./gate";
 import type {
   ExitCriterion,
@@ -46,6 +52,13 @@ export type StoredFact = {
   updatedAt: Date;
   /** Phase that last wrote the fact. Provenance; not scored today. */
   phaseKey: string;
+  /**
+   * ProjectFact.embedding, when the row has one. Optional and nullable: a fact
+   * whose embedding call failed is still a fact, and the keyword selector still
+   * ranks it. EmbeddingFactSelector embeds only the facts missing a vector, so
+   * a warm store costs one embedding call for the query and nothing else.
+   */
+  embedding?: number[] | null;
 };
 
 export function toKnownFact(fact: StoredFact): KnownFact {
@@ -427,32 +440,174 @@ export const deterministicFactSelector: FactSelector =
   new DeterministicFactSelector();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The embedding seam. Interface only — no pgvector column, no model, in this
-// lane.
+// The embedding selector. Same seam, same output shape, same weights — the ONE
+// thing it changes is how the `relevance` component is computed: cosine
+// similarity in the embedding space instead of keyword overlap.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** What a real embedding selector would need injected. Nothing calls it yet. */
+/** Order-preserving batch embedder. One call per select(), not one per fact. */
 export type FactEmbedder = (texts: string[]) => Promise<number[][]>;
 
-export const EMBEDDING_SELECTOR_NOT_CONFIGURED =
-  "EmbeddingFactSelector is not configured: no embedding model is wired up. Use selectFacts / deterministicFactSelector, which needs no API key.";
+export type EmbeddingSelectorDeps = {
+  embed: FactEmbedder;
+  /**
+   * Where to go when embedding is unavailable or fails. Defaults to the
+   * keyword selector, which needs no key and no network.
+   */
+  fallback?: FactSelector;
+  /** Observability sink. A silent fallback is how "retrieval got worse and
+   * nobody noticed" happens — the caller wires this to the module logger. */
+  onFallback?: (error: unknown) => void;
+};
 
 /**
- * THE STUB. Implements AsyncFactSelector so a real embedding-backed ranker
- * replaces it without touching a single call site; until one exists it fails
- * loudly rather than silently returning an unranked list.
+ * The query, as text rather than tokens. Same two signals buildQueryTerms uses
+ * — what this phase must certify, and what this turn is about — because the
+ * two selectors must be answering the same question. If they diverge, swapping
+ * selectors silently changes what "relevant" means.
  *
- * Deliberately NOT wired into anything. Semantic retrieval needs an embedding
- * column (pgvector) that this lane does not add, and the fallback for "no
- * embedder" must never be "no facts".
+ * The latest message is repeated so it carries roughly the double weight it has
+ * in the keyword selector (QUERY_WEIGHT_MESSAGE vs QUERY_WEIGHT_CRITERIA).
+ * Repetition is a blunt instrument, but it is the only weighting a single
+ * embedding of a single string admits.
+ */
+export function buildQueryText(opts: SelectFactsOptions): string {
+  const parts = opts.phase.exitCriteria.map(criterionText);
+  const message = opts.latestUserMessage?.trim();
+  if (message) {
+    parts.push(message, message);
+  }
+  return parts.join("\n");
+}
+
+/**
+ * THE EMBEDDING SELECTOR.
+ *
+ * Async because it calls out; otherwise indistinguishable from the default
+ * from a caller's point of view — same inputs, same SelectedFacts, same
+ * pinning, same confidence and recency components, same integer scoring, same
+ * total order. That is what makes it swappable.
+ *
+ * FAILURE POLICY, and it is the important part: any failure — the embedder
+ * throws, returns the wrong number of vectors, returns a mis-sized vector —
+ * falls back to the keyword selector. It NEVER throws and NEVER returns an
+ * empty ranking. "No facts" is the one answer that must never come out of
+ * here: the gate reads the fact block, so an empty block turns a retrieval
+ * outage into a phase BLOCK the founder cannot clear by answering. Same
+ * fail-closed reasoning as decideGate, pointing the other way — here the safe
+ * direction is degrading quality, not withholding evidence.
  */
 export class EmbeddingFactSelector implements AsyncFactSelector {
-  select(
-    _facts: StoredFact[],
-    _opts: SelectFactsOptions
-  ): Promise<SelectedFacts> {
-    return Promise.reject(new Error(EMBEDDING_SELECTOR_NOT_CONFIGURED));
+  private readonly deps: EmbeddingSelectorDeps;
+
+  constructor(deps: EmbeddingSelectorDeps) {
+    this.deps = deps;
   }
+
+  private fallbackTo(
+    facts: StoredFact[],
+    opts: SelectFactsOptions,
+    error: unknown
+  ): SelectedFacts {
+    this.deps.onFallback?.(error);
+    return (this.deps.fallback ?? deterministicFactSelector).select(
+      facts,
+      opts
+    );
+  }
+
+  async select(
+    facts: StoredFact[],
+    opts: SelectFactsOptions
+  ): Promise<SelectedFacts> {
+    const candidates = dedupeByKey(facts);
+    if (candidates.length === 0) {
+      return { ranked: [], omitted: [] };
+    }
+
+    // Only the facts without a stored vector need embedding. A warm store
+    // therefore costs exactly one embedding call — for the query.
+    const needsVector = candidates.filter((f) => !isUsableVector(f.embedding));
+    const queryText = buildQueryText(opts);
+
+    let vectors: number[][];
+    try {
+      vectors = await this.deps.embed([
+        queryText,
+        ...needsVector.map(factEmbeddingText),
+      ]);
+    } catch (error) {
+      return this.fallbackTo(facts, opts, error);
+    }
+
+    if (vectors.length !== needsVector.length + 1) {
+      return this.fallbackTo(
+        facts,
+        opts,
+        new Error(
+          `embedder returned ${vectors.length} vectors for ${needsVector.length + 1} inputs`
+        )
+      );
+    }
+
+    const queryVector = vectors[0] as number[];
+    if (!isUsableVector(queryVector)) {
+      return this.fallbackTo(
+        facts,
+        opts,
+        new Error("embedder returned an unusable query vector")
+      );
+    }
+
+    const freshByKey = new Map<string, number[]>();
+    for (const [i, fact] of needsVector.entries()) {
+      freshByKey.set(fact.key, vectors[i + 1] as number[]);
+    }
+
+    const pinned = pinnedFactKeys(opts.phase);
+    const recency = recencyScores(candidates);
+
+    const scored: ScoredFact[] = candidates.map((fact) => {
+      const vector = isUsableVector(fact.embedding)
+        ? (fact.embedding as number[])
+        : freshByKey.get(fact.key);
+      // A fact with no usable vector scores 0 for relevance rather than being
+      // dropped: it keeps its confidence and recency and can still be pinned.
+      const relevance = isUsableVector(vector)
+        ? similarityToScore(cosineSimilarity(queryVector, vector as number[]))
+        : 0;
+      const recencyScore = recency.get(fact.updatedAt.getTime()) ?? 0;
+      return {
+        fact,
+        pinned: pinned.has(fact.key),
+        components: {
+          relevance,
+          confidence: fact.confidence,
+          recency: recencyScore,
+        },
+        score:
+          WEIGHT_RELEVANCE * relevance +
+          WEIGHT_CONFIDENCE * fact.confidence +
+          WEIGHT_RECENCY * recencyScore,
+      };
+    });
+
+    scored.sort(compareScored);
+
+    const cap = opts.maxFacts ?? 0;
+    if (cap > 0 && scored.length > cap) {
+      return {
+        ranked: scored.slice(0, cap),
+        omitted: scored.slice(cap).map((s) => s.fact.key),
+      };
+    }
+    return { ranked: scored, omitted: [] };
+  }
+}
+
+/** A vector is usable only at exactly the column width. */
+function isUsableVector(vector: number[] | null | undefined): boolean {
+  return Array.isArray(vector) && vector.length === EMBEDDING_DIMENSIONS;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -594,6 +749,27 @@ export function selectAndRenderFacts(
   options: BuildFactBlockOptions = {}
 ): FactBlock {
   return buildFactBlock(selectFacts(facts, opts), budgetTokens, options);
+}
+
+/**
+ * The same thing through an injected AsyncFactSelector, so the caller chooses
+ * semantic or keyword ranking without any other change. Budgeting, rendering
+ * and the pinned-eviction warning are shared verbatim with the sync path —
+ * that is the point: swapping the ranker must not quietly swap the budget
+ * policy too.
+ */
+export async function selectAndRenderFactsWith(
+  selector: AsyncFactSelector,
+  facts: StoredFact[],
+  opts: SelectFactsOptions,
+  budgetTokens: number,
+  options: BuildFactBlockOptions = {}
+): Promise<FactBlock> {
+  return buildFactBlock(
+    await selector.select(facts, opts),
+    budgetTokens,
+    options
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

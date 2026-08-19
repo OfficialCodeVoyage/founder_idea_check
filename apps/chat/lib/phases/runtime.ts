@@ -7,6 +7,7 @@ import type { ChatMessage } from "@/lib/ai/types";
 import { config } from "@/lib/config";
 import {
   activateProjectPhase,
+  backfillFactEmbeddings,
   getProjectFacts,
   getProjectPhases,
   upsertProjectFacts,
@@ -16,12 +17,15 @@ import {
   getAllMessagesByChatId,
   getAllMessagesByProjectId,
 } from "@/lib/db/queries";
+import { getEmbeddingProvider } from "@/lib/embeddings/provider";
 import { createModuleLogger } from "@/lib/logger";
 import { planPhaseAdvance, resolveCurrentPhase } from "./advance";
 import {
   budgetTranscript,
+  EmbeddingFactSelector,
   type StoredFact,
   selectAndRenderFacts,
+  selectAndRenderFactsWith,
 } from "./context";
 import {
   buildPhaseDirective,
@@ -131,6 +135,7 @@ function toStoredFacts(
     confidence: number;
     updatedAt: Date;
     phaseKey: string;
+    embedding?: number[] | null;
   }[]
 ): StoredFact[] {
   return rows.map((r) => ({
@@ -139,6 +144,9 @@ function toStoredFacts(
     confidence: r.confidence,
     updatedAt: r.updatedAt,
     phaseKey: r.phaseKey,
+    // Carried through so the semantic ranker embeds only what is missing. A
+    // warm project therefore costs ONE embedding call per turn — the query.
+    embedding: r.embedding ?? null,
   }));
 }
 
@@ -176,12 +184,39 @@ export async function buildPhaseSystemBlock({
   const { phase } = resolution;
   const row = phaseRows.find((r) => r.phaseKey === phase.key) ?? null;
 
-  const block = selectAndRenderFacts(
-    toStoredFacts(factRows),
-    { phase, latestUserMessage },
-    PHASE_FACT_BUDGET_TOKENS,
-    { countTokens: countTextTokens }
-  );
+  /**
+   * Semantic ranking when an embedding provider is configured, keyword ranking
+   * when it is not. Both are the same seam and produce the same shape, so this
+   * is the only line that knows which one ran.
+   *
+   * The keyword path is not a degraded mode to be ashamed of — it needs no key
+   * and no network, which is the promise this project makes to self-hosters.
+   * EmbeddingFactSelector falls back to it on ANY failure rather than
+   * returning nothing, because an empty fact block would turn a retrieval
+   * outage into a phase BLOCK the founder cannot clear by answering.
+   */
+  const storedFacts = toStoredFacts(factRows);
+  const selectOpts = { phase, latestUserMessage };
+  const embeddingProvider = getEmbeddingProvider();
+  const block = embeddingProvider
+    ? await selectAndRenderFactsWith(
+        new EmbeddingFactSelector({
+          embed: async (texts) =>
+            (await embeddingProvider.embed(texts)).vectors,
+          onFallback: (error) =>
+            log.error(
+              { error, projectId, phaseKey: phase.key },
+              "fact embedding failed; fell back to keyword ranking"
+            ),
+        }),
+        storedFacts,
+        selectOpts,
+        PHASE_FACT_BUDGET_TOKENS,
+        { countTokens: countTextTokens }
+      )
+    : selectAndRenderFacts(storedFacts, selectOpts, PHASE_FACT_BUDGET_TOKENS, {
+        countTokens: countTextTokens,
+      });
   if (block.droppedPinnedKeys.length > 0) {
     // A fact a BLOCKING criterion names by hand did not fit. The gate will now
     // report a gap for a fact that IS in the store, and the founder cannot
@@ -399,6 +434,32 @@ async function runPhasePass({
       confidence: f.confidence,
     })),
   });
+
+  /**
+   * Embed whatever this turn just wrote, before the NEXT turn needs to rank it.
+   * Incremental — it only touches rows with a missing or wrong-model vector —
+   * so a warm project costs one query. Awaited rather than fired-and-forgotten
+   * because this whole function already runs inside after(), where an
+   * un-awaited promise is simply lost when the invocation is frozen.
+   *
+   * It never throws: a failure here degrades the next turn's ranking to
+   * keyword and is logged, rather than losing a fact or breaking the turn.
+   */
+  const embeddingProvider = getEmbeddingProvider();
+  if (embeddingProvider) {
+    const { embedded } = await backfillFactEmbeddings({
+      projectId,
+      provider: embeddingProvider,
+      onError: (error: unknown) =>
+        log.error(
+          { error, projectId, phaseKey: phase.key },
+          "fact embedding backfill failed; ranking degrades to keyword"
+        ),
+    });
+    if (embedded > 0) {
+      log.debug({ projectId, embedded }, "embedded project facts");
+    }
+  }
 
   const factsAfter = (await getProjectFacts({ projectId })).map((r) => ({
     key: r.key,

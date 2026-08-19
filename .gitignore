@@ -79,3 +79,6 @@ apps/electron/branding.json
 .devtools
 .cursor/hooks/state
 .codex/environments/
+
+# Agent worktrees (ephemeral, each is its own git repo)
+.claude/worktrees/

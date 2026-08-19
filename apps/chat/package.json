@@ -18,6 +18,8 @@
     "check-env:dev": "bun scripts/check-env.ts --dev",
     "db:generate": "drizzle-kit generate",
     "db:seed": "bun scripts/seed-demo.ts",
+    "db:embed": "bun scripts/embed-facts.ts",
+    "db:retrieval-check": "bun scripts/retrieval-check.ts",
     "db:migrate": "export VERCEL_ENV=production && bash scripts/with-db.sh bunx tsx lib/db/migrate.ts",
     "db:backfill-parts": "npx tsx lib/db/backfill-parts.ts",
     "db:studio": "drizzle-kit studio",

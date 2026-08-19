@@ -1,8 +1,11 @@
 import { createCallerFactory, createTRPCRouter } from "@/trpc/init";
+import { canvasRouter } from "./canvas.router";
 import { chatRouter } from "./chat.router";
 import { creditsRouter } from "./credits.router";
 import { documentRouter } from "./document.router";
+import { exportRouter } from "./export.router";
 import { mcpRouter } from "./mcp.router";
+import { personaRouter } from "./persona.router";
 import { phaseRouter } from "./phase.router";
 import { projectRouter } from "./project.router";
 import { settingsRouter } from "./settings.router";
@@ -15,11 +18,14 @@ import { voteRouter } from "./vote.router";
  */
 
 export const appRouter = createTRPCRouter({
+  canvas: canvasRouter,
   chat: chatRouter,
   credits: creditsRouter,
   vote: voteRouter,
   document: documentRouter,
+  export: exportRouter,
   mcp: mcpRouter,
+  persona: personaRouter,
   phase: phaseRouter,
   project: projectRouter,
   settings: settingsRouter,

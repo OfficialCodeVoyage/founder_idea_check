@@ -163,6 +163,11 @@ export async function regeneratePersona(
       artifact,
       userId: input.userId,
       messageId: input.messageId,
+      // Without this the row lands with a NULL projectId and is reachable only
+      // by a documentId nobody can look up — which is the exact problem
+      // Document.projectId was added to solve. The canvas reads personas by
+      // project, so an unscoped write is a persona that silently never appears.
+      projectId: input.projectId,
     });
     return { artifact, version };
   } catch (error) {

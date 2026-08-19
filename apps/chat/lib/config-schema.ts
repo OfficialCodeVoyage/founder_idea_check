@@ -11,7 +11,15 @@ export type { GatewayType } from "@/lib/ai/gateways/registry";
 import { GATEWAY_MODEL_DEFAULTS } from "./ai/gateway-model-defaults";
 import type { ToolName } from "./ai/types";
 
-const DEFAULT_GATEWAY = "vercel" as const satisfies GatewayType;
+/**
+ * The fork's default. Upstream chat-js defaults to "vercel", which needs an
+ * AI_GATEWAY_API_KEY this project does not use — a self-hoster who deletes the
+ * `gateway` line from chat.config.ts would get a config that cannot resolve a
+ * single model, and the error surfaces as a failed chat turn rather than as a
+ * config error. "openai" matches what chat.config.ts actually sets and what
+ * GETTING-STARTED.md documents.
+ */
+const DEFAULT_GATEWAY = "openai" as const satisfies GatewayType;
 
 // Helper to create typed model ID schemas
 const toolName = () => z.custom<ToolName>();

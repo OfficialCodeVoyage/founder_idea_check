@@ -15,12 +15,15 @@ import { useTRPC } from "@/trpc/react";
 const PERCENT = 100;
 
 const DECISION_LABEL = {
+  UNASSESSED: "NOT ASSESSED",
   PASS: "READY",
   WARN: "THIN",
   BLOCK: "BLOCKED",
 } as const;
 
 const DECISION_VARIANT = {
+  /** Neutral outline: "we have not looked yet" is not a failure. */
+  UNASSESSED: "outline",
   PASS: "default",
   WARN: "secondary",
   BLOCK: "destructive",
@@ -73,7 +76,19 @@ export function PhaseRail({
     return null;
   }
 
-  const decision = data.decision ?? "BLOCK";
+  /**
+   * NULL means the gate has never run for this phase — a brand-new project on
+   * turn 1. That is its own state, not a BLOCK.
+   *
+   * Collapsing "not assessed" into "assessed and blocked" is not fail-closed,
+   * it is a lie in the safe direction: the rail opens on a red BLOCKED badge
+   * while prompts/phases/phase-01-problem.md is telling the founder to start by
+   * describing the problem. Two contradictory instructions on turn 1 teach the
+   * founder that the red badge means nothing, which is exactly the credibility
+   * the gate needs to keep. lib/ultraplan/blockers.ts keeps the same
+   * distinction (analyzeBlockers(null) -> "unassessed", zero blockers).
+   */
+  const decision = data.decision ?? "UNASSESSED";
   const gap = data.missing.at(0) ?? "no assessment yet — keep going";
 
   return (

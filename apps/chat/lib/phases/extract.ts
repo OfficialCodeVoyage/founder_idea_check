@@ -104,7 +104,17 @@ export function sanitizeFacts(
     }
   }
 
-  return [...best.values()].sort((a, b) => a.key.localeCompare(b.key));
+  // Code point, NOT localeCompare. localeCompare depends on the host's ICU
+  // locale, so the same facts sort differently on two machines and the prompt
+  // built from them differs byte for byte — which silently breaks prompt
+  // caching and makes an extraction bug unreproducible. context.ts made the
+  // same call deliberately (see compareScored); this is the file that forgot.
+  return [...best.values()].sort((a, b) => {
+    if (a.key < b.key) {
+      return -1;
+    }
+    return a.key > b.key ? 1 : 0;
+  });
 }
 
 export type FactReconciliation = {

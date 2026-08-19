@@ -19,6 +19,26 @@ MODIFICATIONS made by the idea_check contributors:
   - Replaced the sequential deep-research supervisor queue with a bounded
     parallel fan-out.
 --------------------------------------------------------------------------
+AI Elements
+Copyright 2023 Vercel, Inc.
+Licensed under the Apache License, Version 2.0.
+Source: https://github.com/vercel/ai-elements
+Taken at commit 1310612d305d6c2694a920ff87e38a74ec859e61 (2026-03-06) via
+`bunx ai-elements@1.9.0 add`, which emits the files with NO licence or author
+header. This notice replaces the provenance the generator stripped.
+
+Files, and how each differs from upstream:
+  - apps/chat/components/ai-elements/canvas.tsx
+      UNMODIFIED. Byte-identical to packages/elements/src/canvas.tsx.
+  - apps/chat/components/ai-elements/plan.tsx
+  - apps/chat/components/ai-elements/chain-of-thought.tsx
+      MODIFIED by the generator only: the `@repo/shadcn-ui/...` import
+      specifiers were rewritten to this repository's `@/...` aliases. No other
+      line differs from upstream.
+
+Files under apps/chat/components/ai-elements/ that predate this entry arrived
+with the ChatJS fork above and are covered by it.
+--------------------------------------------------------------------------
 Vercel AI Chatbot
 Copyright 2024 Vercel, Inc.
 Licensed under the Apache License, Version 2.0.

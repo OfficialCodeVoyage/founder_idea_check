@@ -63,9 +63,22 @@ Record every `shadcn add` here. Sources in use:
 | shadcn/ui | MIT | https://ui.shadcn.com |
 | AI Elements | Apache-2.0 | https://registry.ai-sdk.dev |
 
-| Component | Registry | Added |
-|---|---|---|
-| _(none added yet)_ | | |
+The AI Elements generator (`bunx ai-elements@latest add …`) strips provenance
+the same way `shadcn add` does — it emits no licence header and no source
+comment — so the rows below are the only record that these files are
+Apache-2.0 code owned by somebody else. `apps/chat/biome.jsonc` excludes
+`components/ai-elements` from linting precisely because these are vendored
+copies, which is also why a formatter will never re-add what the generator
+removed. `NOTICE` carries the matching 4(d) attribution.
+
+| Component | Registry | Licence | Added | Pinned at | Notes |
+|---|---|---|---|---|---|
+| `apps/chat/components/ai-elements/canvas.tsx` | AI Elements | Apache-2.0 | 2026-08-19, `ai-elements@1.9.0` | [`1310612d305d6c2694a920ff87e38a74ec859e61`](https://github.com/vercel/ai-elements) (2026-03-06), `packages/elements/src/canvas.tsx` | **Verbatim** — `diff` against upstream at that SHA is empty. Wraps `@xyflow/react`'s `ReactFlow` with a `Background`. |
+| `apps/chat/components/ai-elements/plan.tsx` | AI Elements | Apache-2.0 | 2026-08-19, `ai-elements@1.9.0` | [`1310612d305d6c2694a920ff87e38a74ec859e61`](https://github.com/vercel/ai-elements) (2026-03-06), `packages/elements/src/plan.tsx` | Upstream **except** the generator's alias rewrite: `@repo/shadcn-ui/components/ui/*` → `@/components/ui/*`, `@repo/shadcn-ui/lib/utils` → `@/lib/utils`. Nothing else differs. |
+| `apps/chat/components/ai-elements/chain-of-thought.tsx` | AI Elements | Apache-2.0 | 2026-08-19, `ai-elements@1.9.0` | [`1310612d305d6c2694a920ff87e38a74ec859e61`](https://github.com/vercel/ai-elements) (2026-03-06), `packages/elements/src/chain-of-thought.tsx` | Same alias rewrite as `plan.tsx`, and nothing else. Pulls `@radix-ui/react-use-controllable-state`, already in the tree. |
+
+Earlier files under `apps/chat/components/ai-elements/` arrived with the ChatJS
+fork and are covered by the "Forked wholesale" row, not by these.
 
 ## Rejected — do not reintroduce
 

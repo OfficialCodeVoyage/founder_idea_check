@@ -4,10 +4,12 @@ import equal from "fast-deep-equal";
 import { File, Loader2, Maximize, Pencil } from "lucide-react";
 import dynamic from "next/dynamic";
 import { type MouseEvent, memo, useCallback, useMemo, useRef } from "react";
+import { PersonaCard } from "@/components/persona/persona-card";
 import { useDocuments } from "@/hooks/chat-sync-hooks";
 import { useArtifact } from "@/hooks/use-artifact";
 import type { ArtifactKind } from "@/lib/artifacts/artifact-kind";
 import type { Document } from "@/lib/db/schema";
+import { parsePersonaArtifact } from "@/lib/personas/artifact";
 import { cn } from "@/lib/utils";
 import type { UIArtifact } from "../artifact-panel";
 import { InlineDocumentSkeleton } from "../document-skeleton";
@@ -300,6 +302,7 @@ const DocumentContent = ({ document }: { document: Document }) => {
     {
       "p-4 sm:px-14 sm:py-16": document.kind === "text",
       "p-0": document.kind === "code",
+      "p-3": document.kind === "persona",
     }
   );
 
@@ -349,8 +352,24 @@ const DocumentContent = ({ document }: { document: Document }) => {
             </div>
           );
         }
-        // No branch for "persona" yet: the fallthrough renders nothing rather
-        // than dumping the JSON envelope at the founder. PersonaCard mounts here.
+        if (document.kind === "persona") {
+          const personaArtifact = parsePersonaArtifact(document.content);
+          // parsePersonaArtifact is FAIL-CLOSED: null for anything that is not
+          // exactly a current-version envelope. Say so, rather than falling
+          // through to the text editor and dumping the raw JSON — a founder
+          // reading `{"artifact":"persona",…}` has no way to tell a schema
+          // mismatch from a bad persona.
+          if (!personaArtifact) {
+            return (
+              <p className="text-muted-foreground text-sm">
+                This persona could not be read. It was written by a different
+                content version, so its relationship to the evidence it claims
+                is unknown.
+              </p>
+            );
+          }
+          return <PersonaCard artifact={personaArtifact} />;
+        }
         return null;
       })()}
     </div>

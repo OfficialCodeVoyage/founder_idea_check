@@ -1,139 +1,98 @@
 "use client";
 
+import {
+  Background,
+  Handle,
+  type Node,
+  type NodeProps,
+  type NodeTypes,
+  Position,
+  ReactFlow,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import type { ReactNode } from "react";
-import { graphBounds, NODE_HEIGHT, NODE_WIDTH } from "@/lib/ultraplan/graph";
-import type {
-  CanvasEdge,
-  CanvasGraph,
-  CanvasNode,
-} from "@/lib/ultraplan/types";
+import { NODE_HEIGHT, NODE_WIDTH } from "@/lib/ultraplan/graph";
+import type { CanvasGraph, CanvasNode } from "@/lib/ultraplan/types";
 import { cn } from "@/lib/utils";
-
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- * THE @xyflow/react SEAM — AND RIGHT NOW, A STUB BEHIND IT.
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * Step 7 specifies `@xyflow/react` + the AI Elements `canvas` component. Neither
- * is installed, and adding them means editing apps/chat/package.json and
- * touching the shared lockfile — out of scope for this change. So this file is
- * the ONE place that knows how nodes get painted, and it currently paints them
- * itself: absolutely positioned cards in the coordinate space graph.ts already
- * computed, with an SVG layer for edges.
- *
- * WHY A SEAM AND NOT A `TODO`: without it, "we cannot install the dep yet"
- * would leak into every component — each node would grow xyflow imports, the
- * graph builder would drift toward xyflow's Node<T> shape, and swapping the
- * renderer later would be a rewrite. With it, the swap is this file plus a
- * nodeTypes map. Everything else consumes CanvasNode / CanvasEdge, which are
- * OUR types, laid out by OUR pure code — the layout, the ids and the statuses
- * are already xyflow-compatible by construction.
- *
- * WHAT THE STUB DOES NOT DO, stated plainly so nobody mistakes it for finished:
- * no panning, no zooming, no dragging, no minimap, no edge routing, no
- * virtualisation. It renders the graph, correctly and deterministically, and
- * nothing more. The exact package.json diff and the exact replacement body are
- * in CANVAS-INTEGRATION-NOTES.md at the repo root.
- */
 
 export type FlowSurfaceProps = {
   graph: CanvasGraph;
-  /**
-   * Node renderer, keyed by the caller. This is the same contract xyflow's
-   * `nodeTypes` map has — one component per node type — so the swap is
-   * mechanical rather than a redesign.
-   */
   renderNode: (node: CanvasNode) => ReactNode;
   className?: string;
 };
 
-/** Edge geometry: leave the source's right edge, enter the target's left edge. */
-function edgeLine(
-  edge: CanvasEdge,
-  positions: Map<string, CanvasNode["position"]>
-) {
-  const source = positions.get(edge.source);
-  const target = positions.get(edge.target);
-  if (!(source && target)) {
-    // buildCanvasGraph() guarantees both endpoints exist — it drops (and
-    // reports) any edge whose endpoints do not resolve. Returning null here
-    // rather than trusting that invariant keeps a bad graph from rendering NaN
-    // coordinates, which browsers turn into an invisible, undebuggable blank.
-    return null;
-  }
-  return {
-    x1: source.x + NODE_WIDTH,
-    y1: source.y + NODE_HEIGHT / 2,
-    x2: target.x,
-    y2: target.y + NODE_HEIGHT / 2,
-  };
+type AdapterData = {
+  node: CanvasNode;
+  render: (node: CanvasNode) => ReactNode;
+};
+
+/**
+ * xyflow 12's `NodeProps` is generic over the NODE, not over the node's data —
+ * `NodeProps<AdapterData>` fails the `NodeType extends Node` constraint. Naming
+ * the node type once here is the whole difference.
+ */
+type AdapterFlowNode = Node<AdapterData, CanvasNode["type"]>;
+
+/**
+ * One adapter component for all four node types: the per-type rendering is
+ * already a switch inside CanvasNodeCard, and xyflow only needs to know where
+ * the handles are.
+ */
+function AdapterNode({ data }: NodeProps<AdapterFlowNode>) {
+  return (
+    <>
+      <Handle position={Position.Left} type="target" />
+      {data.render(data.node)}
+      <Handle position={Position.Right} type="source" />
+    </>
+  );
 }
 
-const EDGE_DASH: Record<CanvasEdge["kind"], string | undefined> = {
-  cites: undefined,
-  "derived-from": undefined,
-  // A `produces` edge describes something that has NOT happened yet — the task
-  // would establish this fact. Dashed, so a plan is never mistaken for a record.
-  produces: "4 4",
-  "depends-on": "2 3",
-};
+// MODULE SCOPE, not inline: xyflow re-instantiates every node when nodeTypes is
+// a new object, which it warns about loudly and which resets node internals.
+const nodeTypes = {
+  fact: AdapterNode,
+  persona: AdapterNode,
+  artifact: AdapterNode,
+  task: AdapterNode,
+} as NodeTypes;
 
 export function FlowSurface({
   graph,
   renderNode,
   className,
 }: FlowSurfaceProps) {
-  const bounds = graphBounds(graph);
-  const positions = new Map(graph.nodes.map((n) => [n.id, n.position]));
-
   return (
-    <div className={cn("relative overflow-auto", className)}>
-      <div
-        className="relative"
-        style={{
-          width: Math.max(bounds.width, 1),
-          height: Math.max(bounds.height, 1),
-        }}
+    // xyflow measures its container: it needs an explicit height, not just flex-1.
+    <div className={cn("relative h-full min-h-64", className)}>
+      <ReactFlow
+        edges={graph.edges.map((edge) => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          // A `produces` edge describes work that has not happened yet.
+          animated: edge.kind === "produces",
+        }))}
+        fitView
+        nodes={graph.nodes.map((node) => ({
+          id: node.id,
+          type: node.type,
+          position: node.position,
+          data: { node, render: renderNode },
+          // The SAME constants buildCanvasGraph() laid the positions out with.
+          // xyflow sizes a custom node to its content unless told otherwise,
+          // and content-sized cards would drift out of a grid whose lane and
+          // row pitch were computed for 280x112 — a long fact value alone would
+          // push one card across the next lane. Read from lib/ultraplan/graph
+          // rather than retyped, so the two cannot disagree.
+          style: { width: NODE_WIDTH, height: NODE_HEIGHT },
+        }))}
+        nodesConnectable={false}
+        nodeTypes={nodeTypes}
+        proOptions={{ hideAttribution: false }}
       >
-        <svg
-          className="pointer-events-none absolute inset-0 text-border"
-          height={bounds.height}
-          width={bounds.width}
-        >
-          <title>Relationships between the items on this canvas</title>
-          {graph.edges.map((edge) => {
-            const line = edgeLine(edge, positions);
-            if (!line) {
-              return null;
-            }
-            return (
-              <line
-                key={edge.id}
-                stroke="currentColor"
-                strokeDasharray={EDGE_DASH[edge.kind]}
-                strokeWidth={1.5}
-                x1={line.x1}
-                x2={line.x2}
-                y1={line.y1}
-                y2={line.y2}
-              />
-            );
-          })}
-        </svg>
-        {graph.nodes.map((node) => (
-          <div
-            className="absolute"
-            key={node.id}
-            style={{
-              left: node.position.x,
-              top: node.position.y,
-              width: NODE_WIDTH,
-            }}
-          >
-            {renderNode(node)}
-          </div>
-        ))}
-      </div>
+        <Background />
+      </ReactFlow>
     </div>
   );
 }

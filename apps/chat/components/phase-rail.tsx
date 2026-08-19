@@ -1,7 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useEffect, useRef } from "react";
+import { HandoffExportDialog } from "@/components/export/handoff-export-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -121,6 +123,22 @@ export function PhaseRail({
           ) : null}
         </TooltipContent>
       </Tooltip>
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        <Link
+          className="rounded px-2 py-1 hover:bg-accent hover:text-accent-foreground"
+          href={`/project/${projectId}/canvas`}
+        >
+          Canvas
+        </Link>
+        {/*
+          The export entry point (EXPORT-INTEGRATION-NOTES.md §4d). It sits next
+          to the phase badge on purpose and is NOT conditioned on `decision`,
+          `workflowComplete` or export readiness: a founder who stops at phase 4
+          still walks away with an honest repo, and the documents themselves say
+          what is missing.
+        */}
+        <HandoffExportDialog projectId={projectId} />
+      </div>
     </div>
   );
 }

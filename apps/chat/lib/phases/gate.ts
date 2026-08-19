@@ -339,11 +339,21 @@ export function renderFacts(facts: KnownFact[]): string {
     .join("\n");
 }
 
+/**
+ * What renderTranscript puts BETWEEN two turns. Exported so context.ts can
+ * price a join without hard-coding a copy of it — budgetTranscript's additive
+ * prescan needs the separator's own token cost, and a silent drift between the
+ * two would make the prescan estimate wrong in a way nothing would catch.
+ */
+export const TRANSCRIPT_SEPARATOR = "\n\n";
+
 export function renderTranscript(turns: TranscriptTurn[]): string {
   if (turns.length === 0) {
     return "(no conversation yet)";
   }
-  return turns.map((t) => `${t.role.toUpperCase()}: ${t.text}`).join("\n\n");
+  return turns
+    .map((t) => `${t.role.toUpperCase()}: ${t.text}`)
+    .join(TRANSCRIPT_SEPARATOR);
 }
 
 export type GateJudgeRequest = {

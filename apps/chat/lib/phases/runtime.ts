@@ -19,10 +19,12 @@ import {
 } from "@/lib/db/queries";
 import { getEmbeddingProvider } from "@/lib/embeddings/provider";
 import { createModuleLogger } from "@/lib/logger";
+import { selectActiveThread } from "@/lib/thread-utils";
 import { planPhaseAdvance, resolveCurrentPhase } from "./advance";
 import {
   budgetTranscript,
   EmbeddingFactSelector,
+  GATE_TRANSCRIPT_BUDGET_TOKENS,
   type StoredFact,
   selectAndRenderFacts,
   selectAndRenderFactsWith,
@@ -45,24 +47,48 @@ const log = createModuleLogger("phases:runtime");
 /**
  * How many tokens the fact block may cost, per turn, forever.
  *
- * The persona + phase brief already cost ~2,600 tokens and the base prompt
- * ~250, so this is the third-largest fixed cost of every turn. 900 is roughly
- * 45 fact lines at the shapes phase 1 produces — comfortably more than the 8
- * phases' vocabularies can generate — and it caps a store that would otherwise
- * grow monotonically with no ceiling at all.
+ * MEASURED, not guessed. The previous value (900) was justified as "roughly 45
+ * fact lines … comfortably more than the 8 phases' vocabularies can generate".
+ * Both halves of that were wrong, and measuring says so:
+ *
+ *   - The vocabulary is 66 distinct keys, not ~45. (Union of every phase's
+ *     `factKeys`; `sanitizeFacts` restricts the extractor to them and
+ *     ProjectFact is keyed by (projectId, key), so 66 rows is the hard ceiling
+ *     on the store, not an estimate.)
+ *   - A rendered fact line costs a MEASURED mean of 27.1 tokens (median 27,
+ *     p90 38, max 58) over the 82 human-written fact values in
+ *     evals/fixtures/gate-phase-01.ts — the corpus the gate is calibrated
+ *     against, written to the exact shape the extractor is told to produce.
+ *     900/45 assumed 20.
+ *
+ * So the complete store costs 1,901 tokens, and 900 carried 26 of 66 facts by
+ * the last phase — it silently evicted 61% of everything the first seven
+ * phases established. Divergence begins at phase 4 (34 facts, 991 tokens).
+ *
+ * WHY THAT WAS INVISIBLE: the loud alarm below fires only on droppedPinnedKeys,
+ * and pinned facts always fit (the worst single phase pins 258 tokens' worth).
+ * The facts being evicted were the unpinned ones — which are exactly what the
+ * fact store exists to carry, since the transcript budget drops the old turns
+ * and "the fact store is what carries them forward" is the whole bargain.
+ *
+ * WHY IT MATTERS RATHER THAN JUST COSTS: the judge reads the fact store
+ * UNBUDGETED (runPhasePass passes every row of getProjectFacts to
+ * evaluateGate). Only the assistant's system prompt was budgeted. So the judge
+ * could block citing a fact the assistant was never shown — the same asymmetry
+ * as the transcript window, in the other half of the context.
+ *
+ * 2,400 covers the measured complete store (1,901) with 26% headroom, which is
+ * within a hair of the 2,460 the same 66 keys cost if EVERY value were as long
+ * as the corpus's p90. It is still a cap, and eviction still works — a store
+ * that somehow exceeds it degrades exactly as before, loudly.
  */
-export const PHASE_FACT_BUDGET_TOKENS = 900;
+export const PHASE_FACT_BUDGET_TOKENS = 2400;
 
 /**
- * How many tokens of transcript the gate judge may read.
- *
- * The judge now sees the PROJECT transcript (every chat in the project), which
- * is strictly larger than the chat transcript it used to get, so it needs a
- * ceiling it never had. The oldest turns are the ones dropped, and the fact
- * store is what carries them forward — that is the whole bargain of fact
- * injection.
+ * Re-exported from ./context, which is where it now lives: the number is also
+ * the ASSISTANT's context-window budget (lib/ai/core-chat-agent.ts), and a
+ * pure module is the only place both sides can read it from.
  */
-export const GATE_TRANSCRIPT_BUDGET_TOKENS = 24_000;
 
 /** Provenance comments must never reach the model — they cost ~330 tokens. */
 function stripComments(markdown: string): string {
@@ -121,6 +147,33 @@ function toTranscript(messages: ChatMessage[]): TranscriptTurn[] {
         .trim(),
     }))
     .filter((t) => t.text.length > 0);
+}
+
+/**
+ * The exchange the extractor is meant to learn from: the last user turn and
+ * everything the assistant said in reply to it.
+ *
+ * This used to be `slice(-2)`, which is only "last user + assistant" when each
+ * user turn has exactly one assistant reply. With parallel responses on, one
+ * user message gets N assistant messages, so `slice(-2)` returned TWO ASSISTANT
+ * TURNS AND NO USER TURN — the extractor was shown answers with the question
+ * removed and asked what the founder had established. selectActiveThread now
+ * collapses a parallel group to its primary reply upstream of this, but the
+ * positional assumption was still the bug: anchoring on the last user turn is
+ * true whatever the shape of the tail, including a multi-step reply and an
+ * assistant turn that contributed no text.
+ *
+ * Falls back to the last two turns only when the tail holds no user turn at
+ * all, so a first-turn or resumed-stream edge case still extracts something
+ * rather than nothing.
+ */
+function lastExchange(turns: TranscriptTurn[]): TranscriptTurn[] {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].role === "user") {
+      return turns.slice(i);
+    }
+  }
+  return turns.slice(-2);
 }
 
 /**
@@ -389,7 +442,11 @@ async function runPhasePass({
       "gate transcript trimmed to budget — older turns are carried by the fact store"
     );
   }
-  const chatTranscript = toTranscript(chatMessages);
+  // getAllMessagesByProjectId already returns the live path through each tree.
+  // getAllMessagesByChatId deliberately does NOT — the branch switcher and
+  // getThreadUpToMessageId both need every sibling — so the selection happens
+  // here, at the one consumer that wants judged evidence rather than raw rows.
+  const chatTranscript = toTranscript(selectActiveThread(chatMessages));
   const known = priorRows.map((r) => ({
     key: r.key,
     value: r.value,
@@ -418,7 +475,7 @@ async function runPhasePass({
     {
       phase,
       personaPrompt: loadPersonaPrompt(),
-      turn: chatTranscript.slice(-2),
+      turn: lastExchange(chatTranscript),
       knownFacts: known,
     }
   );

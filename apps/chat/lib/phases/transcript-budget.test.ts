@@ -92,6 +92,49 @@ describe("budgetTranscript", () => {
     expect(a).toEqual(b);
   });
 
+  it("spends the budget it has — a suffix one turn longer must not fit", () => {
+    // The two-phase walk shrinks then grows. This is the property the grow loop
+    // exists for: if the returned suffix could have been one turn longer and
+    // still fitted, the prescan estimate was left un-corrected.
+    const full = approxTokenCount(renderTranscript(TURNS));
+    for (let budget = 0; budget <= full + 5; budget++) {
+      const r = budgetTranscript(TURNS, budget);
+      if (r.omittedTurns === 0) {
+        continue;
+      }
+      const oneMore = TURNS.slice(TURNS.length - r.turns.length - 1);
+      expect(approxTokenCount(renderTranscript(oneMore))).toBeGreaterThan(
+        budget
+      );
+    }
+  });
+
+  it("counts each turn at most a handful of times, not once per kept turn", () => {
+    // Guards the reason the two-phase walk exists at all: the naive version
+    // re-encoded the whole accumulated candidate once per turn, which is
+    // quadratic in the kept text and cost ~1s of blocking CPU inside after()
+    // on a mature project. Character count is a fair proxy for tokenizer work.
+    const many: TranscriptTurn[] = Array.from({ length: 200 }, (_, i) =>
+      turn(
+        i % 2 === 0 ? "user" : "assistant",
+        `turn ${i} ${"word ".repeat(20)}`
+      )
+    );
+    let charsEncoded = 0;
+    const counting = (text: string) => {
+      charsEncoded += text.length;
+      return approxTokenCount(text);
+    };
+    const budget = 2000;
+    const r = budgetTranscript(many, budget, counting);
+    expect(r.turns.length).toBeGreaterThan(5);
+
+    // The naive walk encodes ~kept²/2 turns' worth of text. Anything within a
+    // small constant of the kept transcript's own size is linear behaviour.
+    const keptChars = renderTranscript(r.turns).length;
+    expect(charsEncoded).toBeLessThan(keptChars * 8);
+  });
+
   it("stops at the first turn that does not fit rather than skipping it", () => {
     // A huge turn in the middle must not be leapfrogged: skipping it would hand
     // the judge a conversation that never happened.

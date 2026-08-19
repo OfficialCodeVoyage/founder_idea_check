@@ -20,6 +20,7 @@ import { isSelectedModelValue } from "@/lib/ai/types";
 import { deleteFilesByUrls } from "@/lib/file-storage";
 import { createModuleLogger } from "@/lib/logger";
 import { chatMessageToDbMessage } from "@/lib/message-conversion";
+import { selectActiveThread } from "@/lib/thread-utils";
 
 const logger = createModuleLogger("db:queries");
 
@@ -593,13 +594,27 @@ export async function getAllMessagesByChatId({
 }
 
 /**
- * Every message in every chat that belongs to a project, oldest first.
+ * The project's conversation as it actually HAPPENED, oldest first: every chat
+ * that belongs to the project, reduced to the live path through each chat's
+ * message tree.
  *
  * Exists because the phase gate mixes scopes otherwise: the fact store and the
  * ProjectPhase verdict row are both keyed by projectId, but the judged
  * transcript used to be one chat's. A project with two chats would then let a
  * "hi" in chat B overwrite chat A's PASS through the (projectId, phaseKey)
  * upsert. The verdict is project-scoped, so the evidence must be too.
+ *
+ * ORDERING IS NOT ENOUGH. `createdAt` order flattens a TREE into a line.
+ * Editing a message or regenerating a reply forks a sibling branch and both
+ * branches keep their rows (that is what the branch switcher reads), and
+ * parallel responses put N assistant replies under one user turn. Sorted by
+ * timestamp, all of that arrives at the judge as consecutive real turns — so
+ * the gate could BLOCK on a sentence the founder retracted, or read one
+ * question as having three answers. selectActiveThread applies the same
+ * "newest branch wins, primary parallel wins" rule the UI renders, so the
+ * judge sees what the founder sees. Every consumer of this query (the phase
+ * gate, the persona generator) wants judged evidence, never raw rows; anything
+ * that needs the whole tree uses getAllMessagesByChatId, which is unchanged.
  *
  * The caller budgets the result (lib/phases/context.ts budgetTranscript) —
  * there is deliberately no LIMIT here, because "the newest N rows" would cut
@@ -619,7 +634,9 @@ export async function getAllMessagesByProjectId({
       .where(eq(chat.projectId, projectId))
       .orderBy(asc(message.createdAt));
 
-    return await hydrateMessages(rows.map((r) => r.message));
+    return selectActiveThread(
+      await hydrateMessages(rows.map((r) => r.message))
+    );
   } catch (error) {
     console.error("Failed to get all messages by project ID", error);
     throw error;

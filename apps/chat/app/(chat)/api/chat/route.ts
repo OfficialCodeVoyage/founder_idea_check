@@ -406,6 +406,15 @@ async function createChatStream({
           log.error({ error }, "streamText error");
         },
         onChunk,
+        onContextTrimmed: (omittedMessages) => {
+          // Never silent: this is the one place the assistant is knowingly
+          // shown less than the whole conversation, and the phase gate judges
+          // the whole of it.
+          log.info(
+            { chatId, omittedMessages },
+            "chat context trimmed to budget — older messages are carried by the project fact store"
+          );
+        },
         mcpConnectors,
         costAccumulator,
       });
@@ -786,14 +795,18 @@ async function prepareRequestContext({
     };
   }
 
-  const messageThreadToParent = isAnonymous
+  // The whole branch-correct thread, NOT the last five messages. How much of
+  // it the model actually gets is a token budget decided in one place —
+  // createCoreChatAgent's CHAT_CONTEXT_BUDGET_TOKENS, which is the phase
+  // gate's own transcript budget so the judge can never read more of a
+  // conversation than the assistant was shown. Truncating here as well would
+  // put a second, invisible, message-counted limit underneath it.
+  const previousMessages = isAnonymous
     ? anonymousPreviousMessages
     : await getThreadUpToMessageId(
         chatId,
         userMessage.metadata.parentMessageId
       );
-
-  const previousMessages = messageThreadToParent.slice(-5);
 
   return { previousMessages, error: null };
 }

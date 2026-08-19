@@ -9,6 +9,7 @@ import {
   wrapLanguageModel,
 } from "ai";
 import { getActiveGateway } from "./active-gateway";
+import { anthropicThinkingOptions } from "./anthropic-thinking";
 import type { AppModelId } from "./app-models";
 import { getAppModelDefinition } from "./app-models";
 
@@ -107,14 +108,15 @@ export const getModelProviderOptions = async (
     if (model.reasoning) {
       return {
         anthropic: {
-          // `budgetTokens` is removed on Opus 5 / 4.8 / 4.7, Sonnet 5 and
-          // Fable 5 (HTTP 400) and deprecated on 4.6 — adaptive thinking
-          // replaces it. `display` defaults to "omitted" on those models,
-          // which streams empty reasoning blocks, so ask for summaries.
-          thinking: {
-            type: "adaptive",
-            display: "summarized",
-          },
+          // PER MODEL, not one shape for all of them. `budgetTokens` is removed
+          // on Opus 5 / 4.8 / 4.7, Sonnet 5 and Fable 5 (HTTP 400) and
+          // deprecated on 4.6, where adaptive thinking replaces it — but every
+          // model OLDER than 4.6 is the exact opposite: it has never heard of
+          // "adaptive" and 400s on it. Both are in the catalog and both are
+          // selectable, so the decision is a function of the id.
+          // See lib/ai/anthropic-thinking.ts, which is unit-tested against
+          // every id in ANTHROPIC_MODEL_IDS.
+          thinking: anthropicThinkingOptions(model.apiModelId),
         } satisfies AnthropicProviderOptions,
       };
     }

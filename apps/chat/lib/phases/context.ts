@@ -4,7 +4,7 @@ import {
   factEmbeddingText,
   similarityToScore,
 } from "../embeddings/text";
-import { renderFacts, renderTranscript } from "./gate";
+import { renderFacts, renderTranscript, TRANSCRIPT_SEPARATOR } from "./gate";
 import type {
   ExitCriterion,
   KnownFact,
@@ -797,6 +797,24 @@ export type BudgetedTranscript = {
 };
 
 /**
+ * How many tokens of transcript the gate judge may read.
+ *
+ * The judge sees the PROJECT transcript (every chat in the project), which is
+ * strictly larger than the chat transcript it used to get, so it needs a
+ * ceiling it never had. The oldest turns are the ones dropped, and the fact
+ * store is what carries them forward — that is the whole bargain of fact
+ * injection.
+ *
+ * LIVES HERE, not in runtime.ts, because it is not only the judge's number.
+ * lib/ai/core-chat-agent.ts sizes the ASSISTANT's context window from it too,
+ * and those two must not drift: the moment the judge can read more of a
+ * conversation than the assistant was shown, the gate can BLOCK a phase over
+ * evidence the model never saw. runtime.ts re-exports it so the phase runtime
+ * still reads as one module.
+ */
+export const GATE_TRANSCRIPT_BUDGET_TOKENS = 24_000;
+
+/**
  * PURE. Fits a transcript into a token budget, newest-first, never splitting a
  * turn.
  *
@@ -809,6 +827,32 @@ export type BudgetedTranscript = {
  * from the middle and keeping an older one would hand the judge a conversation
  * that never happened, whereas facts are an unordered set where a hole is only
  * a smaller set.
+ *
+ * COST. The obvious implementation of the above — re-render and re-COUNT the
+ * whole accumulated candidate once per turn — is quadratic in the kept text,
+ * and the counter injected in production is real tiktoken, not the chars/4
+ * heuristic. At the 24,000-token gate budget that is ~n full encodes of up to
+ * 24k tokens each: hundreds of milliseconds to seconds of blocking CPU, per
+ * turn, inside `after()`, where it competes with nothing but still holds the
+ * invocation open.
+ *
+ * So the walk happens in two phases:
+ *
+ *   1. A cheap ADDITIVE prescan, newest-first, that encodes each turn ONCE and
+ *      stops as soon as the running sum passes the budget. It touches only the
+ *      newest ~budget worth of text — never the whole transcript — and it is
+ *      never trusted: a tokenizer is not additive across a join, so this is an
+ *      estimate that merely picks a starting point.
+ *   2. An EXACT correction that measures whole rendered candidates: shrink from
+ *      the old end while over budget, then grow while the next-older turn still
+ *      fits. The grow loop's termination IS the "stops at the first turn that
+ *      does not fit" rule, and the shrink loop is what makes the hard cap true
+ *      for any counter. Both walk one turn at a time, and both normally run
+ *      once or twice because the prescan lands within a couple of tokens.
+ *
+ * Every guarantee is therefore still measured, not inferred: the returned turns
+ * are always a contiguous suffix, byte-identical to their sources, and the
+ * rendered result is always measured to be within budget before it is returned.
  */
 export function budgetTranscript(
   turns: TranscriptTurn[],
@@ -819,15 +863,37 @@ export function budgetTranscript(
     return { turns: [], omittedTurns: 0 };
   }
 
-  const kept: TranscriptTurn[] = [];
+  // Phase 1 — additive prescan. `start` is the index of the oldest turn the
+  // estimate thinks fits; turns.length means "nothing fits yet".
+  const separatorTokens = countTokens(TRANSCRIPT_SEPARATOR);
+  let start = turns.length;
+  let estimate = 0;
   for (let i = turns.length - 1; i >= 0; i--) {
-    const candidate = [turns[i], ...kept];
-    if (countTokens(renderTranscript(candidate)) > budgetTokens) {
+    estimate +=
+      countTokens(renderTranscript([turns[i]])) +
+      (start === turns.length ? 0 : separatorTokens);
+    if (estimate > budgetTokens) {
       break;
     }
-    kept.length = 0;
-    kept.push(...candidate);
+    start = i;
   }
 
-  return { turns: kept, omittedTurns: turns.length - kept.length };
+  // Phase 2 — exact. Shrink first: the estimate can undercount when the
+  // tokenizer merges across the join.
+  while (
+    start < turns.length &&
+    countTokens(renderTranscript(turns.slice(start))) > budgetTokens
+  ) {
+    start++;
+  }
+  // Then grow: the estimate over-counts whenever per-turn encodes double-count
+  // a boundary, and an honest budget spends what it has.
+  while (
+    start > 0 &&
+    countTokens(renderTranscript(turns.slice(start - 1))) <= budgetTokens
+  ) {
+    start--;
+  }
+
+  return { turns: turns.slice(start), omittedTurns: start };
 }

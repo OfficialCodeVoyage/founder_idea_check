@@ -32,6 +32,7 @@
     "db:branch:stop": "bash -c 'N=${1:-dev-local}; bun db:branch:use main && bun db:branch:delete $N' --",
     "db:branch:list": "bunx neonctl branches list",
     "eval:dev": "evalite watch",
+    "eval:gate": "evalite run --noCache evals/gate-calibration.eval.ts",
     "eval:serve": "evalite serve",
     "test": "bun test:e2e && bun test:unit",
     "test:e2e": "export PLAYWRIGHT=True && bunx playwright test --workers=4",

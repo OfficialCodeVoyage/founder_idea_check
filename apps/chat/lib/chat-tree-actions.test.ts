@@ -9,7 +9,7 @@ function message({
   id,
   parentMessageId = null,
   role,
-  selectedModel = "openai/gpt-5-mini",
+  selectedModel = "gpt-5.6-terra",
 }: {
   id: string;
   parentMessageId?: string | null;
@@ -36,7 +36,7 @@ describe("getRetryMessageInput", () => {
       id: "assistant",
       parentMessageId: root.id,
       role: "assistant",
-      selectedModel: "openai/gpt-5-nano",
+      selectedModel: "gpt-5.6-luna",
     });
 
     const result = getRetryMessageInput({
@@ -56,7 +56,7 @@ describe("getRetryMessageInput", () => {
           parallelGroupId: null,
           parallelIndex: null,
           parentMessageId: null,
-          selectedModel: "openai/gpt-5-nano",
+          selectedModel: "gpt-5.6-luna",
         },
       },
     });

@@ -25,17 +25,11 @@ export interface AgentOptions {
 
 export function createTelemetry(
   functionId: string,
-  options: Pick<AgentOptions, "messageId" | "requestId">
+  _options: Pick<AgentOptions, "messageId" | "requestId">
 ) {
-  return {
-    isEnabled: true,
-    functionId,
-    metadata: {
-      messageId: options.messageId,
-      langfuseTraceId: options.requestId,
-      langfuseUpdateParent: false,
-    },
-  };
+  // Telemetry disabled: this fork makes a privacy claim and ships no vendor
+  // telemetry. Re-enable only behind an explicit, self-hosted OTel collector.
+  return { isEnabled: false as const, functionId };
 }
 
 //##################

@@ -32,7 +32,7 @@ function createMessage({
       parallelGroupId,
       parallelIndex,
       isPrimaryParallel: parallelIndex === null ? null : parallelIndex === 0,
-      selectedModel: "openai/gpt-4o-mini",
+      selectedModel: "gpt-5.6-luna",
       activeStreamId,
       selectedTool: undefined,
     },

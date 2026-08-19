@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   cp,
   mkdtemp,
@@ -261,15 +262,29 @@ async function assertSynced(
   return true;
 }
 
+/**
+ * This fork removed apps/electron, so the desktop template has no source to
+ * sync from. Skip it rather than ENOENT — the scaffolding CLI simply ships
+ * without a desktop template. Restore apps/electron to bring it back.
+ */
+const hasElectronSource = existsSync(electronSourceDir);
+
 if (isCheck) {
-  const results = await Promise.all([
-    assertSynced("chat-app", templateDir, copyTemplate),
-    assertSynced("electron", electronTemplateDir, copyElectronTemplate),
-  ]);
+  const checks = [assertSynced("chat-app", templateDir, copyTemplate)];
+  if (hasElectronSource) {
+    checks.push(
+      assertSynced("electron", electronTemplateDir, copyElectronTemplate)
+    );
+  }
+  const results = await Promise.all(checks);
   if (results.some((ok) => !ok)) process.exit(1);
 } else {
   await copyTemplate(templateDir);
   console.log("Synced templates/chat-app from apps/chat.");
-  await copyElectronTemplate(electronTemplateDir);
-  console.log("Synced templates/electron from apps/electron.");
+  if (hasElectronSource) {
+    await copyElectronTemplate(electronTemplateDir);
+    console.log("Synced templates/electron from apps/electron.");
+  } else {
+    console.log("Skipped templates/electron — apps/electron is not present.");
+  }
 }

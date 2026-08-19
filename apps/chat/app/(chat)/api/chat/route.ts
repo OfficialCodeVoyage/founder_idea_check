@@ -58,6 +58,10 @@ import type { McpConnector } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { MAX_INPUT_TOKENS } from "@/lib/limits/tokens";
 import { createModuleLogger } from "@/lib/logger";
+import {
+  buildPhaseSystemBlock,
+  runPostTurnPhasePass,
+} from "@/lib/phases/runtime";
 import type { AnonymousSession } from "@/lib/types/anonymous";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { generateUUID } from "@/lib/utils";
@@ -288,12 +292,23 @@ async function handleUserValidationAndCredits({
   return { isNewChat: validationResult.isNewChat };
 }
 
+/** The plain text of a message, for ranking the fact block against this turn. */
+function messageText(uiMessage: ChatMessage): string {
+  return uiMessage.parts
+    .filter((p) => p.type === "text")
+    .map((p) => (p as { text: string }).text)
+    .join("\n")
+    .trim();
+}
+
 async function getSystemPrompt({
   isAnonymous,
   chatId,
+  userMessage,
 }: {
   isAnonymous: boolean;
   chatId: string;
+  userMessage: ChatMessage;
 }): Promise<string> {
   let system = systemPrompt();
   if (!isAnonymous) {
@@ -303,6 +318,18 @@ async function getSystemPrompt({
       if (project?.instructions) {
         system = `${system}\n\nProject instructions:\n${project.instructions}`;
       }
+      // Phase persona + phase brief + the ranked fact block + the GATE VERDICT
+      // FROM THE PREVIOUS TURN. That last part is the loop: the gate runs in
+      // after(), post-flush, so its verdict cannot reach the turn it judged —
+      // this system prompt is the only place it can land.
+      //
+      // Anonymous chats have no project, so they never enter a phase — that is
+      // the deliberate answer to "what happens to the gate for anonymous users".
+      const phaseBlock = await buildPhaseSystemBlock({
+        projectId: currentChat.projectId,
+        latestUserMessage: messageText(userMessage),
+      });
+      system = `${system}\n\n${phaseBlock}`;
     }
   }
   return system;
@@ -346,7 +373,7 @@ async function createChatStream({
   onChunk?: () => void;
 }) {
   const log = createModuleLogger("api:chat:stream");
-  const system = await getSystemPrompt({ isAnonymous, chatId });
+  const system = await getSystemPrompt({ isAnonymous, chatId, userMessage });
 
   // Create cost accumulator to track all LLM and API costs
   const costAccumulator = new CostAccumulator();
@@ -439,7 +466,7 @@ async function createChatStream({
       }
     },
     generateId: () => messageId,
-    onFinish: async ({ messages }) => {
+    onFinish: async ({ isAborted, messages }) => {
       clearTimeout(timeoutId);
       await finalizeMessageAndCredits({
         messages,
@@ -452,6 +479,29 @@ async function createChatStream({
         parallelIndex,
         isPrimaryParallel,
       });
+
+      // Post-turn phase pass: extract facts, then re-run the gate.
+      // Guards, in order:
+      //  - isAborted: a cancelled turn produced no complete answer to learn from.
+      //  - isAnonymous: no project, so no phase and no fact store.
+      //  - isPrimaryParallel === false: parallel responses fire onFinish more
+      //    than once per user message; only the primary may write facts.
+      // Runs inside `after()` so it never delays the flushed response.
+      if (isAborted || isAnonymous || isPrimaryParallel === false) {
+        return;
+      }
+      const finishedChat = await getChatById({ id: chatId });
+      if (!finishedChat?.projectId) {
+        return;
+      }
+      const phaseProjectId = finishedChat.projectId;
+      after(() =>
+        runPostTurnPhasePass({
+          projectId: phaseProjectId,
+          chatId,
+          assistantMessageId: messageId,
+        })
+      );
     },
     onError: (error) => {
       clearTimeout(timeoutId);

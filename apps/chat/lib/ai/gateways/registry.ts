@@ -1,4 +1,5 @@
 import type { generatedForGateway, models } from "../models.generated";
+import { AnthropicGateway } from "./anthropic-gateway";
 import type { GatewayProvider as GatewayProviderBase } from "./gateway-provider";
 import { LiteLLMGateway } from "./litellm-gateway";
 import { OpenAICompatibleGateway } from "./openai-compatible-gateway";
@@ -8,6 +9,7 @@ import { VercelGateway } from "./vercel-gateway";
 
 export const gatewayRegistry = {
   vercel: () => new VercelGateway(),
+  anthropic: () => new AnthropicGateway(),
   openrouter: () => new OpenRouterGateway(),
   openai: () => new OpenAIGateway(),
   "openai-compatible": () => new OpenAICompatibleGateway(),

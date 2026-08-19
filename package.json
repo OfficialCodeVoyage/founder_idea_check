@@ -10,6 +10,7 @@
 	"scripts": {
 		"worktree-env": "bun .agents/skills/worktree-ports/scripts/worktree-env.ts",
 		"dev": "dotenv -e .env.worktree.local -e .env.local -- bun run worktree-env chat -- turbo run dev --filter=@chatjs/chat",
+		"dev:local": "bash apps/chat/scripts/dev-local.sh",
 		"dev:info": "dotenv -e .env.worktree.local -e .env.local -- bun run worktree-env --info",
 		"dev:docs": "dotenv -e .env.worktree.local -e .env.local -- bun run worktree-env docs -- turbo run dev --filter=@chatjs/docs",
 		"dev:site": "dotenv -e .env.worktree.local -e .env.local -- bun run worktree-env site -- turbo run dev --filter=@chatjs/site",
@@ -28,6 +29,8 @@
 		"chat-js": "bun --filter @chat-js/cli start",
 		"db:generate": "dotenv -e .env.local -- bun --filter=@chatjs/chat run db:generate",
 		"db:migrate": "dotenv -e .env.local -- bun --filter=@chatjs/chat run db:migrate",
+		"db:push": "dotenv -e .env.local -- bun --filter=@chatjs/chat run db:push",
+		"db:seed": "dotenv -e .env.local -- bun --filter=@chatjs/chat run db:seed",
 		"db:branch:start": "dotenv -e .env.local -- bun --filter=@chatjs/chat run db:branch:start",
 		"db:branch:stop": "dotenv -e .env.local -- bun --filter=@chatjs/chat run db:branch:stop",
 		"start:chat": "dotenv -e .env.worktree.local -e .env.local -- bun run worktree-env chat -- bun --filter=@chatjs/chat run start",

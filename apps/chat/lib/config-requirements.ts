@@ -38,6 +38,10 @@ export const gatewayEnvRequirements: Record<GatewayType, EnvRequirement> = {
     options: [["LITELLM_BASE_URL"]],
     description: "LITELLM_BASE_URL",
   },
+  anthropic: {
+    options: [["ANTHROPIC_API_KEY"]],
+    description: "ANTHROPIC_API_KEY",
+  },
 };
 
 export const aiToolEnvRequirements: Partial<

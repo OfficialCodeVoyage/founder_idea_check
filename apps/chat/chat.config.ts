@@ -9,9 +9,9 @@ const isProd = process.env.NODE_ENV === "production";
  * @see https://chatjs.dev/docs/reference/config
  */
 const config = defineConfig({
-  appPrefix: "chatjs",
-  appName: "ChatJS",
-  appTitle: "ChatJS - The prod ready AI chat app",
+  appPrefix: "ideacheck",
+  appName: "idea_check",
+  appTitle: "idea_check - validate your idea before you build it",
   appDescription:
     "Build and deploy AI chat applications in minutes. ChatJS provides authentication, streaming, tool calling, and all the features you need for production-ready AI conversations.",
   appUrl: "https://www.demo.chatjs.dev",
@@ -24,28 +24,11 @@ const config = defineConfig({
   },
   services: {
     hosting: "Vercel",
-    aiProviders: [
-      "OpenAI",
-      "Anthropic",
-      "xAI",
-      "Google",
-      "Meta",
-      "Mistral",
-      "Alibaba",
-      "Amazon",
-      "Cohere",
-      "DeepSeek",
-      "Perplexity",
-      "Vercel",
-      "Inception",
-      "Moonshot",
-      "Morph",
-      "ZAI",
-    ],
+    aiProviders: ["OpenAI"],
     paymentProcessors: [],
   },
   features: {
-    attachments: true, // Requires BLOB_READ_WRITE_TOKEN
+    attachments: false, // needs Vercel Blob; re-enable when storage is wired
     parallelResponses: true,
   },
   legal: {
@@ -63,72 +46,68 @@ const config = defineConfig({
       lastUpdated: "July 24, 2025",
     },
   },
+  // AUTHENTICATION BLOCK ONLY — changed by the key-ready-devx pass.
+  // github was `true` while .env.local held placeholder credentials, so the
+  // login page advertised a "Continue with GitHub" button that redirected to
+  // github.com with a bogus client_id and could never succeed. Local sign-in is
+  // GET /api/dev-login (development only); see GETTING-STARTED.md.
+  // Flip github back to true once you have a real OAuth app + AUTH_GITHUB_ID /
+  // AUTH_GITHUB_SECRET.
   authentication: {
-    google: true, // Requires AUTH_GOOGLE_ID + AUTH_GOOGLE_SECRET
-    github: true, // Requires AUTH_GITHUB_ID + AUTH_GITHUB_SECRET
-    vercel: true, // Requires VERCEL_APP_CLIENT_ID + VERCEL_APP_CLIENT_SECRET
+    google: false,
+    github: false, // Requires a real OAuth app: AUTH_GITHUB_ID + AUTH_GITHUB_SECRET
+    vercel: false,
   },
   desktopApp: {
-    enabled: true,
+    enabled: false, // Electron app removed from this fork
   },
   ai: {
-    gateway: "vercel",
-    providerOrder: [
-      "openai",
-      "anthropic",
-      "google",
-      "xai",
-      "meta",
-      "mistral",
-      "deepseek",
-      "perplexity",
-      "cohere",
-      "alibaba",
-      "amazon",
-      "inception",
-      "moonshot",
-      "morph",
-      "zai",
-    ],
+    // Native Anthropic BYOK: paste ANTHROPIC_API_KEY into .env.local and the
+    // whole app works. Model IDs below are bare Anthropic API IDs.
+    gateway: "openai",
+    providerOrder: ["anthropic"],
     disabledModels: [],
-    anonymousModels: ["openai/gpt-5-nano"],
+    anonymousModels: ["gpt-5.6-luna"],
     workflows: {
-      chatImageCompatible: "openai/gpt-4o-mini",
+      chat: "gpt-5.6-terra",
+      title: "gpt-5.6-luna",
+      pdf: "gpt-5.6-terra",
+      chatImageCompatible: "gpt-5.6-luna",
     },
     tools: {
       webSearch: {
-        enabled: true, // Requires TAVILY_API_KEY or FIRECRAWL_API_KEY
+        enabled: false, // replaced by the Python research sidecar (Step 5)
       },
       urlRetrieval: {
-        enabled: true, // Requires FIRECRAWL_API_KEY
+        enabled: false, // replaced by the Python research sidecar (Step 5)
       },
       codeExecution: {
-        enabled: true, // Vercel-native, no key needed
+        enabled: false, // code sandbox removed from this fork
       },
       mcp: {
-        enabled: true, // Requires MCP_ENCRYPTION_KEY
+        enabled: false, // MCP connectors removed from this fork
       },
       followupSuggestions: {
         enabled: true,
       },
       text: {
-        polish: "openai/gpt-5-mini",
+        polish: "gpt-5.6-luna",
       },
       sheet: {
-        format: "openai/gpt-5-mini",
-        analyze: "openai/gpt-5-mini",
+        format: "gpt-5.6-luna",
+        analyze: "gpt-5.6-luna",
       },
       code: {
-        edits: "openai/gpt-5-mini",
+        edits: "gpt-5.6-luna",
       },
       image: {
-        enabled: true, // Requires BLOB_READ_WRITE_TOKEN
-        default: "google/gemini-3-pro-image",
+        // Anthropic ships no image models, so `default` is not a valid key here.
+        enabled: false, // image generation removed from this fork
       },
       deepResearch: {
-        enabled: true, // Requires webSearch
-        defaultModel: "openai/gpt-5-nano",
-        finalReportModel: "openai/gpt-5-mini",
+        enabled: false, // re-enabled in Step 5 on top of the sidecar
+        defaultModel: "gpt-5.6-luna",
+        finalReportModel: "gpt-5.6-terra",
         allowClarification: true,
         maxResearcherIterations: 1,
         maxConcurrentResearchUnits: 2,

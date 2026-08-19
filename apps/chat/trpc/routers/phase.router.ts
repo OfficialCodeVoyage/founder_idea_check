@@ -1,0 +1,55 @@
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import { getProjectPhases } from "@/lib/db/phase-queries";
+import { getProjectById } from "@/lib/db/queries";
+import { resolveCurrentPhase } from "@/lib/phases/advance";
+import { toPhaseGateState } from "@/lib/phases/directive";
+import { PHASE_COUNT } from "@/lib/phases/types";
+import { createTRPCRouter, protectedProcedure } from "@/trpc/init";
+
+export const phaseRouter = createTRPCRouter({
+  getState: protectedProcedure
+    .input(z.object({ projectId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById({ id: input.projectId });
+      if (!project) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
+      if (project.userId !== ctx.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Project not found",
+        });
+      }
+
+      // Reads the CURRENT phase rather than PHASE_ONE, so the rail follows a
+      // PASS into phase 2. Same pure resolver the system prompt uses, so the
+      // badge and the prompt cannot disagree about which phase this is.
+      const rows = await getProjectPhases({ projectId: input.projectId });
+      const { phase, workflowComplete } = resolveCurrentPhase(
+        rows.map((r) => ({
+          phaseKey: r.phaseKey,
+          status: r.status as "locked" | "active" | "passed",
+        }))
+      );
+      const row = rows.find((r) => r.phaseKey === phase.key) ?? null;
+      // Parsed, not cast: `verdict` is a json column, i.e. genuinely unknown.
+      const state = toPhaseGateState(row);
+
+      return {
+        phaseKey: phase.key,
+        title: phase.title,
+        order: phase.order,
+        total: PHASE_COUNT,
+        status: row?.status ?? "active",
+        workflowComplete,
+        decision: state?.decision ?? null,
+        reason: state?.reason ?? null,
+        nextQuestion: state?.nextQuestion ?? null,
+        missing: state?.missing ?? [],
+      };
+    }),
+});

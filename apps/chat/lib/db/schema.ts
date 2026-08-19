@@ -426,4 +426,102 @@ export const mcpOAuthSession = pgTable(
 
 export type McpOAuthSession = InferSelectModel<typeof mcpOAuthSession>;
 
+/**
+ * Per-project state for one phase of the validation workflow.
+ * One row per (projectId, phaseKey) — the unique index below is what makes
+ * "re-run the gate" an UPDATE rather than an append-only log.
+ */
+export const projectPhase = pgTable(
+  "ProjectPhase",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    projectId: uuid("projectId")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    phaseKey: varchar("phaseKey", { length: 64 }).notNull(),
+    phaseOrder: integer("phaseOrder").notNull(),
+    status: varchar("status", { enum: ["locked", "active", "passed"] })
+      .notNull()
+      .default("active"),
+    /** Last gate verdict. NULL means the gate has never run for this phase. */
+    decision: varchar("decision", { enum: ["PASS", "WARN", "BLOCK"] }),
+    /** Deterministic one-line rationale built by decideGate(). */
+    reason: text("reason"),
+    /** The single question the founder should answer next; NULL on PASS. */
+    nextQuestion: text("nextQuestion"),
+    /** Full GateVerdict blob (perCriterion + missing), for the rail tooltip. */
+    verdict: json("verdict"),
+    /** How many times the gate has run for this phase (retry budget). */
+    attemptCount: integer("attemptCount").notNull().default(0),
+    evaluatedAt: timestamp("evaluatedAt"),
+  },
+  (t) => ({
+    ProjectPhase_project_id_idx: index("ProjectPhase_project_id_idx").on(
+      t.projectId
+    ),
+    ProjectPhase_project_phase_unique: uniqueIndex(
+      "ProjectPhase_project_phase_unique"
+    ).on(t.projectId, t.phaseKey),
+  })
+);
+
+export type ProjectPhase = InferSelectModel<typeof projectPhase>;
+
+/**
+ * The project fact store. Written by the post-turn extraction pass, read back
+ * into the system prompt of later phases.
+ *
+ * The unique index is (projectId, key) and deliberately does NOT include
+ * phaseKey. A fact is identified by WHAT it says about the project, not by
+ * where it was learned — so when a later phase revises `target_user`, the
+ * phase-1 row is UPDATED, not shadowed by a duplicate. `phaseKey` is
+ * provenance (which phase last wrote it), never identity. That is what makes
+ * onConflictDoUpdate({ target: [projectId, key] }) the whole of the
+ * insert-vs-update logic on the SQL side.
+ */
+export const projectFact = pgTable(
+  "ProjectFact",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    projectId: uuid("projectId")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    /** Phase that last wrote this fact — provenance, not identity. */
+    phaseKey: varchar("phaseKey", { length: 64 }).notNull(),
+    key: varchar("key", { length: 128 }).notNull(),
+    value: text("value").notNull(),
+    /** 0-100 integer. Integer, not float, so equality/ordering are exact. */
+    confidence: integer("confidence").notNull().default(50),
+    /** The assistant message the fact came from. Survives its deletion. */
+    sourceMessageId: uuid("sourceMessageId").references(() => message.id, {
+      onDelete: "set null",
+    }),
+    extractedAt: timestamp("extractedAt").notNull().defaultNow(),
+  },
+  (t) => ({
+    ProjectFact_project_id_idx: index("ProjectFact_project_id_idx").on(
+      t.projectId
+    ),
+    ProjectFact_project_key_unique: uniqueIndex(
+      "ProjectFact_project_key_unique"
+    ).on(t.projectId, t.key),
+    confidence_chk: check(
+      "ProjectFact_confidence_range",
+      sql`${t.confidence} BETWEEN 0 AND 100`
+    ),
+  })
+);
+
+export type ProjectFact = InferSelectModel<typeof projectFact>;
+
 export const schema = { user, session, account, verification };

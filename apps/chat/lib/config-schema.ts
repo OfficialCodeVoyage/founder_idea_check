@@ -164,6 +164,7 @@ const gatewaySchemaMap: {
   openai: createAiSchema("openai"),
   "openai-compatible": createAiSchema("openai-compatible"),
   litellm: createAiSchema("litellm"),
+  anthropic: createAiSchema("anthropic"),
 };
 
 export const aiConfigSchema = z
@@ -173,6 +174,7 @@ export const aiConfigSchema = z
     gatewaySchemaMap.openai,
     gatewaySchemaMap["openai-compatible"],
     gatewaySchemaMap.litellm,
+    gatewaySchemaMap.anthropic,
   ])
   .default({
     gateway: DEFAULT_GATEWAY,

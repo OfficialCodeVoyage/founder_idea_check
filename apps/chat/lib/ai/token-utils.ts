@@ -5,6 +5,19 @@ import { RecursiveCharacterTextSplitter } from "./text-splitter";
 const MinChunkSize = 140;
 const encoder = getEncoding("o200k_base");
 
+/**
+ * Token count of a bare string, with no message-envelope overhead.
+ *
+ * calculateMessagesTokens() adds the role tokens and a +5 structural overhead
+ * per message, which is wrong for counting a prompt fragment such as a fact
+ * line. lib/phases/context.ts takes a TokenCounter seam whose default is the
+ * repo's chars/4 heuristic; this is the real counter that lib/phases/runtime.ts
+ * injects in production.
+ */
+export function countTextTokens(text: string): number {
+  return encoder.encode(text).length;
+}
+
 // Calculate total tokens from messages
 export function calculateMessagesTokens(messages: ModelMessage[]): number {
   let totalTokens = 0;
@@ -236,7 +249,23 @@ function truncateLastMessageIfNeeded(
   }
 }
 
-// Truncate messages array to fit within token limit
+/**
+ * Truncate messages array to fit within token limit.
+ *
+ * ISSUE #189 NOTE. This drops the OLDEST turns and tells nobody, which is fine
+ * for the deep-research pipeline (its callers build a fresh single-message array
+ * per call, so nothing durable is lost) but is the wrong shape for a long
+ * founder conversation: the phase gate is supposed to check the newest answers
+ * against the earliest ones, and a silent drop makes an inconsistency
+ * unfindable.
+ *
+ * The phase workflow answers that a different way — see lib/phases/context.ts.
+ * Durable conclusions are extracted into the project fact store and re-injected
+ * into the system prompt every turn, ranked and fitted to an explicit budget, so
+ * state survives the truncation instead of racing it. When something IS dropped
+ * the caller is told (droppedKeys / omittedTurns) rather than left to guess.
+ * Prefer that approach over widening this function.
+ */
 export function truncateMessages(
   messages: ModelMessage[],
   maxTokens: number,

@@ -28,13 +28,26 @@ import {
   type StorageEnvironmentVariable,
 } from "../lib/storage-provider-metadata";
 
+// apps/chat has no .env.local of its own — the real one lives at the repo root.
+// Load it first so this script sees the same environment the dev server does.
+loadEnvConfig({ path: path.resolve(process.cwd(), "../../.env.local") });
 loadEnvConfig({ path: ".env.local" });
 loadEnvConfig();
+
+/**
+ * `--dev` downgrades every validation failure to a warning. `bun run dev:local`
+ * passes it so the app still boots with no AI provider key and no OAuth app at
+ * all; `prebuild` does not, so production builds stay strict.
+ */
+const isDevMode = process.argv.includes("--dev");
 
 interface ValidationError {
   feature: string;
   missing: string[];
 }
+
+/** Non-fatal notices collected during validation and printed at the end. */
+const authWarnings: string[] = [];
 
 type StaticToolEnvVar = {
   description?: string;
@@ -335,10 +348,19 @@ function validateAuthentication(env: NodeJS.ProcessEnv): ValidationError[] {
   });
 
   if (!hasAuth) {
-    errors.push({
+    // Outside production this is not fatal: development has GET /api/dev-login
+    // and dev email+password sign-in, neither of which needs an OAuth app.
+    const message = {
       feature: "authentication",
       missing: ["At least one auth provider must be enabled and configured"],
-    });
+    };
+    if (isProductionEnvironment(env)) {
+      errors.push(message);
+    } else {
+      authWarnings.push(
+        "No social auth provider is enabled in chat.config.ts. In development, sign in at /api/dev-login (see GETTING-STARTED.md)."
+      );
+    }
   }
 
   return errors;
@@ -390,9 +412,12 @@ async function validateInstalledTools(
   return errors;
 }
 
+function isProductionEnvironment(env: NodeJS.ProcessEnv): boolean {
+  return env.NODE_ENV === "production" || env.VERCEL === "1";
+}
+
 function validateBaseUrl(env: NodeJS.ProcessEnv): ValidationError | null {
-  const isProduction = env.NODE_ENV === "production" || env.VERCEL === "1";
-  if (!isProduction) {
+  if (!isProductionEnvironment(env)) {
     return null;
   }
 
@@ -445,10 +470,20 @@ async function checkEnv(): Promise<void> {
       .map((e) => `  - ${e.feature}: ${e.missing.join(", ")}`)
       .join("\n");
 
-    console.error(
-      `❌ Environment validation failed:\n${message}\n\nEither set the env vars or disable the feature in chat.config.ts`
-    );
-    process.exit(1);
+    if (isDevMode) {
+      console.warn(
+        `⚠️  Environment validation found gaps (continuing — --dev):\n${message}\n\nThe app boots; features needing these vars stay unavailable until you set them.`
+      );
+    } else {
+      console.error(
+        `❌ Environment validation failed:\n${message}\n\nEither set the env vars or disable the feature in chat.config.ts`
+      );
+      process.exit(1);
+    }
+  }
+
+  for (const warning of authWarnings) {
+    console.warn(`⚠️  ${warning}`);
   }
 
   const snapshotWarning = checkGatewaySnapshot();
@@ -456,7 +491,11 @@ async function checkEnv(): Promise<void> {
     console.warn(`⚠️  ${snapshotWarning}`);
   }
 
-  console.log("✅ Environment validation passed");
+  console.log(
+    errors.length > 0
+      ? "✅ Environment validation finished with warnings"
+      : "✅ Environment validation passed"
+  );
 }
 
 checkEnv().catch((error) => {

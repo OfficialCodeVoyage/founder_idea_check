@@ -12,7 +12,10 @@
       "!components/streamdown",
       "!components/stick-to-bottom",
       "!lib/utils.ts",
-      "!hooks/use-mobile.ts"
+      "!hooks/use-mobile.ts",
+      /* drizzle-kit regenerates these on every `db:generate`; formatting them
+         is a losing battle and the diff noise hides real migration changes. */
+      "!lib/db/migrations/meta"
     ]
   },
   "linter": {

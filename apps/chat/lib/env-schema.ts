@@ -76,6 +76,15 @@ export const serverEnvSchema = {
     .optional()
     .describe("API key for OpenAI-compatible provider"),
   OPENAI_API_KEY: z.string().optional().describe("OpenAI API key"),
+  ANTHROPIC_API_KEY: z
+    .string()
+    .optional()
+    .describe('Anthropic API key (gateway: "anthropic")'),
+  ANTHROPIC_BASE_URL: z
+    .string()
+    .url()
+    .optional()
+    .describe("Override the Anthropic API base URL (proxies, gateways)"),
   LITELLM_BASE_URL: z
     .string()
     .url()

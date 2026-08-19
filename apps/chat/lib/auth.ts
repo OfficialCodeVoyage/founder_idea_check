@@ -25,6 +25,21 @@ const baseUrl =
   env.APP_URL ||
   (process.env.VERCEL_ENV === "production" ? config.appUrl : getBaseUrl());
 
+/**
+ * The committed `.env.local` ships placeholder OAuth values so the env
+ * validator passes and the app boots. Registering a provider with them yields a
+ * sign-in button that can never succeed (the OAuth host rejects the client_id),
+ * so treat a placeholder exactly like an unset variable.
+ */
+const PLACEHOLDER_CREDENTIAL_PATTERN = /^(?:placeholder|changeme|your[-_])/i;
+
+function readOAuthCredential(value: string | undefined): string | undefined {
+  if (typeof value !== "string" || value.length === 0) {
+    return;
+  }
+  return PLACEHOLDER_CREDENTIAL_PATTERN.test(value) ? undefined : value;
+}
+
 export const auth = betterAuth({
   baseURL: baseUrl,
   database: drizzleAdapter(db, {
@@ -48,12 +63,12 @@ export const auth = betterAuth({
   },
 
   socialProviders: (() => {
-    const googleId = env.AUTH_GOOGLE_ID;
-    const googleSecret = env.AUTH_GOOGLE_SECRET;
-    const githubId = env.AUTH_GITHUB_ID;
-    const githubSecret = env.AUTH_GITHUB_SECRET;
-    const vercelId = env.VERCEL_APP_CLIENT_ID;
-    const vercelSecret = env.VERCEL_APP_CLIENT_SECRET;
+    const googleId = readOAuthCredential(env.AUTH_GOOGLE_ID);
+    const googleSecret = readOAuthCredential(env.AUTH_GOOGLE_SECRET);
+    const githubId = readOAuthCredential(env.AUTH_GITHUB_ID);
+    const githubSecret = readOAuthCredential(env.AUTH_GITHUB_SECRET);
+    const vercelId = readOAuthCredential(env.VERCEL_APP_CLIENT_ID);
+    const vercelSecret = readOAuthCredential(env.VERCEL_APP_CLIENT_SECRET);
 
     const google =
       typeof googleId === "string" &&

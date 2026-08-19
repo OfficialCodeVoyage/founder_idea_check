@@ -1,5 +1,27 @@
+idea_check (working title)
+Copyright 2026 idea_check contributors
+
+This product includes software developed by third parties, retained here in
+accordance with Apache License 2.0 section 4(d). Do not remove these notices.
+
+--------------------------------------------------------------------------
 ChatJS
 Copyright 2025 Francisco Moretti
+Licensed under the Apache License, Version 2.0.
+Source: https://github.com/FranciscoMoretti/chat-js
+Forked at commit 14113a98c2e3b7675562945ae8acf6a9e15d06be (2026-08-06).
 
-Portions of this software are derived from Vercel AI Chatbot.
+MODIFICATIONS made by the idea_check contributors:
+  - Removed the Electron desktop application, marketing site, and docs site.
+  - Removed all vendor telemetry (Langfuse, OpenTelemetry exporters).
+    `createTelemetry` is now a no-op and `instrumentation.ts` registers nothing.
+  - Added a gated, phase-based product-validation engine and project fact store.
+  - Replaced the sequential deep-research supervisor queue with a bounded
+    parallel fan-out.
+--------------------------------------------------------------------------
+Vercel AI Chatbot
 Copyright 2024 Vercel, Inc.
+Licensed under the Apache License, Version 2.0.
+Source: https://github.com/vercel/chatbot
+Portions of ChatJS (and therefore of this software) derive from it.
+--------------------------------------------------------------------------

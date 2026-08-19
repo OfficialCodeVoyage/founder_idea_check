@@ -100,6 +100,14 @@ async function compressResearch(
   const contextWindow = await getModelContextWindow(
     config.compression_model as ModelId
   );
+  // ISSUE #189: this is the only truncateMessages call site with real history,
+  // and it drops the oldest turns silently. Left as-is deliberately — a research
+  // loop is stateless between runs, so nothing durable is lost here. The phase
+  // workflow solves the same problem the other way: lib/phases/extract.ts
+  // distils turns into project facts and lib/phases/context.ts re-injects them,
+  // ranked and budgeted, into every system prompt, so state survives truncation
+  // instead of being raced by it. Use that pattern if this loop ever needs to
+  // remember something across calls.
   const truncatedMessages = truncateMessages(messages, contextWindow);
 
   const response = await generateText({

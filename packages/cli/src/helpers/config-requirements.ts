@@ -33,6 +33,10 @@ export const gatewayEnvRequirements: Record<Gateway, EnvRequirement> = {
 		options: [["LITELLM_BASE_URL"]],
 		description: "LITELLM_BASE_URL",
 	},
+	anthropic: {
+		options: [["ANTHROPIC_API_KEY"]],
+		description: "ANTHROPIC_API_KEY",
+	},
 };
 
 export const coreFeatureEnvRequirements: Partial<
@@ -92,6 +96,8 @@ export const envVarDescriptions: Record<string, string> = {
 	DATABASE_URL: "Database connection string",
 	OPENROUTER_API_KEY: "OpenRouter API key",
 	OPENAI_API_KEY: "OpenAI API key",
+	ANTHROPIC_API_KEY: "Anthropic API key",
+	ANTHROPIC_BASE_URL: "Optional Anthropic API base URL override",
 	AI_GATEWAY_API_KEY: "Vercel AI Gateway API key",
 	VERCEL_OIDC_TOKEN: "OIDC token available in Vercel runtime",
 	OPENAI_COMPATIBLE_BASE_URL: "Base URL for OpenAI-compatible gateway",

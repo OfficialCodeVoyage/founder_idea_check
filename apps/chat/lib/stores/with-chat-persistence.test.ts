@@ -27,7 +27,7 @@ describe("withChatPersistence", () => {
           activeStreamId: null,
           createdAt: new Date("2024-01-01T00:00:00.000Z"),
           parentMessageId: null,
-          selectedModel: "openai/gpt-4o-mini",
+          selectedModel: "gpt-5.6-luna",
           selectedTool: undefined,
         },
         parts: [],

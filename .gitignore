@@ -49,6 +49,9 @@ apps/*/playwright-report/
 apps/*/blob-report/
 apps/*/playwright/*
 
+# Playwright MCP browser-session artifacts
+.playwright-mcp/
+
 tsconfig.tsbuildinfo
 
 packages/*/dist

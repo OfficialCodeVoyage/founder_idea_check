@@ -295,6 +295,50 @@ const litellmDefaults = {
   },
 } satisfies ModelDefaultsFor<"litellm">;
 
+const anthropicDefaults = {
+  providerOrder: ["anthropic"],
+  disabledModels: [],
+  curatedDefaults: [
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+  ],
+  anonymousModels: ["claude-haiku-4-5"],
+  workflows: {
+    chat: "claude-sonnet-5",
+    title: "claude-haiku-4-5",
+    pdf: "claude-sonnet-5",
+    chatImageCompatible: "claude-haiku-4-5",
+  },
+  tools: {
+    webSearch: { enabled: false },
+    urlRetrieval: { enabled: false },
+    codeExecution: { enabled: false },
+    mcp: { enabled: false },
+    documents: {
+      enabled: true,
+      types: { text: true, code: true, sheet: true },
+    },
+    followupSuggestions: { enabled: false, default: "claude-haiku-4-5" },
+    text: { polish: "claude-haiku-4-5" },
+    sheet: { format: "claude-haiku-4-5", analyze: "claude-haiku-4-5" },
+    code: { edits: "claude-sonnet-4-6" },
+    // Anthropic ships no image or video models, so no `default` key is allowed.
+    image: { enabled: false },
+    video: { enabled: false },
+    deepResearch: {
+      enabled: false,
+      defaultModel: "claude-haiku-4-5",
+      finalReportModel: "claude-sonnet-5",
+      allowClarification: true,
+      maxResearcherIterations: 1,
+      maxConcurrentResearchUnits: 2,
+      maxSearchQueries: 2,
+    },
+  },
+} satisfies ModelDefaultsFor<"anthropic">;
+
 // Record ensures a compile error if a new gateway is added but not here.
 export const GATEWAY_MODEL_DEFAULTS: {
   [G in GatewayType]: ModelDefaultsFor<G>;
@@ -304,4 +348,5 @@ export const GATEWAY_MODEL_DEFAULTS: {
   openai: openaiDefaults,
   "openai-compatible": openaiCompatibleDefaults,
   litellm: litellmDefaults,
+  anthropic: anthropicDefaults,
 };

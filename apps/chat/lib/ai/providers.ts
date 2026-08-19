@@ -107,9 +107,13 @@ export const getModelProviderOptions = async (
     if (model.reasoning) {
       return {
         anthropic: {
+          // `budgetTokens` is removed on Opus 5 / 4.8 / 4.7, Sonnet 5 and
+          // Fable 5 (HTTP 400) and deprecated on 4.6 — adaptive thinking
+          // replaces it. `display` defaults to "omitted" on those models,
+          // which streams empty reasoning blocks, so ask for summaries.
           thinking: {
-            type: "enabled",
-            budgetTokens: 4096,
+            type: "adaptive",
+            display: "summarized",
           },
         } satisfies AnthropicProviderOptions,
       };

@@ -4,6 +4,7 @@ export type PackageManager = "bun" | "npm" | "pnpm" | "yarn";
 
 export const GATEWAYS: readonly GatewayType[] = [
   "vercel",
+  "anthropic",
   "openrouter",
   "openai",
   "openai-compatible",

@@ -288,7 +288,8 @@ describe("scaffoldFromTemplate", () => {
 		).not.toContain("GetWeatherRenderer");
 	});
 
-	it("falls back to repo source apps when synced templates are missing", async () => {
+	// SKIPPED IN THIS FORK: exercises the apps/electron fallback, which was removed.
+	it.skip("falls back to repo source apps when synced templates are missing", async () => {
 		const projectDir = await makeTempDir("chat-app-fallback");
 		const templatesDir = join(getCliPackageRoot(), "templates");
 		const backupDir = join(
@@ -367,7 +368,12 @@ describe("scaffoldFromGit", () => {
 	});
 });
 
-describe("scaffoldElectron", () => {
+/**
+ * SKIPPED IN THIS FORK: apps/electron was removed (see /NOTICE), so there is
+ * no desktop source for the scaffolder to copy and these ENOENT. Restore
+ * apps/electron to re-enable — do not delete, the skip is the record of why.
+ */
+describe.skip("scaffoldElectron", () => {
 	it("pins Better Auth versions in the generated electron app", async () => {
 		const projectDir = await makeTempDir("electron");
 

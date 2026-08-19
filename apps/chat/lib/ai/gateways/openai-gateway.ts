@@ -1,7 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { Experimental_VideoModelV3 } from "@ai-sdk/provider";
 import type { ImageModel, LanguageModel } from "ai";
-import { env } from "@/lib/env";
 import { createModuleLogger } from "@/lib/logger";
 import type { AiGatewayModel } from "../ai-gateway-models-schemas";
 import { getFallbackModels } from "./fallback-models";
@@ -73,7 +72,11 @@ export class OpenAIGateway
   }
 
   private getApiKey(): string | undefined {
-    return env.OPENAI_API_KEY;
+    // Read process.env directly rather than importing `@/lib/env`: that module
+    // runs `createEnv` at import time and throws without DATABASE_URL /
+    // AUTH_SECRET, which broke `bun fetch:models` and any unit test that
+    // touches the gateway registry. Matches every other gateway here.
+    return process.env.OPENAI_API_KEY;
   }
 
   async fetchModels(): Promise<AiGatewayModel[]> {

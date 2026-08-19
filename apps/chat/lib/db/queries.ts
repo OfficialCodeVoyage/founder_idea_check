@@ -519,6 +519,60 @@ export function updateMessageActiveStreamId({
   return db.update(message).set({ activeStreamId }).where(eq(message.id, id));
 }
 
+/**
+ * Hydrates DB message rows into ChatMessages by loading every Part in one
+ * query. Shared by the chat-scoped and project-scoped readers so the two can
+ * never drift in how they reconstruct a message.
+ */
+async function hydrateMessages(messages: DBMessage[]): Promise<ChatMessage[]> {
+  if (messages.length === 0) {
+    return [];
+  }
+
+  // Load all parts for all messages in a single query
+  const messageIds = messages.map((msg) => msg.id);
+  const allParts = await db
+    .select()
+    .from(part)
+    .where(inArray(part.messageId, messageIds))
+    .orderBy(asc(part.messageId), asc(part.order));
+
+  // Group parts by messageId
+  const partsByMessageId = new Map<string, Part[]>();
+  for (const dbPart of allParts) {
+    const existing = partsByMessageId.get(dbPart.messageId) ?? [];
+    existing.push(dbPart);
+    partsByMessageId.set(dbPart.messageId, existing);
+  }
+
+  // Reconstruct ChatMessage objects with parts from Part table
+  return messages.map((msg) => {
+    const dbParts = partsByMessageId.get(msg.id);
+    const parts =
+      dbParts && dbParts.length > 0 ? mapDBPartsToUIParts(dbParts) : [];
+
+    return {
+      id: msg.id,
+      role: msg.role as ChatMessage["role"],
+      parts,
+      metadata: {
+        createdAt: msg.createdAt,
+        activeStreamId: msg.activeStreamId,
+        parentMessageId: msg.parentMessageId,
+        parallelGroupId: msg.parallelGroupId,
+        parallelIndex: msg.parallelIndex,
+        isPrimaryParallel: msg.isPrimaryParallel,
+        selectedModel: isSelectedModelValue(msg.selectedModel)
+          ? msg.selectedModel
+          : ("" as ChatMessage["metadata"]["selectedModel"]),
+        selectedTool: (msg.selectedTool ||
+          undefined) as ChatMessage["metadata"]["selectedTool"],
+        usage: msg.lastContext as ChatMessage["metadata"]["usage"],
+      },
+    };
+  });
+}
+
 export async function getAllMessagesByChatId({
   chatId,
 }: {
@@ -531,54 +585,43 @@ export async function getAllMessagesByChatId({
       .where(eq(message.chatId, chatId))
       .orderBy(asc(message.createdAt));
 
-    if (messages.length === 0) {
-      return [];
-    }
-
-    // Load all parts for all messages in a single query
-    const messageIds = messages.map((msg) => msg.id);
-    const allParts = await db
-      .select()
-      .from(part)
-      .where(inArray(part.messageId, messageIds))
-      .orderBy(asc(part.messageId), asc(part.order));
-
-    // Group parts by messageId
-    const partsByMessageId = new Map<string, Part[]>();
-    for (const dbPart of allParts) {
-      const existing = partsByMessageId.get(dbPart.messageId) ?? [];
-      existing.push(dbPart);
-      partsByMessageId.set(dbPart.messageId, existing);
-    }
-
-    // Reconstruct ChatMessage objects with parts from Part table
-    return messages.map((msg) => {
-      const dbParts = partsByMessageId.get(msg.id);
-      const parts =
-        dbParts && dbParts.length > 0 ? mapDBPartsToUIParts(dbParts) : [];
-
-      return {
-        id: msg.id,
-        role: msg.role as ChatMessage["role"],
-        parts,
-        metadata: {
-          createdAt: msg.createdAt,
-          activeStreamId: msg.activeStreamId,
-          parentMessageId: msg.parentMessageId,
-          parallelGroupId: msg.parallelGroupId,
-          parallelIndex: msg.parallelIndex,
-          isPrimaryParallel: msg.isPrimaryParallel,
-          selectedModel: isSelectedModelValue(msg.selectedModel)
-            ? msg.selectedModel
-            : ("" as ChatMessage["metadata"]["selectedModel"]),
-          selectedTool: (msg.selectedTool ||
-            undefined) as ChatMessage["metadata"]["selectedTool"],
-          usage: msg.lastContext as ChatMessage["metadata"]["usage"],
-        },
-      };
-    });
+    return await hydrateMessages(messages);
   } catch (error) {
     console.error("Failed to get all messages by chat ID", error);
+    throw error;
+  }
+}
+
+/**
+ * Every message in every chat that belongs to a project, oldest first.
+ *
+ * Exists because the phase gate mixes scopes otherwise: the fact store and the
+ * ProjectPhase verdict row are both keyed by projectId, but the judged
+ * transcript used to be one chat's. A project with two chats would then let a
+ * "hi" in chat B overwrite chat A's PASS through the (projectId, phaseKey)
+ * upsert. The verdict is project-scoped, so the evidence must be too.
+ *
+ * The caller budgets the result (lib/phases/context.ts budgetTranscript) —
+ * there is deliberately no LIMIT here, because "the newest N rows" would cut
+ * across chats by timestamp and interleave two unrelated conversations at an
+ * arbitrary point.
+ */
+export async function getAllMessagesByProjectId({
+  projectId,
+}: {
+  projectId: string;
+}): Promise<ChatMessage[]> {
+  try {
+    const rows = await db
+      .select({ message })
+      .from(message)
+      .innerJoin(chat, eq(message.chatId, chat.id))
+      .where(eq(chat.projectId, projectId))
+      .orderBy(asc(message.createdAt));
+
+    return await hydrateMessages(rows.map((r) => r.message));
+  } catch (error) {
+    console.error("Failed to get all messages by project ID", error);
     throw error;
   }
 }

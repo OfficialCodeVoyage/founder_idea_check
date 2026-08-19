@@ -95,13 +95,23 @@ def _build_model(oasis_module):
     return ModelFactory.create(**kwargs)
 
 
-def _read_reactions(db_path: Path, usernames: list[str]) -> list[Reaction]:
+def _read_reactions(db_path: Path, usernames: list[str], seed_text: str = "") -> list[Reaction]:
     """Read agent utterances out of the OASIS sqlite database.
 
     The `post` and `comment` tables are what an agent actually SAID; the `trace`
     table records that it acted. Both are queried because a persona reacting to
     a pitch may create a post or comment on one, and treating a comment as
     "no reaction" would understate divergence.
+
+    THE SEED POST IS NOT A REACTION. `_run` seeds the pitch as a post from agent
+    0 so the others have something concrete to react to, and that post lands in
+    the same `post` table as every genuine reply. Counting it inflates
+    `total_reactions` and, because the pitch resembles no reply, it always
+    scores as one more DISTINCT opinion — so the artefact pushes the divergence
+    score UP. That is the dangerous direction: this module exists to detect a
+    run collapsing onto one opinion, and an echo of the prompt was making
+    collapse harder to detect. Observed live at 4 personas / 2 rounds: 1 of 8
+    reactions was a verbatim echo. At the 2-persona minimum it would be 1 of 3.
     """
     if not db_path.exists():
         raise SimulationUnavailable(
@@ -110,6 +120,7 @@ def _read_reactions(db_path: Path, usernames: list[str]) -> list[Reaction]:
             "reactions can be read. The run did not complete.",
         )
 
+    seed = seed_text.strip()
     reactions: list[Reaction] = []
     connection = sqlite3.connect(db_path)
     try:
@@ -126,6 +137,10 @@ def _read_reactions(db_path: Path, usernames: list[str]) -> list[Reaction]:
             for row in rows:
                 text = (row["text"] or "").strip()
                 if not text:
+                    continue
+                if seed and text == seed:
+                    # The seeded pitch, or an agent reposting it verbatim.
+                    # Neither is an opinion about the pitch.
                     continue
                 index = int(row["user_id"] or 0)
                 username = usernames[index] if 0 <= index < len(usernames) else f"agent-{index}"
@@ -195,7 +210,7 @@ async def _run(personas: list[dict], pitch: str, rounds: int, workdir: Path) -> 
     finally:
         await env.close()
 
-    return _read_reactions(db_path, [str(p["username"]) for p in personas])
+    return _read_reactions(db_path, [str(p["username"]) for p in personas], pitch)
 
 
 def run_simulation(personas: list[dict], pitch: str, rounds: int = 2) -> list[Reaction]:

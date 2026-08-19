@@ -52,7 +52,18 @@ dependencies = [
 # `app/simulation/oasis_runner.py` therefore imports oasis LAZILY, inside the
 # function, and reports `oasis-not-installed` as a named condition.
 # ─────────────────────────────────────────────────────────────────────────────
-simulation = ["camel-oasis==0.2.5"]
+#
+# THE `mcp` PIN IS LOAD-BEARING. camel-oasis 0.2.5 pulls camel-ai 0.2.78, whose
+# `camel/toolkits/base.py` does `from mcp.server import FastMCP`. That name was
+# removed in mcp 2.x, and camel-ai's own requirement is loose enough to resolve
+# to it — so a clean `uv pip install -e ".[simulation]"` installs successfully
+# and then fails at `import oasis` with an ImportError. Verified live: without
+# the pin the multi-gigabyte install completes and the simulation endpoint is
+# still unusable. The lazy import turns that into the named `oasis-not-installed`
+# condition rather than a crash, which is correct but reads as "you forgot to
+# install it" when in fact you did.
+# ─────────────────────────────────────────────────────────────────────────────
+simulation = ["camel-oasis==0.2.5", "mcp<2"]
 
 dev = [
     "pytest>=8.3,<9.0",

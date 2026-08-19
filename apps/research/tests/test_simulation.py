@@ -209,3 +209,63 @@ class TestRunSimulationWithoutOasis:
         # The message must name the install command AND why it is optional.
         assert "simulation" in caught.value.detail
         assert "torch" in caught.value.detail
+
+
+class TestReadReactionsExcludesSeed:
+    """The seeded pitch is not an opinion about the pitch.
+
+    `_run` posts the pitch as agent 0 so the others have something concrete to
+    react to, and it lands in the same `post` table as every genuine reply.
+    Counting it inflates the reaction total and always reads as one more
+    DISTINCT opinion, which pushes the divergence score UP — the direction that
+    makes a collapsed run harder to detect. Runs with no OASIS installed: it
+    builds the sqlite database by hand.
+    """
+
+    @staticmethod
+    def _db(tmp_path, rows):
+        import sqlite3
+
+        path = tmp_path / "oasis.db"
+        connection = sqlite3.connect(path)
+        try:
+            connection.execute("CREATE TABLE post (user_id INTEGER, content TEXT)")
+            connection.executemany("INSERT INTO post VALUES (?, ?)", rows)
+            connection.commit()
+        finally:
+            connection.close()
+        return path
+
+    def test_drops_the_seeded_pitch_but_keeps_real_reactions(self, tmp_path):
+        from app.simulation.oasis_runner import _read_reactions
+
+        pitch = "A social network just for dog owners."
+        path = self._db(
+            tmp_path,
+            [(0, pitch), (1, "I would never pay for this."), (2, "Genuinely useful.")],
+        )
+
+        reactions = _read_reactions(path, ["marta", "deshawn", "yuki"], pitch)
+
+        assert [r.username for r in reactions] == ["deshawn", "yuki"]
+        assert all(r.text != pitch for r in reactions)
+
+    def test_drops_a_verbatim_repost_of_the_pitch(self, tmp_path):
+        from app.simulation.oasis_runner import _read_reactions
+
+        pitch = "A social network just for dog owners."
+        # Whitespace differences are still the same non-opinion.
+        path = self._db(tmp_path, [(0, pitch), (1, f"  {pitch}  "), (2, "No thanks.")])
+
+        reactions = _read_reactions(path, ["marta", "deshawn", "yuki"], pitch)
+
+        assert len(reactions) == 1
+        assert reactions[0].username == "yuki"
+
+    def test_keeps_everything_when_no_seed_is_supplied(self, tmp_path):
+        """Back-compat: the old two-argument call must not start dropping rows."""
+        from app.simulation.oasis_runner import _read_reactions
+
+        path = self._db(tmp_path, [(0, "one"), (1, "two")])
+
+        assert len(_read_reactions(path, ["a", "b"])) == 2

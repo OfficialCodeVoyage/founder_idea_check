@@ -86,6 +86,15 @@ These were evaluated and disqualified. Recorded so they are not re-evaluated.
 | Reddit torrent dumps | Redistributed user content, incl. since-deleted posts. GDPR exposure. |
 | `not-an-aardvark/snoowrap` | Archived 2023; depends on `request`, deprecated 2020. |
 
+## The research subsystem has its own ledger
+
+`apps/research/**`, `apps/chat/lib/research/**` and `apps/chat/lib/signals/**`
+are recorded in **`THIRD_PARTY-research.md`**, kept separate only so the two
+files can be edited without conflicting. **Both are authoritative — a licence
+audit must read both.** Every entry there pins the upstream SHA it was taken
+at, because borrowed code is frozen and upstream fixes never arrive on their
+own.
+
 ## Packaging rule for AGPL services
 
 SearXNG, Redlib and self-hosted Firecrawl are **AGPL-3.0**. Calling them over

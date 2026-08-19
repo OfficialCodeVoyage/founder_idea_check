@@ -1,0 +1,109 @@
+[project]
+name = "idea-check-research"
+version = "0.1.0"
+description = "Demand-signal and simulation sidecar for idea_check."
+readme = "README.md"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PYTHON VERSION IS PINNED TO 3.11 AND THE REASON IS OASIS.
+#
+# `camel-ai/oasis` @ 40bf1705 declares, in its own pyproject.toml line 25:
+#
+#     python = ">=3.10.0,<3.12"
+#
+# That is a HARD upper bound on 3.12, not a preference, and it is the binding
+# constraint on this whole service. Everything else here runs happily on 3.13.
+# 3.11 is chosen over 3.10 because it is the newest version inside OASIS's
+# window, so the pin buys the most runtime and stdlib improvements available
+# without leaving the range.
+#
+# Changing this later is expensive: OASIS's dependency table is exact-pinned
+# (`camel-ai = "0.2.90"`, `sentence-transformers = "3.0.0"`, `igraph = "0.11.6"`)
+# with no extras mechanism, so a Python bump means resolving that entire tree
+# again. Decide once, here, and leave it.
+# ─────────────────────────────────────────────────────────────────────────────
+requires-python = ">=3.11,<3.12"
+
+# The signal half of this service has NO third-party runtime dependencies beyond
+# the web framework. Every adapter uses stdlib urllib, exactly as
+# `mvanhorn/last30days-skill` does — that is what makes the adapters portable
+# and what keeps a research sidecar from carrying a scraping framework's CVEs.
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.32,<1.0",
+    "pydantic>=2.9,<3.0",
+]
+
+[project.optional-dependencies]
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 8 IS AN OPTIONAL EXTRA, DELIBERATELY.
+#
+# `import oasis` is not free. `oasis/social_platform/recsys.py:26-29` imports
+# torch, sentence-transformers and scikit-learn at module scope, and line 46
+# probes CUDA at import time — and `oasis/__init__.py` imports that module
+# transitively. So merely importing OASIS pulls a multi-gigabyte ML stack into
+# the image and costs seconds of cold start.
+#
+# Most deployments want demand signals and will never run a simulation. Making
+# simulation an extra keeps the default image small and keeps a torch import
+# failure from taking down the signal endpoints, which are the ones the phase
+# gate actually depends on.
+#
+# `app/simulation/oasis_runner.py` therefore imports oasis LAZILY, inside the
+# function, and reports `oasis-not-installed` as a named condition.
+# ─────────────────────────────────────────────────────────────────────────────
+simulation = ["camel-oasis==0.2.5"]
+
+dev = [
+    "pytest>=8.3,<9.0",
+    "httpx>=0.27,<1.0",
+    "ruff>=0.7,<1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    # Long URLs and long explanatory comments are the point of this codebase.
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# ─────────────────────────────────────────────────────────────────────────────
+# VENDORED FILES ARE NOT MODERNISED, AND THAT IS THE POINT.
+#
+# `app/text/cjk.py` and `app/text/relevance.py` are copied verbatim from
+# mvanhorn/last30days-skill @ 9243a32d (MIT). Their banners tell a future
+# maintainer to diff them against upstream with:
+#
+#   gh api "repos/mvanhorn/last30days-skill/commits?path=...&since=2026-08-18"
+#
+# Running `ruff --fix` over them — rewriting `List[str]` to `list[str]`, sorting
+# `__slots__`, "correcting" the Hebrew stopwords that RUF001 mistakes for Latin
+# lookalikes — makes that diff useless, which is how a vendored file quietly
+# stops receiving upstream security fixes.
+#
+# So: lint them for real errors (E, F, B, SIM) and skip the stylistic modernisers.
+# Files we ADAPTED rather than copied are not listed here; those are ours to keep
+# clean.
+# ─────────────────────────────────────────────────────────────────────────────
+"app/text/cjk.py" = ["UP006", "UP035", "UP045", "RUF001", "RUF023"]
+"app/text/relevance.py" = ["UP006", "UP035", "UP045", "RUF001", "RUF023"]
+"app/pipeline/dedupe.py" = ["UP006", "UP035", "UP045", "RUF001", "RUF023"]
+"app/pipeline/entity_extract.py" = ["UP006", "UP035", "UP045", "RUF001", "RUF023"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Every test in this suite must pass with no network and no API key. A test that
+# needs either belongs in a manually-run probe script, not here.
+addopts = "-q"

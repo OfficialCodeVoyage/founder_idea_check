@@ -1,0 +1,16 @@
+# The root .gitignore is a Node/Next one and knows nothing about Python, so the
+# sidecar carries its own. Without this, `git add apps/research` sweeps a
+# multi-hundred-megabyte .venv into the repository.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# OASIS writes these relative to the current directory at import time
+# (oasis/environment/env.py:30-32). Never commit a simulation database: it holds
+# generated persona utterances and is reproducible from the run's inputs.
+log/
+*.db

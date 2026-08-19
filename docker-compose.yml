@@ -1,0 +1,83 @@
+# Local development stack for the research sidecar.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT IS DELIBERATELY ABSENT FROM THIS FILE, AND WHY
+#
+# 1. SearXNG. It is AGPL-3.0. Calling it over HTTP is clean; putting it in a
+#    docker-compose.yml that ships with this repository is not — AGPL attaches
+#    by PACKAGING, not by linking, so a compose file that pulls and runs it
+#    makes AGPL work part of our distribution artefact and triggers the
+#    source-offer obligation for the whole thing. The same applies to Redlib and
+#    to self-hosted Firecrawl.
+#
+#    If you want the SearXNG rung of the keyless ladder, run an instance
+#    YOURSELF, separately, and point `RESEARCH_SEARXNG_URL` at it. Referencing
+#    a URL is not packaging.
+#
+# 2. Neo4j. OASIS defaults to the igraph IN-MEMORY backend
+#    (`oasis/social_agent/agent_graph.py:178-190` @ 40bf1705 — neo4j needs an
+#    explicit `backend="neo4j"` plus a valid Neo4jConfig, and neither documented
+#    generator passes one). The `neo4j` driver is installed as an OASIS
+#    dependency and imported at module scope, but no connection is ever opened.
+#    A graph database here would be a service nobody talks to.
+#
+# 3. Postgres and Redis. Those belong to `apps/chat` and are configured by its
+#    own tooling; duplicating them here would give a developer two databases and
+#    no idea which one holds their data.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  research:
+    build:
+      context: ./apps/research
+      # Default target: signals only. For Step 8, build with
+      #   target: simulation
+      # and expect a multi-gigabyte image (torch + sentence-transformers).
+      target: base
+    ports:
+      - "8099:8099"
+    environment:
+      # ─────────────────────────────────────────────────────────────────────
+      # FAIL-CLOSED. `RESEARCH_HOSTED` is unset in `app/config.py` terms only
+      # if it is absent; it defaults to TRUE there, which bars both Reddit
+      # lanes. It is set explicitly to `false` here because a LOCAL dev stack
+      # is self-host by definition — the developer is the only user and their
+      # own data subject.
+      #
+      # DO NOT COPY THIS LINE INTO A DEPLOYED ENVIRONMENT. Read
+      # `apps/research/app/sources/reddit_gate.py` first.
+      # ─────────────────────────────────────────────────────────────────────
+      RESEARCH_HOSTED: "false"
+
+      # The default source set: Hacker News plus the keyless web ladder. Both
+      # keyless, both legally boring. Reddit is NOT here even in self-host —
+      # enabling it takes two deliberate acts (this list AND
+      # REDDIT_ENABLED_ACK), which is the point.
+      RESEARCH_ENABLED_SOURCES: "hackernews,web-keyless"
+
+      # Optional, and passed through rather than defaulted:
+      #   GITHUB_TOKEN         — required by the `github` source
+      #   REDDIT_ENABLED_ACK   — required by both Reddit sources
+      #   RESEARCH_SEARXNG_URL — your own instance; see note 1 above
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      REDDIT_ENABLED_ACK: "${REDDIT_ENABLED_ACK:-}"
+      RESEARCH_SEARXNG_URL: "${RESEARCH_SEARXNG_URL:-}"
+
+      # Step 8. `RESEARCH_SIM_CONCURRENCY` overrides OASIS's `semaphore=`, whose
+      # own default is 128 — high enough to 429 a shared gateway, and a 429
+      # storm inside OASIS surfaces as agents that "chose to do nothing", which
+      # is indistinguishable from genuine disinterest.
+      RESEARCH_SIM_MODEL: "${RESEARCH_SIM_MODEL:-gpt-4o-mini}"
+      RESEARCH_SIM_BASE_URL: "${RESEARCH_SIM_BASE_URL:-}"
+      RESEARCH_SIM_CONCURRENCY: "${RESEARCH_SIM_CONCURRENCY:-8}"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8099/v1/health', timeout=4).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

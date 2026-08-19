@@ -1,0 +1,206 @@
+"""Minimal stdlib HTTP with a NAMED 403.
+
+REIMPLEMENTED, not vendored. `mvanhorn/last30days-skill`'s `lib/http.py`
+@ 9243a32d is 992 lines and carries a fixture record/replay harness, a
+thread-local failure-capture sink, secret scrubbing, and per-source rate
+limiters wired to that project's CLI. This service needs about a tenth of that,
+and the tail would be permanent maintenance for code we would never call.
+
+What IS taken from upstream, because it is the part that was expensive to learn:
+
+  - stdlib urllib only, no requests/httpx — an adapter set with no third-party
+    HTTP dependency is portable and does not inherit that library's CVEs.
+  - a browser User-Agent for HTML endpoints, because several of them serve a
+    challenge page to anything that looks automated.
+  - a small token-bucket rate limiter for the Reddit keyless lanes, at upstream's
+    measured 5 requests/second (`http.REDDIT_KEYLESS_LIMITER`).
+
+THE ONE BEHAVIOURAL DIVERGENCE, and the reason this file exists at all:
+upstream classifies failures into strings for a health report and keeps going.
+Here a 403 raises `SourceBlocked`, a 429 raises `SourceRateLimited`, and
+everything else raises `SourceUnavailable`. Nothing degrades to an empty result.
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
+from typing import Any
+
+from .errors import (
+    SourceBlocked,
+    SourceRateLimited,
+    SourceSchemaDrift,
+    SourceUnavailable,
+)
+
+DEFAULT_TIMEOUT = 20
+
+#: Identifies this service honestly. A UA that impersonates a browser on a JSON
+#: API is the kind of thing that turns "we called your public API" into "we
+#: evaded your bot detection", which is precisely the characterisation the
+#: Reddit gate in apps/chat/lib/signals/providers.ts exists to avoid.
+USER_AGENT = "idea-check-research/0.1 (+https://github.com/idea-check)"
+
+#: HTML endpoints (DuckDuckGo, Startpage, Reddit RSS) serve a challenge page to
+#: an obviously-automated UA. Used ONLY for endpoints that render HTML for
+#: humans, never for a documented JSON API.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
+class RateLimiter:
+    """Token bucket. Blocks the caller rather than dropping the request.
+
+    Dropping would surface as a missing result with no failure attached, which
+    is the exact silent-empty this service is built to avoid.
+    """
+
+    def __init__(self, rate_per_sec: float, burst: int) -> None:
+        self._rate = rate_per_sec
+        self._burst = burst
+        self._tokens = float(burst)
+        self._updated = time.monotonic()
+        self._lock = threading.Lock()
+
+    def acquire(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            self._tokens = min(
+                float(self._burst), self._tokens + (now - self._updated) * self._rate
+            )
+            self._updated = now
+            if self._tokens >= 1.0:
+                self._tokens -= 1.0
+                return
+            wait = (1.0 - self._tokens) / self._rate
+            self._tokens = 0.0
+            self._updated = now + wait
+        time.sleep(wait)
+
+
+#: Upstream's measured ceiling for the keyless Reddit lanes. Exceeding it is
+#: what turns an intermittent 403 into a permanent one.
+REDDIT_KEYLESS_LIMITER = RateLimiter(rate_per_sec=5.0, burst=5)
+
+
+def _classify(status: int, url: str, body: str) -> SourceUnavailable:
+    """Turn an HTTP status into the RIGHT named error.
+
+    403 is singled out on purpose. It is not a generic failure here — it is the
+    documented, expected condition for every keyless adapter running from a
+    datacenter IP, and the operator's remedy is completely different from the
+    remedy for a 500.
+    """
+    excerpt = body[:200].replace("\n", " ")
+    if status == 403:
+        return SourceBlocked(
+            f"HTTP 403 from {url}. This is the expected response when the host "
+            f"refuses a datacenter egress range; the keyless adapters were only "
+            f"verified from a residential IP. Body began: {excerpt!r}"
+        )
+    if status == 429:
+        return SourceRateLimited(f"HTTP 429 from {url}. Body began: {excerpt!r}")
+    return SourceUnavailable(f"HTTP {status} from {url}. Body began: {excerpt!r}")
+
+
+def _request(
+    url: str,
+    *,
+    accept: str,
+    user_agent: str,
+    timeout: int,
+    headers: dict[str, str] | None = None,
+) -> str:
+    request = urllib.request.Request(url, method="GET")
+    if not url.startswith("https://"):
+        # Refusing plaintext is not paranoia here: every endpoint this service
+        # talks to offers https, and an http URL in an adapter is a typo or an
+        # injected value, both of which should fail loudly.
+        raise SourceUnavailable(f"Refusing a non-https request to {url}.")
+    request.add_header("User-Agent", user_agent)
+    request.add_header("Accept", accept)
+    request.add_header("Accept-Language", "en-US,en;q=0.9")
+    for key, value in (headers or {}).items():
+        request.add_header(key, value)
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read()
+            status = response.status
+            body = raw.decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as error:
+        body = ""
+        try:
+            body = error.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        raise _classify(error.code, url, body) from error
+    except urllib.error.URLError as error:
+        raise SourceUnavailable(f"Could not reach {url}: {error.reason}") from error
+    except TimeoutError as error:
+        raise SourceUnavailable(f"Timed out after {timeout}s reaching {url}.") from error
+
+    # A 2xx is not automatically a result. DuckDuckGo serves its anomaly
+    # challenge as HTTP 202 with a body that contains no results at all, which
+    # upstream documents in web_search_keyless.py. Callers detect that by
+    # finding zero parsed results and moving to the next rung of the ladder;
+    # this function only guarantees the status was a success.
+    if status >= 400:
+        raise _classify(status, url, body)
+    return body
+
+
+def get_text(
+    url: str,
+    *,
+    accept: str = "text/html",
+    timeout: int = DEFAULT_TIMEOUT,
+    browser_ua: bool = True,
+) -> str:
+    """Fetch an HTML/XML endpoint. Raises a named error; never returns None."""
+    return _request(
+        url,
+        accept=accept,
+        user_agent=BROWSER_USER_AGENT if browser_ua else USER_AGENT,
+        timeout=timeout,
+    )
+
+
+def get_json(
+    url: str,
+    *,
+    timeout: int = DEFAULT_TIMEOUT,
+    headers: dict[str, str] | None = None,
+) -> Any:
+    """Fetch a documented JSON API. Raises a named error; never returns None."""
+    body = _request(
+        url,
+        accept="application/json",
+        user_agent=USER_AGENT,
+        timeout=timeout,
+        headers=headers,
+    )
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as error:
+        raise SourceSchemaDrift(
+            f"{url} returned a 2xx with a body that is not JSON: {body[:200]!r}"
+        ) from error
+
+
+def reddit_keyless_get_text(url: str, *, timeout: int = DEFAULT_TIMEOUT, accept: str) -> str:
+    """Rate-limited fetch for the keyless Reddit lanes.
+
+    The limiter is not optional politeness. Upstream measured 5 req/s as the
+    point above which Reddit's keyless endpoints start returning 403 for the
+    rest of the session, so exceeding it converts a working lane into a dead one
+    for everybody sharing the egress IP.
+    """
+    REDDIT_KEYLESS_LIMITER.acquire()
+    return get_text(url, accept=accept, timeout=timeout, browser_ua=True)

@@ -75,6 +75,16 @@ function normalizeChatAppScripts(scripts: ScriptMap): void {
   if (scripts["db:seed"]) {
     scripts["db:seed"] = "tsx scripts/seed-demo.ts";
   }
+  // Every `bun scripts/*.ts` entry needs a tsx equivalent here, or the
+  // generated project ships a script its own package manager cannot run.
+  // scaffold.test.ts asserts no script contains "bun ", which is what catches
+  // a new one being added upstream without a mapping.
+  if (scripts["db:embed"]) {
+    scripts["db:embed"] = "tsx scripts/embed-facts.ts";
+  }
+  if (scripts["db:retrieval-check"]) {
+    scripts["db:retrieval-check"] = "tsx scripts/retrieval-check.ts";
+  }
   scripts["db:migrate"] =
     "export VERCEL_ENV=production && bash scripts/with-db.sh tsx lib/db/migrate.ts";
   scripts["db:backfill-parts"] = "tsx lib/db/backfill-parts.ts";

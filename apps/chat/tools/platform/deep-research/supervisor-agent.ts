@@ -2,6 +2,7 @@ import { hasToolCall, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
+import { createSemaphore } from "@/lib/research/supervisor";
 import { leadResearcherPrompt } from "./prompts";
 import { runResearcher } from "./researcher-agent";
 import { type AgentOptions, createTelemetry } from "./types";
@@ -14,8 +15,25 @@ export async function runSupervisor(
   const { config, dataStream, toolCallId, abortSignal } = options;
   const model = await getLanguageModel(config.research_model as ModelId);
 
-  // Sequential execution queue to avoid streaming race conditions and rate limits
-  let researchQueue = Promise.resolve<unknown>(undefined);
+  /**
+   * BOUNDED PARALLEL, not serial.
+   *
+   * What this replaces: a `researchQueue = researchQueue.then(...)` chain, so
+   * every conductResearch call waited for the previous one and N topics took N
+   * times as long as one. The same function passes
+   * `max_concurrent_research_units` into leadResearcherPrompt, telling the model
+   * it may request up to N in parallel — so the config value was documentation,
+   * not a limit, and nothing in the types or the tests noticed the difference.
+   *
+   * The semaphore QUEUES the excess, it does not drop it: every topic the model
+   * asks for still runs, just at most `max_concurrent_research_units` at a time.
+   * That is why `decideOverflow` from lib/research/supervisor.ts is NOT wired in
+   * here — its notice tells the model that the excess topics "were NOT run", and
+   * on this path that would be false. It belongs to callers that genuinely
+   * truncate a request; handing it back here would inject exactly the kind of
+   * confident non-finding it exists to prevent.
+   */
+  const semaphore = createSemaphore(config.max_concurrent_research_units);
 
   const conductResearchTool = tool({
     description: "Call this tool to conduct research on a specific topic.",
@@ -26,11 +44,13 @@ export async function runSupervisor(
           "The topic to research. Should be a single topic, and should be described in high detail (at least a paragraph)."
         ),
     }),
-    execute: ({ research_topic }) => {
-      researchQueue = researchQueue.then(() =>
-        runResearcher(research_topic, options)
-      );
-      return researchQueue as Promise<string>;
+    execute: async ({ research_topic }) => {
+      const release = await semaphore.acquire();
+      try {
+        return await runResearcher(research_topic, options);
+      } finally {
+        release();
+      }
     },
   });
 

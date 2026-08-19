@@ -53,6 +53,9 @@ export interface ModelDefaultsFor<G extends GatewayType> {
       maxResearcherIterations: number;
       maxConcurrentResearchUnits: number;
       maxSearchQueries: number;
+      maxInputTokensPerRun: number | null;
+      hosted: boolean;
+      researchSidecarUrl: string;
     };
   };
   workflows: {
@@ -110,6 +113,16 @@ const vercelDefaults = {
       maxResearcherIterations: 1,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
+      /**
+       * FAIL-CLOSED FALLBACK for a deployment that never configured research.
+       * `hosted: true` + a finite cap is the restrictive pair:
+       * decideResearchBudget() refuses an uncapped hosted run. An empty
+       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
+       * overrides all three for this fork.
+       */
+      maxInputTokensPerRun: 1_500_000,
+      hosted: true,
+      researchSidecarUrl: "",
     },
   },
 } satisfies ModelDefaultsFor<"vercel">;
@@ -162,6 +175,16 @@ const openrouterDefaults = {
       maxResearcherIterations: 1,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
+      /**
+       * FAIL-CLOSED FALLBACK for a deployment that never configured research.
+       * `hosted: true` + a finite cap is the restrictive pair:
+       * decideResearchBudget() refuses an uncapped hosted run. An empty
+       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
+       * overrides all three for this fork.
+       */
+      maxInputTokensPerRun: 1_500_000,
+      hosted: true,
+      researchSidecarUrl: "",
     },
   },
 } satisfies ModelDefaultsFor<"openrouter">;
@@ -205,6 +228,16 @@ const openaiDefaults = {
       maxResearcherIterations: 1,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
+      /**
+       * FAIL-CLOSED FALLBACK for a deployment that never configured research.
+       * `hosted: true` + a finite cap is the restrictive pair:
+       * decideResearchBudget() refuses an uncapped hosted run. An empty
+       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
+       * overrides all three for this fork.
+       */
+      maxInputTokensPerRun: 1_500_000,
+      hosted: true,
+      researchSidecarUrl: "",
     },
   },
 } satisfies ModelDefaultsFor<"openai">;
@@ -248,6 +281,16 @@ const openaiCompatibleDefaults = {
       maxResearcherIterations: 1,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
+      /**
+       * FAIL-CLOSED FALLBACK for a deployment that never configured research.
+       * `hosted: true` + a finite cap is the restrictive pair:
+       * decideResearchBudget() refuses an uncapped hosted run. An empty
+       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
+       * overrides all three for this fork.
+       */
+      maxInputTokensPerRun: 1_500_000,
+      hosted: true,
+      researchSidecarUrl: "",
     },
   },
 } satisfies ModelDefaultsFor<"openai-compatible">;
@@ -291,6 +334,16 @@ const litellmDefaults = {
       maxResearcherIterations: 1,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
+      /**
+       * FAIL-CLOSED FALLBACK for a deployment that never configured research.
+       * `hosted: true` + a finite cap is the restrictive pair:
+       * decideResearchBudget() refuses an uncapped hosted run. An empty
+       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
+       * overrides all three for this fork.
+       */
+      maxInputTokensPerRun: 1_500_000,
+      hosted: true,
+      researchSidecarUrl: "",
     },
   },
 } satisfies ModelDefaultsFor<"litellm">;
@@ -335,6 +388,16 @@ const anthropicDefaults = {
       maxResearcherIterations: 1,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
+      /**
+       * FAIL-CLOSED FALLBACK for a deployment that never configured research.
+       * `hosted: true` + a finite cap is the restrictive pair:
+       * decideResearchBudget() refuses an uncapped hosted run. An empty
+       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
+       * overrides all three for this fork.
+       */
+      maxInputTokensPerRun: 1_500_000,
+      hosted: true,
+      researchSidecarUrl: "",
     },
   },
 } satisfies ModelDefaultsFor<"anthropic">;

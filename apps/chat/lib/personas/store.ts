@@ -17,14 +17,14 @@ import type { PersonaArtifact } from "./types";
  * lib/phases: everything else in this directory is pure and runs under vitest
  * with no key, no network and no database, and all of the I/O is here.
  *
- * WHY THIS SQL IS NOT IN lib/db/queries.ts, where the repo puts every other
- * query: `saveDocument()` sets `createdAt: new Date()` itself and does not
- * accept one. `createdAt` is HALF THE PRIMARY KEY and therefore the entire
- * versioning mechanism, so a persona store that cannot choose it cannot
- * guarantee that a double-click produces two versions instead of a failed
- * INSERT. The exact diff that moves this into queries.ts — a `createdAt?`
- * parameter on saveDocument — is in PERSONA-INTEGRATION-NOTES.md; this lane may
- * not edit that file.
+ * WHY THIS SQL IS STILL NOT `saveDocument()`, now that saveDocument accepts a
+ * `createdAt`: appendVersion must inspect the RAW driver error to tell a
+ * benign version collision (Postgres 23505, retry) from a real failure, and it
+ * must not emit a console.error on every benign retry. saveDocument logs and
+ * rethrows, which would turn each successful retry into a false alarm in the
+ * logs. The retry loop below is NOT a workaround for saveDocument's clock — it
+ * guards a genuine race between two concurrent regenerations that both read
+ * the same version set — so it survives that change and must not be deleted.
  */
 
 const log = createModuleLogger("personas:store");
@@ -62,8 +62,17 @@ export type AppendPersonaVersionInput = {
   documentId: string;
   artifact: PersonaArtifact;
   userId: string;
-  /** Document.messageId is NOT NULL — see PERSONA-INTEGRATION-NOTES.md. */
-  messageId: string;
+  /**
+   * The assistant message that triggered this regeneration, when there was one.
+   * Null is normal — a persona is rebuilt from the fact store, not from a turn.
+   */
+  messageId?: string | null;
+  /**
+   * The project the persona belongs to. Supplying it is what makes the persona
+   * findable by getPersonaDocumentsByProjectId; omitting it leaves the row
+   * reachable only by documentId.
+   */
+  projectId?: string | null;
 };
 
 /**
@@ -127,7 +136,8 @@ export function createPersonaStore({
           documentId: input.documentId,
           artifact: input.artifact,
           userId: input.userId,
-          messageId: input.messageId,
+          messageId: input.messageId ?? null,
+          projectId: input.projectId ?? null,
           existingCreatedAt: existing.map((r) => r.createdAt),
           now: now(),
         });

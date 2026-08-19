@@ -674,13 +674,22 @@ export async function saveDocument({
   content,
   userId,
   messageId,
+  projectId,
+  createdAt,
 }: {
   id: string;
   title: string;
   kind: ArtifactKind;
   content: string;
   userId: string;
-  messageId: string;
+  messageId: string | null;
+  projectId?: string | null;
+  /**
+   * Half the composite primary key. Callers that VERSION an artifact must
+   * control it (see lib/personas/artifact.ts nextVersionCreatedAt); omitting it
+   * keeps today's behaviour exactly.
+   */
+  createdAt?: Date;
 }) {
   try {
     return await db.insert(document).values({
@@ -690,7 +699,8 @@ export async function saveDocument({
       content,
       userId,
       messageId,
-      createdAt: new Date(),
+      projectId,
+      createdAt: createdAt ?? new Date(),
     });
   } catch (error) {
     console.error("Failed to save document in database", error);
@@ -731,6 +741,16 @@ export async function getDocumentsById({
     const [doc] = documents;
 
     if (!userId || doc.userId !== userId) {
+      // Visibility is derived by joining Message -> Chat. A project-scoped
+      // artifact (persona) has a NULL messageId and therefore no chat to
+      // inherit visibility from, and Project carries no visibility column.
+      // Returning [] is the fail-closed answer, and it is stated here rather
+      // than left to an innerJoin silently dropping the row — "not public" and
+      // "has no message" are different facts and must not look identical.
+      if (doc.messageId === null) {
+        return [];
+      }
+
       // Need to check if chat is public
       const documentsWithVisibility = await db
         .select({
@@ -741,6 +761,7 @@ export async function getDocumentsById({
           kind: document.kind,
           userId: document.userId,
           messageId: document.messageId,
+          projectId: document.projectId,
           chatVisibility: chat.visibility,
         })
         .from(document)
@@ -763,6 +784,10 @@ export async function getDocumentsById({
 
 export async function getPublicDocumentsById({ id }: { id: string }) {
   try {
+    // Same reasoning as getDocumentsById: the Message -> Chat join is the only
+    // source of public visibility, so a NULL-messageId row is never public.
+    // The innerJoin below already yields [] for those; this comment exists so
+    // that behaviour reads as a decision rather than an accident.
     const documents = await db
       .select({
         id: document.id,
@@ -772,6 +797,7 @@ export async function getPublicDocumentsById({ id }: { id: string }) {
         kind: document.kind,
         userId: document.userId,
         messageId: document.messageId,
+        projectId: document.projectId,
       })
       .from(document)
       .innerJoin(message, eq(document.messageId, message.id))
@@ -782,6 +808,31 @@ export async function getPublicDocumentsById({ id }: { id: string }) {
     return documents;
   } catch (error) {
     console.error("Failed to get public documents by id from database");
+    throw error;
+  }
+}
+
+/**
+ * Every persona version stored under a project, oldest first.
+ *
+ * This is the read that `projectId` exists for: before it, "show me this
+ * project's persona" required a documentId the caller had no way to look up.
+ */
+export async function getPersonaDocumentsByProjectId({
+  projectId,
+}: {
+  projectId: string;
+}) {
+  try {
+    return await db
+      .select()
+      .from(document)
+      .where(
+        and(eq(document.projectId, projectId), eq(document.kind, "persona"))
+      )
+      .orderBy(asc(document.createdAt));
+  } catch (error) {
+    console.error("Failed to get persona documents from database", error);
     throw error;
   }
 }
@@ -839,11 +890,20 @@ export async function getDocumentsByMessageIds({
   }
 
   try {
-    return await db
+    const rows = await db
       .select()
       .from(document)
       .where(inArray(document.messageId, messageIds))
       .orderBy(asc(document.createdAt));
+
+    // `inArray` cannot match a NULL, so every row returned here has a
+    // messageId even though the column is nullable. Narrowing it is what lets
+    // the chat-clone path key documents by their message without a null check
+    // that could never fire — and the alternative, making the clone path
+    // accept null, would have no correct behaviour to fall back on.
+    return rows as (Omit<(typeof rows)[number], "messageId"> & {
+      messageId: string;
+    })[];
   } catch (error) {
     console.error("Failed to get documents by message IDs from database");
     throw error;

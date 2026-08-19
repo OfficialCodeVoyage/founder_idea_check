@@ -23,11 +23,6 @@ const Editor = dynamic(
   { loading: () => <InlineDocumentSkeleton />, ssr: false }
 );
 
-const ImageEditor = dynamic(
-  () => import("../image-editor").then((m) => ({ default: m.ImageEditor })),
-  { loading: () => <InlineDocumentSkeleton />, ssr: false }
-);
-
 const SpreadsheetEditor = dynamic(
   () =>
     import("../sheet-editor").then((m) => ({ default: m.SpreadsheetEditor })),
@@ -120,7 +115,9 @@ export function DocumentPreview({
         id: artifact.documentId,
         createdAt: new Date(),
         userId: "noop",
+        // A streaming placeholder belongs to no message and no project.
         messageId: "noop",
+        projectId: null,
       };
     }
     return null;
@@ -352,18 +349,8 @@ const DocumentContent = ({ document }: { document: Document }) => {
             </div>
           );
         }
-        if (document.kind === "image") {
-          return (
-            <ImageEditor
-              content={document.content ?? ""}
-              currentVersionIndex={0}
-              isCurrentVersion={true}
-              isInline={true}
-              status={artifact.status}
-              title={document.title}
-            />
-          );
-        }
+        // No branch for "persona" yet: the fallthrough renders nothing rather
+        // than dumping the JSON envelope at the founder. PersonaCard mounts here.
         return null;
       })()}
     </div>

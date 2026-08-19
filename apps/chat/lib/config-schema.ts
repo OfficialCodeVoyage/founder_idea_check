@@ -64,6 +64,18 @@ const deepResearchToolConfigSchema = z.object({
     .min(1)
     .max(10)
     .describe("Max search queries per research topic"),
+  maxInputTokensPerRun: z
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .describe("Hard ceiling on projected input tokens for one research run"),
+  hosted: z
+    .boolean()
+    .describe("One provider key serves users other than the operator"),
+  researchSidecarUrl: z
+    .string()
+    .describe("Base URL of the apps/research sidecar; empty disables it"),
 });
 
 function createAiSchema<G extends GatewayType>(g: G) {

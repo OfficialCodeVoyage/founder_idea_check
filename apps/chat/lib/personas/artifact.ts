@@ -31,16 +31,14 @@ import {
 /**
  * The `Document.kind` value persona rows are written with.
  *
- * INTERIM. The column is `varchar({ enum: ["text", "code", "sheet"] })` and this
- * lane may not touch lib/db/schema.ts, so "text" is the only legal value today.
- * The exact diff that adds a "persona" kind — and why storing JSON under "text"
- * is a real hazard rather than a cosmetic one (the artifact panel will happily
- * render the raw envelope to the founder) — is in PERSONA-INTEGRATION-NOTES.md.
+ * Its own kind, not "text". A persona row's content is a JSON envelope, and an
+ * artifact panel that believes it is text renders that envelope to the founder
+ * verbatim. Storing JSON under "text" was a real hazard, not a cosmetic one.
  *
- * It is a single exported constant precisely so that change is one line here and
+ * It is a single exported constant precisely so this is one line here and
  * nothing else in the module has to move.
  */
-export const PERSONA_DOCUMENT_KIND: ArtifactKind = "text";
+export const PERSONA_DOCUMENT_KIND: ArtifactKind = "persona";
 
 /** Document.title is NOT NULL. Postgres text has no limit; readability does. */
 export const MAX_TITLE_LENGTH = 200;
@@ -72,7 +70,10 @@ export type PersonaVersionRow = {
   content: string;
   kind: ArtifactKind;
   userId: string;
-  messageId: string;
+  /** NULLABLE since Document.messageId became nullable. */
+  messageId: string | null;
+  /** Scopes the persona to a project so it can be looked up without an id. */
+  projectId: string | null;
 };
 
 /** PURE. */
@@ -155,7 +156,8 @@ export function buildPersonaVersionRow({
   documentId,
   artifact,
   userId,
-  messageId,
+  messageId = null,
+  projectId = null,
   existingCreatedAt,
   now,
 }: {
@@ -163,8 +165,13 @@ export function buildPersonaVersionRow({
   documentId: string;
   artifact: PersonaArtifact;
   userId: string;
-  /** Document.messageId is NOT NULL — see PERSONA-INTEGRATION-NOTES.md. */
-  messageId: string;
+  /**
+   * The assistant message that triggered this regeneration, when there was
+   * one. Null is normal: a persona is rebuilt from the fact store on demand.
+   */
+  messageId?: string | null;
+  /** The project this persona belongs to. */
+  projectId?: string | null;
   /** createdAt of every version already stored under `documentId`. */
   existingCreatedAt: readonly Date[];
   now: Date;
@@ -177,6 +184,7 @@ export function buildPersonaVersionRow({
     kind: PERSONA_DOCUMENT_KIND,
     userId,
     messageId,
+    projectId,
   };
 }
 

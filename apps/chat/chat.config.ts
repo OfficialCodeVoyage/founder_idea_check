@@ -112,6 +112,28 @@ const config = defineConfig({
         maxResearcherIterations: 1,
         maxConcurrentResearchUnits: 2,
         maxSearchQueries: 2,
+
+        /**
+         * Hard ceiling on PROJECTED input tokens for one research run, across
+         * the whole fan-out. `null` disables the cap and is only legal when
+         * `hosted: false` — decideResearchBudget() REFUSES an uncapped hosted
+         * run, because a missing cap is a misconfiguration and the safe reading
+         * of a misconfiguration is not "unlimited".
+         *
+         * One full 4-researcher pass at breadth 4 / depth 2 projects ~1.1M
+         * input tokens. 1_500_000 leaves headroom; 400_000 forces breadth 2 /
+         * depth 1.
+         */
+        maxInputTokensPerRun: 1_500_000,
+
+        /**
+         * True when one provider key serves users who are not the operator.
+         * Under BYOK self-host this is false and the cap may be null.
+         */
+        hosted: false,
+
+        /** Base URL of apps/research. Empty disables every sidecar source. */
+        researchSidecarUrl: "http://localhost:8099",
       },
     },
   },

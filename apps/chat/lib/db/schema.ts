@@ -7,6 +7,7 @@ import {
   index,
   integer,
   json,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -258,22 +259,37 @@ export const document = pgTable(
     createdAt: timestamp("createdAt").notNull(),
     title: text("title").notNull(),
     content: text("content"),
-    kind: varchar("kind", { enum: ["text", "code", "sheet"] })
+    kind: varchar("kind", { enum: ["text", "code", "sheet", "persona"] })
       .notNull()
       .default("text"),
     userId: text("userId")
       .notNull()
       .references(() => user.id),
-    messageId: uuid("messageId")
-      .notNull()
-      .references(() => message.id, {
-        onDelete: "cascade",
-      }),
+    /**
+     * NULLABLE. A persona is regenerated from the fact store on demand, not
+     * produced by one assistant turn, so there is no message to hang it on.
+     *
+     * READ-SIDE CONSEQUENCE: the public-visibility branches in queries.ts
+     * derive visibility by joining Message -> Chat. A row with a NULL
+     * messageId has no chat and therefore no public visibility path; those
+     * queries return it to its owner only. See getDocumentsById.
+     */
+    messageId: uuid("messageId").references(() => message.id, {
+      onDelete: "cascade",
+    }),
+    /** NULL for artifacts created outside a project. */
+    projectId: uuid("projectId").references(() => project.id, {
+      onDelete: "cascade",
+    }),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.id, table.createdAt] }),
     document_message_id_idx: index("Document_message_id_idx").on(
       table.messageId
+    ),
+    document_project_kind_idx: index("Document_project_kind_idx").on(
+      table.projectId,
+      table.kind
     ),
   })
 );
@@ -569,5 +585,127 @@ export const projectFact = pgTable(
 );
 
 export type ProjectFact = InferSelectModel<typeof projectFact>;
+
+/**
+ * Founder-owned state for one unblocking task.
+ *
+ * `taskId` is the DETERMINISTIC id built by lib/ultraplan/blockers.ts
+ * (`${phaseKey}::${criterionId}::${kind}`), not a uuid — that is what lets a
+ * re-run of the gate reconcile with what the founder already ticked instead of
+ * producing a second row for the same work.
+ *
+ * The title/detail/producesFactKey columns are a SNAPSHOT, so a task whose
+ * blocker no longer appears in the current verdict can still be rendered
+ * (reconcileTasks() flags it `orphaned` rather than deleting or completing it).
+ */
+export const projectTask = pgTable(
+  "ProjectTask",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    projectId: uuid("projectId")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    /** `${phaseKey}::${criterionId}::${kind}` from UnblockingTask.id. */
+    taskId: varchar("taskId", { length: 256 }).notNull(),
+    phaseKey: varchar("phaseKey", { length: 64 }).notNull(),
+    criterionId: varchar("criterionId", { length: 64 }).notNull(),
+    /**
+     * NOTE: "unknown" is deliberately NOT in this enum. It is the read-side
+     * fail-closed value produced by parseTaskState() when a stored string is
+     * unrecognised; writing it back would persist a parse failure as if it were
+     * a decision.
+     */
+    state: varchar("state", {
+      enum: ["todo", "active", "blocked", "done", "dropped"],
+    })
+      .notNull()
+      .default("todo"),
+    title: text("title").notNull(),
+    detail: text("detail").notNull().default(""),
+    producesFactKey: varchar("producesFactKey", { length: 128 }),
+  },
+  (t) => ({
+    ProjectTask_project_id_idx: index("ProjectTask_project_id_idx").on(
+      t.projectId
+    ),
+    ProjectTask_project_task_unique: uniqueIndex(
+      "ProjectTask_project_task_unique"
+    ).on(t.projectId, t.taskId),
+  })
+);
+
+export type ProjectTask = InferSelectModel<typeof projectTask>;
+
+/**
+ * A simulation persona (Step 8). DISTINCT from the Document-backed persona
+ * artifact of Step 6: that one is the founder's single evidenced customer
+ * profile and is versioned through Document's composite key; these are the
+ * population an OASIS run is seeded with, and they are disposable per run.
+ */
+export const projectPersona = pgTable(
+  "ProjectPersona",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+    projectId: uuid("projectId")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    headline: text("headline").notNull(),
+    description: text("description").notNull(),
+    age: integer("age").notNull(),
+    gender: text("gender").notNull(),
+    country: text("country").notNull(),
+    mbti: text("mbti"),
+    /** MANDATORY. A persona with no evidence is a character, not a finding. */
+    evidence: jsonb("evidence")
+      .$type<{ url: string; quote: string }[]>()
+      .notNull(),
+  },
+  (t) => ({
+    ProjectPersona_project_id_idx: index("ProjectPersona_project_id_idx").on(
+      t.projectId
+    ),
+  })
+);
+
+export type ProjectPersona = InferSelectModel<typeof projectPersona>;
+
+/**
+ * One OASIS simulation run.
+ *
+ * STORE COLLAPSED RUNS. A run whose personas all agreed is the most
+ * interesting diagnostic there is — it usually means the personas were seeded
+ * from too few facts — and deleting it hides the pattern. `usable: false` is a
+ * finding, not a reason to drop the row.
+ */
+export const simulationRun = pgTable(
+  "SimulationRun",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    createdAt: timestamp("createdAt").notNull().defaultNow(),
+    projectId: uuid("projectId")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    pitch: text("pitch").notNull(),
+    /** Full DivergenceReport. Store it even when the run collapsed. */
+    divergence: jsonb("divergence").notNull(),
+    /** False for a collapsed run. NOT a reason to delete the row. */
+    usable: boolean("usable").notNull(),
+    reactions: jsonb("reactions").notNull(),
+  },
+  (t) => ({
+    SimulationRun_project_id_idx: index("SimulationRun_project_id_idx").on(
+      t.projectId
+    ),
+  })
+);
+
+export type SimulationRun = InferSelectModel<typeof simulationRun>;
 
 export const schema = { user, session, account, verification };

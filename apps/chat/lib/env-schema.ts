@@ -112,6 +112,32 @@ export const serverEnvSchema = {
     .string()
     .optional()
     .describe("Firecrawl API key for web search and URL retrieval"),
+  GITHUB_TOKEN: z
+    .string()
+    .optional()
+    .describe("GitHub token for demand-signal search (raises rate limits)"),
+  /**
+   * The SECOND of two locks on the Reddit lanes: the operator must both list
+   * the source id in `operatorEnabled` AND set this. Deliberately not a boolean
+   * and deliberately not defaulted — one switch gets flipped by somebody who
+   * did not read why it was off.
+   */
+  REDDIT_ENABLED_ACK: z
+    .string()
+    .optional()
+    .describe("Operator acknowledgement required to enable Reddit signals"),
+  RESEARCH_SIDECAR_URL: z
+    .string()
+    .optional()
+    .describe("Base URL of the apps/research sidecar; empty disables it"),
+  RESEARCH_MAX_INPUT_TOKENS: z
+    .string()
+    .optional()
+    .describe("Hard ceiling on projected input tokens for one research run"),
+  RESEARCH_HOSTED: z
+    .string()
+    .optional()
+    .describe('Set to "false" only for BYOK self-host; defaults to hosted'),
   MCP_ENCRYPTION_KEY: z
     .union([z.string().length(44), z.literal("")])
     .optional()

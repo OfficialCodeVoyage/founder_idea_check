@@ -26,6 +26,13 @@
 # service that host processes need to reach therefore has to publish a port,
 # and its URL has to stay configurable.
 #
+# CREDENTIALS. Postgres uses postgres/postgres and Redis has no password. That
+# is deliberate and is why both are published on 127.0.0.1 ONLY: the docs, the
+# repo-root .env.local `DATABASE_URL`, and every `docker exec ic-pg psql -U
+# postgres` incantation in README-DEV.md depend on those values, and rotating
+# them buys nothing on an interface no other host can reach. If you ever bind
+# these to a routable address, set a real password in the SAME commit.
+#
 # NEO4J is still absent, and that is unrelated to licensing: OASIS defaults to
 # the igraph IN-MEMORY backend (`oasis/social_agent/agent_graph.py:178-190` @
 # 40bf1705 — neo4j needs an explicit `backend="neo4j"` plus a valid
@@ -48,7 +55,14 @@ services:
     ports:
       # 5433, not 5432 — port 5432 is routinely taken by an unrelated local
       # Postgres. `DATABASE_URL` in the repo-root .env.local points here.
-      - "5433:5432"
+      #
+      # BOUND TO LOOPBACK. `- "5433:5432"` (no host) publishes on 0.0.0.0, which
+      # puts a Postgres whose password is literally `postgres` on every network
+      # this laptop joins — coffee shop wifi included. The bare `docker run` this
+      # replaced had the same hole; it is closed here rather than inherited.
+      # Compose-internal traffic is unaffected: services use `postgres:5432` on
+      # the project network and never touch a published port.
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -63,8 +77,11 @@ services:
     image: redis:7-alpine
     container_name: ic-redis
     ports:
-      # 6380, not 6379, for the same reason as above.
-      - "6380:6379"
+      # 6380, not 6379, for the same reason as above. Loopback-bound for the
+      # same reason as Postgres, and more urgently: this Redis has NO password,
+      # so an unauthenticated FLUSHALL is one `redis-cli -h` away from anyone
+      # sharing the network.
+      - "127.0.0.1:6380:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -82,7 +99,10 @@ services:
       # and expect a multi-gigabyte image (torch + sentence-transformers).
       target: base
     ports:
-      - "8099:8099"
+      # Loopback-bound like the other two. This API takes no auth and its
+      # endpoints spend money (they drive LLM calls), so it must not be
+      # reachable from the network. `apps/chat` calls it from the host.
+      - "127.0.0.1:8099:8099"
     environment:
       # ─────────────────────────────────────────────────────────────────────
       # FAIL-CLOSED. `RESEARCH_HOSTED` is unset in `app/config.py` terms only

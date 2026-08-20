@@ -66,14 +66,20 @@ export type RegeneratePersonaInput = {
    * The Document id whose version history this persona lives in. Reuse it to
    * add a version; pass a fresh uuid to start a new persona at v1.
    *
-   * INTERIM: the caller has to supply it because `Document` has no `projectId`
-   * column yet, so "the persona for this project" is not a query anybody can
-   * write. The exact schema diff — and the `resolvePersonaDocumentId` this
-   * function grows once it lands — is in PERSONA-INTEGRATION-NOTES.md.
+   * Still caller-supplied, but no longer because the schema forces it:
+   * `Document.projectId` landed, and `Document_project_kind_idx` makes "the
+   * persona for this project" a real query. What remains is a choice about
+   * WHICH version history to append to when a project has more than one
+   * persona document, which the caller knows and this function does not.
    */
   documentId: string;
   userId: string;
-  /** Document.messageId is NOT NULL today. See the same notes file. */
+  /**
+   * `Document.messageId` is NULLABLE in the schema — a persona is regenerated
+   * from the fact store, not produced by one assistant turn. It stays required
+   * HERE because every current caller regenerates in response to a message and
+   * a persona with no provenance is worse than one with a redundant link.
+   */
   messageId: string;
   /** Ranks the fact block against what the founder just asked for. */
   latestUserMessage?: string;

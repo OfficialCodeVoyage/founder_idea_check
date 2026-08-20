@@ -8,7 +8,14 @@ import pytest
 
 from app.errors import SourceBlocked, SourceRateLimited, SourceSchemaDrift, SourceUnavailable
 from app.http import _classify
-from app.sources import github, hackernews, reddit_rss, reddit_shreddit, web_search_keyless
+from app.sources import (
+    arctic_shift,
+    github,
+    hackernews,
+    reddit_rss,
+    reddit_shreddit,
+    web_search_keyless,
+)
 from app.sources.base import SourceQuery
 
 
@@ -333,3 +340,276 @@ class TestRedditShreddit:
         assert (
             source.fetch(SourceQuery(query="q", date_from="2026-07-01", date_to="2026-08-01")) == []
         )
+
+
+def _arctic_row(**overrides):
+    row = {
+        "id": "abc123",
+        "title": "Pricing feedback wanted",
+        "selftext": "We charge $39/mo and churn is brutal.",
+        "score": 42,
+        "num_comments": 7,
+        "created_utc": 1787245003,
+        "subreddit": "startups",
+    }
+    row.update(overrides)
+    return row
+
+
+class TestArcticShiftUrl:
+    def test_never_asks_for_the_author_field(self):
+        """The strongest form of the username rule: it is never received.
+
+        The other two Reddit adapters drop `author` at parse time. This one
+        excludes it from the request, so there is nothing to drop.
+        """
+        url = arctic_shift.build_search_url(
+            subreddit="startups",
+            query="pricing",
+            date_from="2026-01-01",
+            date_to="2026-08-01",
+            limit=25,
+        )
+        assert "fields=" in url
+        assert "author" not in url
+
+    def test_carries_the_documented_parameters(self):
+        url = arctic_shift.build_search_url(
+            subreddit="startups",
+            query="pricing",
+            date_from="2026-01-01",
+            date_to="2026-08-01",
+            limit=25,
+        )
+        assert "subreddit=startups" in url
+        assert "query=pricing" in url
+        assert "after=2026-01-01" in url
+        assert "before=2026-08-01" in url
+        assert "sort=desc" in url
+
+    def test_clamps_limit_to_the_documented_ceiling(self):
+        # The API answers 400 above 100 rather than truncating, so a caller
+        # asking for 500 would get nothing at all instead of 100 results.
+        assert "limit=100" in arctic_shift.build_search_url(
+            subreddit="startups", query="x", date_from="", date_to="", limit=500
+        )
+        assert "limit=1" in arctic_shift.build_search_url(
+            subreddit="startups", query="x", date_from="", date_to="", limit=0
+        )
+
+    def test_omits_an_empty_query_rather_than_sending_a_blank(self):
+        url = arctic_shift.build_search_url(
+            subreddit="startups", query="   ", date_from="", date_to="", limit=5
+        )
+        assert "query=" not in url
+
+
+class TestArcticShiftParsing:
+    def _prepared(self):
+        from app.text.relevance import PreparedQuery
+
+        return PreparedQuery("pricing churn")
+
+    def test_parses_a_row_into_a_source_item(self):
+        items = arctic_shift.parse_posts(
+            {"data": [_arctic_row()]}, self._prepared(), "u"
+        )
+        assert len(items) == 1
+        item = items[0]
+        assert item.title == "Pricing feedback wanted"
+        assert item.url.startswith("https://www.reddit.com/r/startups/")
+        assert item.container == "startups"
+        assert item.published_at is not None
+        assert item.date_confidence == "high"
+        assert item.engagement == {"score": 42, "comments": 7}
+
+    def test_the_author_is_always_none_even_if_the_archive_sends_one(self):
+        # `fields` should prevent this, but a server-side change must not be
+        # able to reintroduce a username through the back door.
+        items = arctic_shift.parse_posts(
+            {"data": [_arctic_row(author="someone_real")]}, self._prepared(), "u"
+        )
+        assert items[0].author is None
+
+    def test_an_overload_body_raises_rather_than_reading_as_no_results(self):
+        """THE IMPORTANT ONE.
+
+        The archive sheds load with a 200 whose body carries an error string.
+        Returning [] here would write "nobody is discussing this" into a report
+        when the truth is "we never got to ask".
+        """
+        with pytest.raises(SourceRateLimited):
+            arctic_shift.parse_posts(
+                {"data": None, "error": "Timeout. Maybe slow down a bit"},
+                self._prepared(),
+                "u",
+            )
+
+    def test_a_non_overload_error_body_is_unavailable_not_rate_limited(self):
+        with pytest.raises(SourceUnavailable):
+            arctic_shift.parse_posts(
+                {"data": None, "error": "Internal server error"}, self._prepared(), "u"
+            )
+
+    def test_a_missing_data_key_is_schema_drift(self):
+        with pytest.raises(SourceSchemaDrift):
+            arctic_shift.parse_posts({"results": []}, self._prepared(), "u")
+
+    def test_an_empty_result_set_is_still_an_empty_list(self):
+        # Genuinely no matches must remain distinguishable from a failure.
+        assert arctic_shift.parse_posts({"data": []}, self._prepared(), "u") == []
+
+    def test_drops_rows_that_cannot_produce_a_citable_permalink(self):
+        # An uncitable finding is worse than a missing one: it renders with
+        # citation machinery wrapped around a dead link.
+        rows = [
+            _arctic_row(title="", selftext=""),
+            _arctic_row(id=""),
+            _arctic_row(subreddit=""),
+            _arctic_row(),
+        ]
+        assert len(arctic_shift.parse_posts({"data": rows}, self._prepared(), "u")) == 1
+
+    def test_builds_the_thread_permalink_from_subreddit_and_id(self):
+        # `permalink` is not a selectable field, and the selectable `url` is the
+        # OFF-SITE target for a link post — citing it would send a founder to
+        # the article instead of the discussion.
+        items = arctic_shift.parse_posts(
+            {"data": [_arctic_row()]}, self._prepared(), "u"
+        )
+        assert items[0].url == "https://www.reddit.com/r/startups/comments/abc123/"
+
+    def test_never_requests_the_unselectable_permalink_field(self):
+        # Verified against a live 400: "'permalink' is not a valid field".
+        url = arctic_shift.build_search_url(
+            subreddit="startups", query="x", date_from="", date_to="", limit=5
+        )
+        assert "permalink" not in url
+
+    def test_an_unparseable_timestamp_lowers_confidence_instead_of_failing(self):
+        items = arctic_shift.parse_posts(
+            {"data": [_arctic_row(created_utc="not-a-number")]}, self._prepared(), "u"
+        )
+        assert items[0].published_at is None
+        assert items[0].date_confidence == "low"
+
+
+class TestArcticShiftScoping:
+    def test_refuses_an_unscoped_search_instead_of_returning_arbitrary_posts(self):
+        """No global keyword search exists, so pretending otherwise is a lie.
+
+        Without a subreddit the API ignores `query` and returns the newest posts
+        in the archive, which would read as "we searched and found little".
+        """
+        query = SourceQuery(
+            query="pricing", date_from="2026-01-01", date_to="2026-08-01", limit=5
+        )
+        with pytest.raises(SourceUnavailable) as caught:
+            arctic_shift.ArcticShiftSource().fetch(query)
+        assert "subreddit" in caught.value.detail.lower()
+
+
+class TestArcticShiftRetry:
+    """Retry only what retrying can fix. `sleep` is injected — no real waiting."""
+
+    def test_retries_an_overload_and_succeeds_on_a_later_attempt(self, monkeypatch):
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return {"data": None, "error": "Timeout. Maybe slow down a bit"}
+            return {"data": [_arctic_row()]}
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        payload = arctic_shift._get_with_retry("u", sleep=lambda _s: None)
+        assert calls["n"] == 3
+        assert len(payload["data"]) == 1
+
+    def test_gives_up_as_rate_limited_rather_than_as_empty(self, monkeypatch):
+        # The whole point: exhausting retries must still be a FAILURE, never a
+        # quiet empty result that reads as "nobody is talking about this".
+        monkeypatch.setattr(
+            arctic_shift,
+            "get_json",
+            lambda url, timeout=None: {
+                "data": None,
+                "error": "Timeout. Maybe slow down a bit",
+            },
+        )
+        with pytest.raises(SourceRateLimited):
+            arctic_shift._get_with_retry("u", sleep=lambda _s: None)
+
+    def test_does_not_retry_a_bad_request(self, monkeypatch):
+        """A 400 will not improve by asking again — retrying only slows it."""
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            raise SourceUnavailable("HTTP 400 ... 'permalink' is not a valid field")
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        with pytest.raises(SourceUnavailable):
+            arctic_shift._get_with_retry("u", sleep=lambda _s: None)
+        assert calls["n"] == 1
+
+    def test_an_overload_arriving_as_an_http_status_is_still_retryable(
+        self, monkeypatch
+    ):
+        # The archive sends the same message as a 422, which lands as a raised
+        # SourceUnavailable rather than in the body check. Same meaning.
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise SourceUnavailable(
+                    "HTTP 422 ... 'Timeout. Maybe slow down a bit'"
+                )
+            return {"data": [_arctic_row()]}
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        assert arctic_shift._get_with_retry("u", sleep=lambda _s: None)["data"]
+        assert calls["n"] == 2
+
+
+class TestArcticShiftLaneResilience:
+    """One subreddit failing is not the lane failing; every one failing is."""
+
+    def _query(self, subs):
+        return SourceQuery(
+            query="pricing",
+            date_from="2026-01-01",
+            date_to="2026-08-20",
+            limit=5,
+            options={"subreddits": subs},
+        )
+
+    def test_a_rate_limited_subreddit_does_not_kill_a_healthy_one(self, monkeypatch):
+        """REGRESSION. SourceRateLimited is a SIBLING of SourceUnavailable.
+
+        Catching the narrower type in the per-subreddit loop let an exhausted
+        retry escape and take down the whole lane, discarding results already
+        collected from subreddits that answered perfectly well.
+        """
+
+        def fake_retry(url, sleep=None):
+            if "subreddit=dead" in url:
+                raise SourceRateLimited("Arctic Shift is shedding load")
+            return {"data": [_arctic_row()]}
+
+        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        items = arctic_shift.ArcticShiftSource().fetch(self._query(["dead", "alive"]))
+        assert len(items) == 1
+        assert items[0].container == "startups"
+
+    def test_every_subreddit_failing_is_an_outage_not_an_empty_topic(
+        self, monkeypatch
+    ):
+        def fake_retry(url, sleep=None):
+            raise SourceRateLimited("Arctic Shift is shedding load")
+
+        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        with pytest.raises(SourceUnavailable) as caught:
+            arctic_shift.ArcticShiftSource().fetch(self._query(["a", "b"]))
+        assert "outage" in caught.value.detail

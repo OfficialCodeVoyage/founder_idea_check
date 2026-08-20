@@ -13,6 +13,8 @@ whether an API key is present, which answers "can we?" — this registry asks
 from __future__ import annotations
 
 from ..config import Settings
+from .arctic_shift import DESCRIPTOR as ARCTIC_SHIFT_DESCRIPTOR
+from .arctic_shift import ArcticShiftSource
 from .base import Source, SourceDescriptor, assert_permitted
 from .github import DESCRIPTOR as GITHUB_DESCRIPTOR
 from .github import GitHubSource
@@ -31,6 +33,7 @@ ALL_DESCRIPTORS: tuple[SourceDescriptor, ...] = (
     GITHUB_DESCRIPTOR,
     REDDIT_RSS_DESCRIPTOR,
     REDDIT_SHREDDIT_DESCRIPTOR,
+    ARCTIC_SHIFT_DESCRIPTOR,
 )
 
 _BY_ID = {descriptor.id: descriptor for descriptor in ALL_DESCRIPTORS}
@@ -63,6 +66,8 @@ def build_source(descriptor: SourceDescriptor, settings: Settings) -> Source:
         return RedditRssSource()
     if descriptor.id == "reddit-shreddit":
         return RedditShredditSource()
+    if descriptor.id == "arctic-shift":
+        return ArcticShiftSource()
     raise KeyError(f"no adapter is registered for source id {descriptor.id!r}")
 
 

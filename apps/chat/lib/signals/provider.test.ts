@@ -87,7 +87,9 @@ describe("the default source set — this is the legal position, as code", () =>
   });
 
   it("returns null for an unknown id rather than a default", () => {
-    expect(findProvider("arctic-shift")).toBeNull();
+    // NOT "arctic-shift" — that is a real provider id now, and an unknown-id
+    // test that names a known id proves the opposite of what it claims.
+    expect(findProvider("no-such-source")).toBeNull();
     expect(findProvider("hackernews")).toBe(HACKERNEWS);
   });
 });
@@ -163,7 +165,17 @@ describe("selectEnabledProviders", () => {
       "hackernews",
       "web-keyless",
     ]);
-    expect(selection.refused).toHaveLength(3);
+    // github, reddit-rss, reddit-shreddit, arctic-shift. Arctic Shift is
+    // PERMITTED in hosted mode but is still not a default: it cannot keyword
+    // search across Reddit and needs subreddits chosen for it, so it is a lane
+    // an operator opts into deliberately.
+    expect(selection.refused).toHaveLength(4);
+    expect(selection.refused.map((r) => r.descriptor.id).sort()).toEqual([
+      "arctic-shift",
+      "github",
+      "reddit-rss",
+      "reddit-shreddit",
+    ]);
   });
 
   it("gives every refusal a reason the UI can display", () => {

@@ -155,6 +155,34 @@ export const REDDIT_SHREDDIT: ProviderDescriptor = {
   gateReason: REDDIT_GATE_REASON,
 };
 
+/**
+ * Reddit history via the Arctic Shift archive.
+ *
+ * ON in hosted mode, where both keyless Reddit lanes are off, and the
+ * distinction is not a loophole. The lanes above are off because they read
+ * Reddit's own edge — RSS answers where `.json` returns 403, which is routing
+ * around an access control, and that is the theory in the Perplexity and
+ * Anthropic suits. This one calls a THIRD PARTY's documented public API that
+ * its operator invites people to use, from that party's own hosting.
+ *
+ * The GDPR half is answered differently too, and more strongly: the request
+ * carries an explicit `fields` list with no `author` in it, so the username is
+ * never received rather than received and dropped.
+ *
+ * NOT in the defaults: the archive lags real time and cannot keyword-search
+ * across all of Reddit — it needs subreddits chosen for it, so it is a lane an
+ * operator opts into for a reason, not one that should quietly run everywhere.
+ */
+export const ARCTIC_SHIFT: ProviderDescriptor = {
+  id: "arctic-shift",
+  label: "Reddit (Arctic Shift archive)",
+  enabledInHosted: true,
+  enabledInSelfHost: true,
+  requiredCredentials: [],
+  gateReason:
+    "Third-party public archive with a documented keyless API its operator invites third parties to call, served from that party's own hosting rather than Reddit's edge — so it neither routes around an access control nor depends on a residential IP. Queried with an explicit field list that excludes the author, so no Reddit username is ever received.",
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // THE REGISTRY.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,6 +193,7 @@ export const ALL_PROVIDERS: readonly ProviderDescriptor[] = [
   GITHUB,
   REDDIT_RSS,
   REDDIT_SHREDDIT,
+  ARCTIC_SHIFT,
 ];
 
 /**

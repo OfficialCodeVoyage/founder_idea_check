@@ -122,9 +122,11 @@ class TestSettings:
         assert settings.deployment.operator_enabled == frozenset(DEFAULT_ENABLED_SOURCES)
 
     def test_an_unknown_source_id_is_surfaced_not_ignored(self):
-        settings = load_settings({"RESEARCH_ENABLED_SOURCES": "hackernews,arctic-shift"})
-        assert settings.unknown_source_ids == ("arctic-shift",)
-        assert "arctic-shift" not in settings.deployment.operator_enabled
+        settings = load_settings(
+            {"RESEARCH_ENABLED_SOURCES": "hackernews,no-such-source"}
+        )
+        assert settings.unknown_source_ids == ("no-such-source",)
+        assert "no-such-source" not in settings.deployment.operator_enabled
 
     def test_only_credential_presence_is_recorded_never_the_value(self):
         settings = load_settings({"GITHUB_TOKEN": "ghp_secret"})
@@ -138,9 +140,9 @@ class TestSettings:
 
 class TestRegistry:
     def test_an_unknown_id_raises_rather_than_defaulting(self):
-        assert find_descriptor("arctic-shift") is None
+        assert find_descriptor("no-such-source") is None
         with pytest.raises(KeyError):
-            resolve_permitted_source("arctic-shift", load_settings({}))
+            resolve_permitted_source("no-such-source", load_settings({}))
 
     def test_a_hosted_deployment_cannot_build_a_reddit_source(self):
         settings = load_settings(

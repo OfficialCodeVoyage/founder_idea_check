@@ -169,7 +169,7 @@ Re-stated here because this subsystem is where the temptation lives.
 
 | Candidate | Why it is barred |
 |---|---|
-| **Arctic Shift source** | `license: null` — all rights reserved. Its **public API is fine to call**; not one line of its source appears in this repo. |
+| **Arctic Shift source** | `license: null` — all rights reserved. Its **public API is fine to call**, and `app/sources/arctic_shift.py` now does exactly that: the contract was read from its published `api/README.md` and verified against the running service, and not one line of its source appears in this repo. |
 | Reddit torrent dumps | Redistributed user content including since-deleted posts. The erasure problem in its purest form. |
 | `666ghj/MiroFish` | AGPL-3.0. `camel-ai/oasis` (Apache-2.0) is the same engine without it. |
 | `lobehub/lobehub` | Custom licence: derivative works require a commercial licence. |

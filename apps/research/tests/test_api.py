@@ -47,6 +47,7 @@ class TestHealth:
             "github",
             "reddit-rss",
             "reddit-shreddit",
+            "arctic-shift",
         }
 
     def test_shows_reddit_as_barred_in_hosted_mode(self, client):
@@ -64,16 +65,18 @@ class TestHealth:
         assert "ghp_supersecret" not in str(payload)
 
     def test_surfaces_an_unknown_source_id_rather_than_dropping_it(self, monkeypatch):
-        monkeypatch.setenv("RESEARCH_ENABLED_SOURCES", "hackernews,arctic-shift")
+        # NOT "arctic-shift" any more — that is a real source id now, and a
+        # test for unknown-id handling that names a known id proves nothing.
+        monkeypatch.setenv("RESEARCH_ENABLED_SOURCES", "hackernews,no-such-source")
         main = importlib.reload(importlib.import_module("app.main"))
         payload = TestClient(main.app).get("/v1/health").json()
-        assert payload["unknown_source_ids"] == ["arctic-shift"]
+        assert payload["unknown_source_ids"] == ["no-such-source"]
 
 
 class TestSignalsContract:
     def test_an_unknown_source_id_is_a_200_with_ok_false(self, client):
         http, _ = client
-        response = http.post("/v1/signals/arctic-shift", json=body())
+        response = http.post("/v1/signals/no-such-source", json=body())
         assert response.status_code == 200
         payload = response.json()
         assert payload["ok"] is False

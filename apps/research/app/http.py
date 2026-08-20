@@ -88,6 +88,13 @@ class RateLimiter:
 #: what turns an intermittent 403 into a permanent one.
 REDDIT_KEYLESS_LIMITER = RateLimiter(rate_per_sec=5.0, burst=5)
 
+#: Arctic Shift sheds load by answering 200 with {"error": "Timeout. Maybe slow
+#: down a bit"} rather than by returning 429, so the usual status-based backoff
+#: never sees it. Measured live: a burst of three requests ~6s apart already
+#: drew that response once. 1/s is well inside what the archive tolerates, and
+#: the whole point of this lane is that it keeps working unattended.
+ARCTIC_SHIFT_LIMITER = RateLimiter(rate_per_sec=1.0, burst=2)
+
 
 def _classify(status: int, url: str, body: str) -> SourceUnavailable:
     """Turn an HTTP status into the RIGHT named error.

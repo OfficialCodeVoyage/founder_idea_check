@@ -29,7 +29,14 @@ from .sources.base import Deployment
 DEFAULT_ENABLED_SOURCES = ("hackernews", "web-keyless")
 
 KNOWN_SOURCE_IDS = frozenset(
-    {"hackernews", "web-keyless", "github", "reddit-rss", "reddit-shreddit"}
+    {
+        "hackernews",
+        "web-keyless",
+        "github",
+        "reddit-rss",
+        "reddit-shreddit",
+        "arctic-shift",
+    }
 )
 
 #: Credential names a descriptor may require. Read from the environment and

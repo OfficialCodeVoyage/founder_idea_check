@@ -12,7 +12,8 @@ export type SignalSourceId =
   | "web-keyless"
   | "github"
   | "reddit-rss"
-  | "reddit-shreddit";
+  | "reddit-shreddit"
+  | "arctic-shift";
 
 /**
  * One piece of evidence that somebody has the problem.

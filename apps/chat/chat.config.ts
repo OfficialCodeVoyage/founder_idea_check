@@ -105,7 +105,13 @@ const config = defineConfig({
         enabled: false, // image generation removed from this fork
       },
       deepResearch: {
-        enabled: false, // re-enabled in Step 5 on top of the sidecar
+        /**
+         * Live on the sidecar arm. `getSearchApi` returns "sidecar" whenever
+         * `researchSidecarUrl` is non-empty, so this no longer depends on a
+         * Tavily or Firecrawl key. Turning it on without a reachable sidecar
+         * yields named `unavailable` failures, not silent empty research.
+         */
+        enabled: true,
         defaultModel: "gpt-5.6-luna",
         finalReportModel: "gpt-5.6-terra",
         allowClarification: true,

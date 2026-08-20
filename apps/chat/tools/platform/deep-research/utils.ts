@@ -5,6 +5,7 @@ import { getAppModelDefinition } from "@/lib/ai/app-models";
 import type { StreamWriter } from "@/lib/ai/types";
 import { firecrawlWebSearch, tavilyWebSearch } from "../web-search";
 import type { DeepResearchRuntimeConfig, SearchAPI } from "./configuration";
+import { sidecarWebSearch } from "./sidecar-search";
 
 // MCP Utils
 
@@ -84,6 +85,18 @@ function getSearchTool(
   if (searchApi === "tavily") {
     return {
       webSearch: tavilyWebSearch({
+        dataStream,
+        writeTopLevelUpdates: false,
+        toolCallIdOverride: parentToolCallId,
+      }),
+    };
+  }
+  if (searchApi === "sidecar") {
+    return {
+      // Named `webSearch` like the other two arms on purpose: the researcher
+      // prompt names the tool, so renaming it per provider would make the
+      // prompt depend on which key happens to be set.
+      webSearch: sidecarWebSearch({
         dataStream,
         writeTopLevelUpdates: false,
         toolCallIdOverride: parentToolCallId,

@@ -1,7 +1,7 @@
 import { config } from "@/lib/config";
 import { env } from "@/lib/env";
 
-export type SearchAPI = "firecrawl" | "tavily" | "none";
+export type SearchAPI = "firecrawl" | "sidecar" | "tavily" | "none";
 
 export interface DeepResearchRuntimeConfig {
   allow_clarification: boolean;
@@ -37,7 +37,23 @@ export interface DeepResearchRuntimeConfig {
   summarization_model_max_tokens: number;
 }
 
+/**
+ * Picks the search arm, most-preferred first.
+ *
+ * The sidecar is checked BEFORE the cloud providers deliberately. Its config
+ * key is documented as "empty disables it", so a non-empty `researchSidecarUrl`
+ * is an explicit operator choice, not a default that happens to be populated —
+ * an operator who wants Tavily clears it. Ordering it last would instead mean a
+ * stray key in the environment silently overrode the local, keyless, no-egress
+ * path, which is the opposite of what this deployment wants.
+ *
+ * `"none"` remains the floor: no sidecar and no key still yields no tools, and
+ * `runResearcher` still refuses rather than pretending to research.
+ */
 function getSearchApi(): SearchAPI {
+  if (config.ai.tools.deepResearch.researchSidecarUrl) {
+    return "sidecar";
+  }
   if (env.TAVILY_API_KEY) {
     return "tavily";
   }

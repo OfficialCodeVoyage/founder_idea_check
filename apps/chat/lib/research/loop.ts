@@ -10,6 +10,22 @@ import type {
 } from "./types";
 
 /**
+ * SUPERSEDED, AND STILL HERE ON PURPOSE. Decided 2026-08-20.
+ *
+ * Two research loops existed: this one, built for injected retrieval and fully
+ * unit-tested but imported by nothing outside its own tests, and the one under
+ * `tools/platform/deep-research/`, which is wired into the phase workflow. The
+ * sidecar was wired into the SECOND one — see `sidecarWebSearch` — because
+ * wiring the seam that phases already call is a smaller change than teaching
+ * the phase workflow to call this.
+ *
+ * Nothing imports `runResearchLoop`. It is kept for one release so the port
+ * notes below stay reachable while the sidecar arm proves itself, and it is
+ * scheduled for deletion in its own commit. DO NOT add a new caller: that
+ * would recreate the two-loop drift this decision exists to end.
+ *
+ * ---
+ *
  * THE RESEARCH LOOP. Ported from `dzhng/deep-research` `src/deep-research.ts`
  * @ `1f8f3e285bbc23e80b98a66a64effab9069f3ad4` (MIT).
  *

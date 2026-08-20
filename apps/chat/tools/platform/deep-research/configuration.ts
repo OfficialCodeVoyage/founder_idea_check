@@ -11,6 +11,8 @@ export interface DeepResearchRuntimeConfig {
   final_report_model_max_tokens: number;
   max_concurrent_research_units: number;
   max_researcher_iterations: number;
+  /** Step ceiling for one researcher's tool loop. See chat.config.ts. */
+  max_researcher_steps: number;
   // General Configuration
   max_structured_output_retries: number;
 
@@ -53,6 +55,7 @@ export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
     maxConcurrentResearchUnits,
     maxSearchQueries,
     maxResearcherIterations,
+    maxResearcherSteps,
   } = config.ai.tools.deepResearch;
 
   return {
@@ -65,6 +68,7 @@ export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
     search_api: getSearchApi(),
     search_api_max_queries: maxSearchQueries,
     max_researcher_iterations: maxResearcherIterations,
+    max_researcher_steps: maxResearcherSteps,
 
     // Model Configuration - use same model for research/compression/summarization
     summarization_model: defaultModel,

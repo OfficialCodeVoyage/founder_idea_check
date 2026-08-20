@@ -114,6 +114,23 @@ const config = defineConfig({
         maxSearchQueries: 2,
 
         /**
+         * Hard step ceiling for ONE researcher agent's tool loop, per topic.
+         *
+         * This must be set explicitly. `ToolLoopAgent` in ai@6.0.219 defaults
+         * `stopWhen` to `stepCountIs(20)` (`ai/dist/index.js:8641`), so omitting
+         * it does not mean "one pass" — it means up to twenty model round trips
+         * per topic, multiplied by `maxConcurrentResearchUnits` and again by the
+         * supervisor's iterations. The supervisor has always been bounded
+         * explicitly; the researcher inherited that 20 silently.
+         *
+         * 6 is deliberate: enough to search, read results, refine once and
+         * answer, which is the loop the research prompt actually asks for, and
+         * comfortably above `maxSearchQueries: 2`. Raise it only with a cost
+         * projection in hand — this number multiplies.
+         */
+        maxResearcherSteps: 6,
+
+        /**
          * Hard ceiling on PROJECTED input tokens for one research run, across
          * the whole fan-out. `null` disables the cap and is only legal when
          * `hosted: false` — decideResearchBudget() REFUSES an uncapped hosted

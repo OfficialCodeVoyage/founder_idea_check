@@ -52,6 +52,15 @@ const deepResearchToolConfigSchema = z.object({
     .min(1)
     .max(10)
     .describe("Maximum supervisor loop iterations"),
+  maxResearcherSteps: z
+    .number()
+    .int()
+    .min(1)
+    // Capped at 20 because that is ToolLoopAgent's own silent default
+    // (ai@6.0.219, dist/index.js:8641). Anything higher would be a
+    // deliberately worse-than-accidental setting.
+    .max(20)
+    .describe("Step ceiling for one researcher's tool loop, per topic"),
   maxConcurrentResearchUnits: z
     .number()
     .int()

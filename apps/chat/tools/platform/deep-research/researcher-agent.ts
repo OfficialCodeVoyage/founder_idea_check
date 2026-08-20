@@ -1,4 +1,9 @@
-import { generateText, type ModelMessage, ToolLoopAgent } from "ai";
+import {
+  generateText,
+  type ModelMessage,
+  stepCountIs,
+  ToolLoopAgent,
+} from "ai";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { truncateMessages } from "@/lib/ai/token-utils";
@@ -44,6 +49,13 @@ export async function runResearcher(
       max_search_queries: config.search_api_max_queries,
     }),
     tools,
+    // EXPLICIT, and it must stay explicit. ToolLoopAgent defaults stopWhen to
+    // stepCountIs(20) (ai@6.0.219, dist/index.js:8641), so omitting this does
+    // not mean one pass — it means up to twenty model round trips per topic,
+    // times max_concurrent_research_units, times the supervisor's iterations.
+    // The supervisor next door has always bounded itself; this agent was
+    // silently inheriting that 20.
+    stopWhen: [stepCountIs(config.max_researcher_steps)],
     maxOutputTokens: config.research_model_max_tokens,
     experimental_telemetry: createTelemetry("researcher", options),
     onStepFinish: ({ usage }) => {

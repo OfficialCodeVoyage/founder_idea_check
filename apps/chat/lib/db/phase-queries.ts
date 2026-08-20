@@ -3,6 +3,7 @@ import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { EmbeddingProvider } from "../embeddings/provider";
 import { factEmbeddingText } from "../embeddings/text";
 import { db } from "./client";
+import { PROJECT_FACT_UPSERT_SET } from "./fact-upsert";
 import {
   type ProjectFact,
   type ProjectPhase,
@@ -205,14 +206,7 @@ export async function upsertProjectFacts({
       )
       .onConflictDoUpdate({
         target: [projectFact.projectId, projectFact.key],
-        set: {
-          value: sql`excluded."value"`,
-          confidence: sql`excluded."confidence"`,
-          phaseKey: sql`excluded."phaseKey"`,
-          sourceMessageId: sql`excluded."sourceMessageId"`,
-          extractedAt: sql`excluded."extractedAt"`,
-          updatedAt: sql`now()`,
-        },
+        set: PROJECT_FACT_UPSERT_SET,
       });
   } catch (error) {
     console.error("Failed to upsert project facts in database", error);

@@ -51,6 +51,7 @@ export interface ModelDefaultsFor<G extends GatewayType> {
       finalReportModel: GatewayModelIdMap[G];
       allowClarification: boolean;
       maxResearcherIterations: number;
+      maxResearcherSteps: number;
       maxConcurrentResearchUnits: number;
       maxSearchQueries: number;
       maxInputTokensPerRun: number | null;
@@ -111,6 +112,7 @@ const vercelDefaults = {
       finalReportModel: "google/gemini-3-flash",
       allowClarification: true,
       maxResearcherIterations: 1,
+      maxResearcherSteps: 6,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
       /**
@@ -173,6 +175,7 @@ const openrouterDefaults = {
       finalReportModel: "google/gemini-3-flash",
       allowClarification: true,
       maxResearcherIterations: 1,
+      maxResearcherSteps: 6,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
       /**
@@ -226,6 +229,7 @@ const openaiDefaults = {
       finalReportModel: "gpt-5-mini",
       allowClarification: true,
       maxResearcherIterations: 1,
+      maxResearcherSteps: 6,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
       /**
@@ -279,6 +283,7 @@ const openaiCompatibleDefaults = {
       finalReportModel: "gpt-5-mini",
       allowClarification: true,
       maxResearcherIterations: 1,
+      maxResearcherSteps: 6,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
       /**
@@ -332,6 +337,7 @@ const litellmDefaults = {
       finalReportModel: "openai/gpt-4o",
       allowClarification: true,
       maxResearcherIterations: 1,
+      maxResearcherSteps: 6,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
       /**
@@ -386,6 +392,7 @@ const anthropicDefaults = {
       finalReportModel: "claude-sonnet-5",
       allowClarification: true,
       maxResearcherIterations: 1,
+      maxResearcherSteps: 6,
       maxConcurrentResearchUnits: 2,
       maxSearchQueries: 2,
       /**

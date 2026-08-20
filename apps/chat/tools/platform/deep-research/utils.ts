@@ -3,9 +3,12 @@ import type { ToolSet } from "ai";
 import type { ModelId } from "@/lib/ai/app-models";
 import { getAppModelDefinition } from "@/lib/ai/app-models";
 import type { StreamWriter } from "@/lib/ai/types";
+import { createModuleLogger } from "@/lib/logger";
 import { firecrawlWebSearch, tavilyWebSearch } from "../web-search";
 import type { DeepResearchRuntimeConfig, SearchAPI } from "./configuration";
 import { sidecarWebSearch } from "./sidecar-search";
+
+const log = createModuleLogger("tools/deep-research/utils");
 
 // MCP Utils
 
@@ -133,9 +136,39 @@ export async function getAllTools(
   return { ...mcpTools, ...searchTools };
 }
 
+/**
+ * Conservative floor used when the gateway reports no context window.
+ *
+ * Not a guess at any particular model's real size — a deliberately small,
+ * widely-safe budget. Overshooting would produce a provider-side rejection;
+ * undershooting only truncates.
+ */
+const UNKNOWN_CONTEXT_WINDOW_FALLBACK = 128_000;
+
+/**
+ * Context window for a model, in tokens. ALWAYS POSITIVE.
+ *
+ * A non-positive `context_window` means THE GATEWAY DID NOT REPORT ONE, not
+ * that the model accepts zero tokens. OpenAI's /v1/models carries no context
+ * window, so `toAiGatewayModel` in lib/ai/gateways/openai-gateway.ts writes 0
+ * as a placeholder — and every one of the 126 models in models.generated.ts
+ * currently has it.
+ *
+ * Returning that 0 unchanged is what disabled deep research outright:
+ * `truncateMessages(messages, 0)` discarded every message and `generateText`
+ * threw "Invalid prompt: messages must not be empty". Zero is not a budget, and
+ * an unreported value must not be defaulted to it.
+ */
 export async function getModelContextWindow(modelId: ModelId): Promise<number> {
   const model = await getAppModelDefinition(modelId);
-  return model.context_window;
+  if (model.context_window > 0) {
+    return model.context_window;
+  }
+  log.warn(
+    { modelId, reported: model.context_window },
+    "Gateway reported no context window; using the documented fallback"
+  );
+  return UNKNOWN_CONTEXT_WINDOW_FALLBACK;
 }
 
 // Misc Utils

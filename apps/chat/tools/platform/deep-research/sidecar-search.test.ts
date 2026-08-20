@@ -279,6 +279,53 @@ describe("sidecarWebSearch", () => {
     expect(result.searches.flatMap((s) => s.results)).toHaveLength(1);
   });
 
+  it("refuses an empty query instead of letting the sidecar 422 it", async () => {
+    // The sidecar answers HTTP 422 for query:"", which classifySidecarStatus
+    // maps to schema-drift — "the contracts diverged, redeploy". That is the
+    // wrong story to tell an operator about a malformed tool call.
+    let called = false;
+    const { stream } = recordingStream();
+    const tool = sidecarWebSearch({
+      dataStream: stream,
+      writeTopLevelUpdates: false,
+      fetchImpl: (() => {
+        called = true;
+        return Promise.resolve(jsonResponse(signalBody("hackernews", [])));
+      }) as unknown as typeof fetch,
+    });
+
+    const result = await runTool(tool, [{ query: "   ", maxResults: 5 }]);
+
+    expect(called).toBe(false);
+    expect(result.error).toContain("malformed tool call");
+    expect(result.searches).toHaveLength(0);
+  });
+
+  it("still searches the non-empty queries when one is blank", async () => {
+    const seen: string[] = [];
+    const { stream } = recordingStream();
+    const tool = sidecarWebSearch({
+      dataStream: stream,
+      writeTopLevelUpdates: false,
+      fetchImpl: fetchReturning(
+        {
+          hackernews: signalBody("hackernews", [signal()]),
+          "web-keyless": signalBody("web-keyless", []),
+        },
+        seen
+      ),
+    });
+
+    const result = await runTool(tool, [
+      { query: "", maxResults: 5 },
+      { query: "real query", maxResults: 5 },
+    ]);
+
+    expect(result.error).toBeUndefined();
+    expect(result.searches).toHaveLength(1);
+    expect(result.searches[0].results).toHaveLength(1);
+  });
+
   it("sends the configured lookback window to the sidecar", async () => {
     const bodies: Record<string, unknown>[] = [];
     const { stream } = recordingStream();

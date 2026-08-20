@@ -204,6 +204,40 @@ describe("truncateMessages", () => {
     }
   });
 
+  it("NEVER returns empty for non-empty input, even at a zero budget", () => {
+    // A context_window of 0 is the placeholder the openai gateway writes when
+    // the provider reports none. Read as a literal budget it emptied every
+    // deep-research prompt, and the SDK then threw "Invalid prompt: messages
+    // must not be empty" three layers from the cause.
+    const result = truncateMessages(
+      [{ role: "user", content: "a real question that must survive" }],
+      0
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].role).toBe("user");
+    expect(typeof result[0].content).toBe("string");
+    expect((result[0].content as string).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the NEWEST message when the budget fits none of them", () => {
+    const result = truncateMessages(
+      [
+        { role: "user", content: "oldest" },
+        { role: "assistant", content: "middle" },
+        { role: "user", content: "newest and most relevant" },
+      ],
+      0
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content as string).toContain("newest");
+  });
+
+  it("still returns empty for empty input", () => {
+    expect(truncateMessages([], 0)).toEqual([]);
+  });
+
   it("should handle edge case with zero token limit", () => {
     const result = truncateMessages(messages, 0);
 

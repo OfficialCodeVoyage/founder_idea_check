@@ -112,7 +112,13 @@ function toSearchResults(signals: readonly DemandSignal[]): SearchResult[] {
 const searchQueriesSchema = z
   .array(
     z.object({
-      query: z.string(),
+      // `.min(1)`: the sidecar's SignalRequest declares `query` with
+      // min_length=1, so an empty string comes back HTTP 422 and
+      // `classifySidecarStatus` maps that to `schema-drift` — which tells an
+      // operator the app and sidecar contracts have diverged and to redeploy,
+      // when in fact the model just emitted an empty argument. Reject it here
+      // so the model gets a schema error it can repair instead.
+      query: z.string().min(1),
       maxResults: z
         .number()
         .min(1)
@@ -189,13 +195,27 @@ Avoid:
         },
       });
 
+      // Defence in depth: the schema above rejects an empty query, but a
+      // provider that skips validation must not turn it into a 422 mislabelled
+      // as contract drift.
+      const usable = search_queries.filter(
+        (entry) => entry.query.trim().length > 0
+      );
+      if (usable.length === 0) {
+        return {
+          searches: [],
+          error:
+            "No non-empty search query was supplied, so nothing was searched. This is a malformed tool call, not a source failure.",
+        };
+      }
+
       const to = now?.() ?? new Date();
       const from = new Date(to.getTime() - LOOKBACK_DAYS * DAY_MS);
       const mode = currentDeploymentMode();
       const fetcherFor = createSidecarSignalFetcher({ baseUrl, fetchImpl });
 
       const harvests = await Promise.all(
-        search_queries.map((entry) =>
+        usable.map((entry) =>
           runSignalHarvest(
             { fetcherFor },
             {
@@ -214,8 +234,8 @@ Avoid:
 
       const searches = harvests.map((harvest, index) => ({
         query: {
-          query: search_queries[index].query,
-          maxResults: search_queries[index].maxResults ?? DEFAULT_MAX_RESULTS,
+          query: usable[index].query,
+          maxResults: usable[index].maxResults ?? DEFAULT_MAX_RESULTS,
         },
         results: toSearchResults(harvest.signals),
       }));

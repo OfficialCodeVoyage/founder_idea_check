@@ -86,6 +86,16 @@ class RateLimiter:
 
 #: Upstream's measured ceiling for the keyless Reddit lanes. Exceeding it is
 #: what turns an intermittent 403 into a permanent one.
+#:
+#: RE-MEASURED 2026-08-20 and this limiter is more necessary than upstream's
+#: figure suggests, not less. A burst of four requests to
+#: `/r/rust/top.rss?t=month` from this machine, with no delay between them,
+#: returned 200, 200, 429, 429 — Reddit starts shedding at the THIRD
+#: back-to-back request, well under 5/s. The burst of 5 is therefore optimistic;
+#: it is left at upstream's value because the real fan-out is serial and never
+#: reaches it, but do not raise it, and do not delete this limiter on the theory
+#: that a local proxy makes it unnecessary. See the Redlib row in THIRD_PARTY.md
+#: for why no such proxy exists.
 REDDIT_KEYLESS_LIMITER = RateLimiter(rate_per_sec=5.0, burst=5)
 
 #: Arctic Shift sheds load by answering 200 with {"error": "Timeout. Maybe slow

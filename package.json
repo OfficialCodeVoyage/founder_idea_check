@@ -39,8 +39,8 @@
 		"build:electron": "turbo run electron:build --filter=@chat-js/electron",
 		"dist:electron": "turbo run electron:make --filter=@chat-js/electron"
 	},
+	"//overrides": "@better-auth/core is pinned because @better-auth/electron and other @better-auth/* packages declare a strict peerDependency on @better-auth/core@1.5.6. Do not remove without auditing all @better-auth/* peer ranges. Keep this note OUT of the overrides block: npm rejects //-prefixed keys there (\"Override without name\"), which breaks every npx run with cwd inside this repo.",
 	"overrides": {
-		"//@better-auth/core": "Pinned because @better-auth/electron and other @better-auth/* packages declare a strict peerDependency on @better-auth/core@1.5.6. Do not remove without auditing all @better-auth/* peer ranges.",
 		"@better-auth/core": "1.5.6"
 	},
 	"devDependencies": {

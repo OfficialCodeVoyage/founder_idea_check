@@ -19,11 +19,10 @@ import { ProjectCanvasScreen } from "@/components/project/project-canvas-screen"
  * (today it is "start a new chat in this project"), and it belongs to whoever
  * owns chat-route-host.tsx — not to a silent edit from here.
  */
-export default async function ProjectPageRoute({
+export default function ProjectPageRoute({
   params,
 }: {
   params: Promise<{ projectId: string }>;
 }) {
-  const { projectId } = await params;
-  return <ProjectCanvasScreen projectId={projectId} />;
+  return <ProjectCanvasScreen params={params} />;
 }

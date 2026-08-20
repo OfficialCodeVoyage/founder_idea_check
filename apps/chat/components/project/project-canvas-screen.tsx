@@ -26,12 +26,20 @@ import { loadProjectCanvas } from "@/lib/project/canvas-data";
  * session would serve one founder's project to another; the dev overlay offers
  * that option generically and it is the one option this component must never
  * take. The frame renders immediately, the private part streams in.
+ *
+ * `params` arrives as a PROMISE and is passed through unawaited. Awaiting it
+ * above the boundary would tie the shared App Shell to one project id, so every
+ * link to a project would need its own prefetch.
  */
-export function ProjectCanvasScreen({ projectId }: { projectId: string }) {
+export function ProjectCanvasScreen({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}) {
   return (
     <div className="flex h-[calc(100dvh_-_var(--header-height))] min-h-0 flex-col">
       <Suspense fallback={<ProjectCanvasSkeleton />}>
-        <ProjectCanvasContent projectId={projectId} />
+        <ProjectCanvasContent params={params} />
       </Suspense>
     </div>
   );
@@ -50,7 +58,12 @@ function ProjectCanvasSkeleton() {
   );
 }
 
-async function ProjectCanvasContent({ projectId }: { projectId: string }) {
+async function ProjectCanvasContent({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}) {
+  const { projectId } = await params;
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user) {
     redirect("/");

@@ -14,11 +14,10 @@ import { ProjectCanvasScreen } from "@/components/project/project-canvas-screen"
  * learns to render `/project/:id` itself, delete this file and nothing else
  * changes.
  */
-export default async function ProjectCanvasPageRoute({
+export default function ProjectCanvasPageRoute({
   params,
 }: {
   params: Promise<{ projectId: string }>;
 }) {
-  const { projectId } = await params;
-  return <ProjectCanvasScreen projectId={projectId} />;
+  return <ProjectCanvasScreen params={params} />;
 }

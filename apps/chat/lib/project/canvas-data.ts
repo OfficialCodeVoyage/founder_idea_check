@@ -8,6 +8,7 @@ import {
 import { getProjectTasks } from "@/lib/db/task-queries";
 import type { PersonaVersion } from "@/lib/personas/artifact";
 import { latestPersonaVersion } from "@/lib/personas/artifact";
+import { toCanvasPersonaInput } from "@/lib/personas/canvas-input";
 import { resolveCurrentPhase } from "@/lib/phases/advance";
 import { GateVerdictSchema } from "@/lib/phases/types";
 import { analyzeBlockers } from "@/lib/ultraplan/blockers";
@@ -27,12 +28,10 @@ import type { BlockerAnalysis, CanvasGraph } from "@/lib/ultraplan/types";
  * (analyzeBlockers → reconcileTasks → buildCanvasGraph); neither decides
  * anything the other does not.
  *
- * KNOWN DIVERGENCE, recorded rather than left to be discovered: this file and
- * canvas.router.ts count persona evidence differently — the router totals
- * interviews, attributes, observable attributes and excluded segments, this one
- * totals observable attributes only. Same persona, two numbers. Deduping them
- * means one shared mapper both import; until that lands, the router's count is
- * the more complete of the two.
+ * The persona mapping is NOT duplicated here: both this file and
+ * canvas.router.ts call `toCanvasPersonaInput` from lib/personas/canvas-input.ts.
+ * They used to disagree about evidenceCount, summary and name — see that file
+ * for what each of them got wrong.
  *
  * Ownership check is the one copied from `trpc/routers/phase.router.ts`,
  * including its deliberate lie-by-omission: a project somebody else owns is
@@ -50,32 +49,12 @@ export type ProjectCanvasData = {
 
 function toPersonaInput(version: PersonaVersion): CanvasPersonaInput {
   const artifact = version.artifact;
-  if (!artifact) {
-    // Unreadable row. NULL evidenceCount, not 0: "we could not read this" and
-    // "this persona cites nothing" are different failures and the canvas paints
-    // them differently (unknown vs at-risk).
-    return {
-      id: version.documentId,
-      name: version.title,
-      summary: null,
-      evidenceCount: null,
-      derivedFromFactKeys: [],
-    };
-  }
-  const persona = artifact.persona;
-  const evidenceCount = persona.observableAttributes.reduce(
-    (total, observable) => total + observable.evidence.length,
-    0
-  );
-  return {
-    id: version.documentId,
-    name: persona.label,
-    summary: persona.observableAttributes
-      .map((observable) => `${observable.dimension}: ${observable.value}`)
-      .join(", "),
-    evidenceCount,
-    derivedFromFactKeys: artifact.groundedInFactKeys,
-  };
+  return toCanvasPersonaInput({
+    documentId: version.documentId,
+    title: version.title,
+    persona: artifact?.persona ?? null,
+    groundedInFactKeys: artifact?.groundedInFactKeys ?? [],
+  });
 }
 
 export async function loadProjectCanvas({

@@ -13,7 +13,7 @@ import {
   latestPersonaVersion,
   PERSONA_DOCUMENT_KIND,
 } from "@/lib/personas/artifact";
-import type { Persona } from "@/lib/personas/types";
+import { toCanvasPersonaInput } from "@/lib/personas/canvas-input";
 import { resolveCurrentPhase } from "@/lib/phases/advance";
 import { type ExitCriterion, GateVerdictSchema } from "@/lib/phases/types";
 import { analyzeBlockers } from "@/lib/ultraplan/blockers";
@@ -79,52 +79,20 @@ function isPersonaRow(row: ProjectDocumentRow): boolean {
   return row.kind === PERSONA_DOCUMENT_KIND || isPersonaDocument(row);
 }
 
-/**
- * Total sourced claims behind one persona.
- *
- * NULL is returned by the caller when the envelope could not be parsed at all —
- * "we cannot read this" and "nobody sourced this" render differently
- * (`unknown` vs `at-risk`) and must not be collapsed. Zero is a genuine
- * finding, never a missing value.
- */
-function countPersonaEvidence(persona: Persona): number {
-  let count = persona.interviews.evidence.length;
-  for (const attribute of Object.values(persona.attributes)) {
-    count += attribute.evidence.length;
-  }
-  for (const observable of persona.observableAttributes) {
-    count += observable.evidence.length;
-  }
-  for (const excluded of persona.excludedSegments) {
-    count += excluded.evidence.length;
-  }
-  return count;
-}
-
-/** The one supporting line for a persona node. Real data or NULL, never a guess. */
-function personaSummary(persona: Persona): string | null {
-  const role = persona.attributes.role;
-  return role.status === "not-established" ? null : role.value;
-}
-
 function toPersonaInput(
   documentId: string,
   versions: ProjectDocumentRow[]
 ): CanvasPersonaInput {
   const latest = latestPersonaVersion(versions);
   const artifact = latest?.artifact ?? null;
-  const persona = artifact?.persona ?? null;
-  return {
-    id: documentId,
-    // The label is a handle, not a claim. When the row is unreadable the stored
-    // title is the only honest name we have left.
-    name: persona?.label ?? latest?.title ?? documentId,
-    summary: persona ? personaSummary(persona) : null,
-    evidenceCount: persona ? countPersonaEvidence(persona) : null,
-    // Provenance recorded at generation time — which facts were actually in the
-    // prompt. Never re-derived by matching text.
-    derivedFromFactKeys: artifact?.groundedInFactKeys ?? [],
-  };
+  // Shared with loadProjectCanvas. These two reads used to compute
+  // evidenceCount, summary and name three different ways between them.
+  return toCanvasPersonaInput({
+    documentId,
+    title: latest?.title ?? null,
+    persona: artifact?.persona ?? null,
+    groundedInFactKeys: artifact?.groundedInFactKeys ?? [],
+  });
 }
 
 function toArtifactInput(

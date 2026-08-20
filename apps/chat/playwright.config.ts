@@ -8,14 +8,23 @@ import { defineConfig, devices } from "@playwright/test";
 import { config } from "dotenv";
 
 /**
- * The env file lives at the REPO ROOT, not in apps/chat, and this path is
- * resolved from this file rather than from the working directory: playwright
- * may be invoked from either, and a bare ".env.local" silently loaded nothing
- * from here.
+ * Both layouts, resolved from THIS FILE rather than the working directory —
+ * playwright may be invoked from the app or the repo root, and a bare
+ * ".env.local" loaded nothing from here.
+ *
+ * In this monorepo the env file is at the repo root. In an app scaffolded by
+ * `packages/cli` it sits next to this config, because the scaffold flattens the
+ * app to a standalone project. dotenv keeps the FIRST value it sees for a key
+ * and does not override an already-set variable, so listing both is safe in
+ * either layout and wrong in neither.
  */
 config({
-  // biome-ignore lint/correctness/noGlobalDirnameFilename: playwright transpiles this config to CJS via pirates, so `import.meta.dirname` — the rule's suggested fix — makes its loader treat the file as ESM and throw "exports is not defined in ES module scope" before any test runs. `__dirname` is what this loader actually provides.
-  path: path.resolve(__dirname, "../../.env.local"),
+  path: [
+    // biome-ignore lint/correctness/noGlobalDirnameFilename: playwright transpiles this config to CJS via pirates, so `import.meta.dirname` — the rule's suggested fix — makes its loader treat the file as ESM and throw "exports is not defined in ES module scope" before any test runs. `__dirname` is what this loader actually provides.
+    path.resolve(__dirname, ".env.local"),
+    // biome-ignore lint/correctness/noGlobalDirnameFilename: same as above.
+    path.resolve(__dirname, "../../.env.local"),
+  ],
 });
 
 /**

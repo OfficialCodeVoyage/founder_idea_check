@@ -86,3 +86,6 @@ apps/electron/branding.json
 # Local database dumps taken before risky container/volume surgery.
 # Contains real user content — never commit.
 .local-backup/
+
+# Temp dirs from the thread package smoke test (packages/thread).
+.package-smoke-*/

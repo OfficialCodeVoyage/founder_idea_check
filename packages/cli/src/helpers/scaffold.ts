@@ -250,7 +250,14 @@ async function normalizeChatAppFiles(
   packageManager: PackageManager
 ): Promise<void> {
   await replaceInFile(join(destination, "playwright.config.ts"), [
-    ['command: "bun dev"', `command: "${runScript(packageManager, "dev")}"`],
+    // Scaffolded apps are standalone and use plain `dev`; `dev:local` is this
+    // monorepo's wrapper. Keep the search string in step with
+    // apps/chat/playwright.config.ts — a stale one silently leaves a bun
+    // command in an npm project.
+    [
+      'command: "bun run dev:local"',
+      `command: "${runScript(packageManager, "dev")}"`,
+    ],
   ]);
 
   await replaceInFile(join(destination, "scripts", "check-env.ts"), [

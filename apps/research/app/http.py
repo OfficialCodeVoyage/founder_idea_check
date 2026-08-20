@@ -23,10 +23,13 @@ everything else raises `SourceUnavailable`. Nothing degrades to an empty result.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -106,6 +109,65 @@ REDDIT_KEYLESS_LIMITER = RateLimiter(rate_per_sec=5.0, burst=5)
 ARCTIC_SHIFT_LIMITER = RateLimiter(rate_per_sec=1.0, burst=2)
 
 
+def _is_private_http(url: str) -> bool:
+    """Is this a plain-http URL to an address on this machine or this network?
+
+    RESOLVES the hostname and requires EVERY returned address to be private,
+    rather than trusting the name. `localhost` is not special-cased and gets no
+    exemption: on a misconfigured box it can point anywhere, and a hostname that
+    merely looks local is exactly the shape an SSRF payload takes
+    (`http://127.0.0.1\\@evil.example` parses one way and connects another).
+
+    Requiring ALL addresses to be private, not any, closes the split-horizon
+    case where a name answers with both a private and a public address and the
+    connection picks whichever it likes.
+
+    Returns False on anything it cannot prove — an unresolvable host, a parse
+    failure, an embedded credential, a non-default port smuggling a second URL.
+    Fail closed, as everywhere else in this service.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+
+    if parsed.scheme != "http":
+        return False
+    # Credentials in the authority are the classic parser-differential vector:
+    # `http://127.0.0.1@evil.example/` has hostname `evil.example`, but plenty of
+    # readers see the first host. Nothing here needs userinfo, so refuse it.
+    if parsed.username or parsed.password:
+        return False
+    # A backslash, tab, CR or LF in the authority is likewise only ever an
+    # attempt to make two parsers disagree.
+    if any(ch in url for ch in ("\\", "\t", "\r", "\n")):
+        return False
+
+    host = parsed.hostname
+    if not host:
+        return False
+
+    try:
+        resolved = socket.getaddrinfo(host, parsed.port or 80, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError, ValueError):
+        return False
+    if not resolved:
+        return False
+
+    for info in resolved:
+        address = info[4][0]
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            return False
+        # `is_private` already covers loopback, link-local and the RFC1918 and
+        # unique-local ranges, which is exactly the set that cannot leave this
+        # host or its container network.
+        if not ip.is_private:
+            return False
+    return True
+
+
 def _classify(status: int, url: str, body: str) -> SourceUnavailable:
     """Turn an HTTP status into the RIGHT named error.
 
@@ -135,11 +197,21 @@ def _request(
     headers: dict[str, str] | None = None,
 ) -> str:
     request = urllib.request.Request(url, method="GET")
-    if not url.startswith("https://"):
-        # Refusing plaintext is not paranoia here: every endpoint this service
-        # talks to offers https, and an http URL in an adapter is a typo or an
-        # injected value, both of which should fail loudly.
-        raise SourceUnavailable(f"Refusing a non-https request to {url}.")
+    if not url.startswith("https://") and not _is_private_http(url):
+        # Refusing plaintext is not paranoia: every REMOTE endpoint this service
+        # talks to offers https, and a public http URL in an adapter is a typo or
+        # an injected value, both of which should fail loudly.
+        #
+        # The one exception is a service on this machine or this container
+        # network — a local SearXNG has no certificate and needs none, since the
+        # traffic never leaves the host. `_is_private_http` decides that by
+        # RESOLVING the host and checking the addresses, not by pattern-matching
+        # the string, because a name is not evidence of where it points.
+        raise SourceUnavailable(
+            f"Refusing a non-https request to {url}. Plain http is permitted only "
+            "to an address that resolves entirely inside loopback or private "
+            "space; this one does not."
+        )
     request.add_header("User-Agent", user_agent)
     request.add_header("Accept", accept)
     request.add_header("Accept-Language", "en-US,en;q=0.9")

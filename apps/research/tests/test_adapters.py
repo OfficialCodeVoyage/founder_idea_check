@@ -7,7 +7,7 @@ import json
 import pytest
 
 from app.errors import SourceBlocked, SourceRateLimited, SourceSchemaDrift, SourceUnavailable
-from app.http import _classify
+from app.http import _classify, _is_private_http
 from app.sources import (
     arctic_shift,
     github,
@@ -41,6 +41,56 @@ class TestHttpClassification:
     def test_the_response_body_excerpt_reaches_the_message(self):
         error = _classify(403, "https://x.test", "whoa there, pardner")
         assert "whoa there" in error.detail
+
+
+class TestPrivateHttpException:
+    """The https rule has exactly one hole and it must stay exactly this size.
+
+    A local SearXNG has no certificate and needs none. Everything else does.
+    """
+
+    def test_loopback_literals_are_allowed(self):
+        assert _is_private_http("http://127.0.0.1:8888/search")
+        assert _is_private_http("http://[::1]:8888/search")
+
+    def test_localhost_is_allowed_because_it_resolves_to_loopback(self):
+        # Allowed by RESOLUTION, not by name. The distinction matters: the name
+        # earns no exemption, its addresses do.
+        assert _is_private_http("http://localhost:8888/search")
+
+    def test_rfc1918_is_allowed_so_a_compose_service_name_works(self):
+        assert _is_private_http("http://10.0.0.5:8080/search")
+        assert _is_private_http("http://192.168.1.10:8080/search")
+        assert _is_private_http("http://172.16.0.1:8080/search")
+
+    def test_a_public_address_is_refused(self):
+        assert not _is_private_http("http://1.1.1.1/search")
+        assert not _is_private_http("http://example.com/search")
+
+    def test_https_is_not_this_functions_business(self):
+        # https is allowed by the caller's own check. This predicate answers
+        # only "may this PLAIN HTTP request proceed", so it says no.
+        assert not _is_private_http("https://127.0.0.1/search")
+
+    def test_userinfo_is_refused_because_it_is_a_parser_differential(self):
+        # `http://127.0.0.1@evil.example/` has hostname `evil.example`, but a
+        # careless reader — human or regex — sees the loopback first.
+        assert not _is_private_http("http://127.0.0.1@example.com/search")
+        assert not _is_private_http("http://user:pass@127.0.0.1/search")
+
+    def test_backslash_and_control_characters_are_refused(self):
+        # The other half of the same trick: urlsplit and a naive splitter
+        # disagree about where the authority ends.
+        assert not _is_private_http("http://127.0.0.1\\@example.com/")
+        assert not _is_private_http("http://127.0.0.1\t/")
+        assert not _is_private_http("http://127.0.0.1\n/")
+
+    def test_an_unresolvable_host_fails_closed(self):
+        assert not _is_private_http("http://nx.invalid./search")
+
+    def test_a_missing_host_fails_closed(self):
+        assert not _is_private_http("http://")
+        assert not _is_private_http("http:///search")
 
 
 class TestHackerNews:

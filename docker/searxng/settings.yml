@@ -1,0 +1,49 @@
+# SearXNG configuration for the LOCAL dev stack only.
+#
+# Two settings here are load-bearing and neither is the default:
+#
+#   search.formats must include `json`. Upstream ships `formats: [html]`, and
+#   with the default an otherwise-correct request to /search?format=json is
+#   answered 403 — which looks like a blocked instance rather than a disabled
+#   output format. `app/sources/web_search_keyless.py::_searxng` parses JSON.
+#
+#   server.limiter must be false. The limiter needs a Valkey/Redis instance of
+#   its own and, once enabled, rate-limits by IP — and every request from the
+#   sidecar arrives from the same IP, so the sidecar is indistinguishable from
+#   an abuser and gets throttled within a few queries.
+#
+# The secret is supplied by SEARXNG_SECRET from docker-compose.yml, not stored
+# here.
+use_default_settings: true
+
+general:
+  instance_name: "idea-check local"
+  # No public instance, so no contact link and no donation banner.
+  contact_url: false
+  enable_metrics: false
+
+server:
+  secret_key: "overridden-by-SEARXNG_SECRET"
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+ui:
+  static_use_hash: true
+
+# Engine trims. The sidecar asks text questions and parses title/url/content, so
+# the media and torrent engines are dead weight that only add failure modes.
+engines:
+  - name: soundcloud
+    disabled: true
+  - name: youtube
+    disabled: true
+  - name: dailymotion
+    disabled: true

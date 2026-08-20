@@ -149,6 +149,39 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  searxng:
+    image: searxng/searxng:latest
+    container_name: ic-searxng
+    ports:
+      # Loopback only, like everything else here. 8888 rather than 8080 because
+      # 8080 collides with half the tooling on a dev box.
+      - "127.0.0.1:8888:8080"
+    volumes:
+      # Read-only: the container must not rewrite our settings on boot. SearXNG
+      # merges this over its defaults because the file sets
+      # `use_default_settings: true`.
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      # Bound at 127.0.0.1 so this URL is only ever right from the host.
+      SEARXNG_BASE_URL: "http://localhost:8888/"
+      # Overrides `server.secret_key` in settings.yml. The default below is fine
+      # for a loopback-only dev instance: this secret signs the image proxy and
+      # the limiter, and both are disabled.
+      SEARXNG_SECRET: "${SEARXNG_SECRET:-idea-check-local-dev-not-a-real-secret}"
+    healthcheck:
+      # /healthz is SearXNG's own endpoint and does NOT hit a search engine, so
+      # this stays green when the upstream engines are rate-limiting.
+      test:
+        - CMD
+        - wget
+        - -qO-
+        - http://127.0.0.1:8080/healthz
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
 volumes:
   # Named, so `docker compose down` and any later recreate reattach the same
   # bytes. Before adoption these were anonymous volumes, which compose would

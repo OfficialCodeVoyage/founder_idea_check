@@ -80,24 +80,65 @@ removed. `NOTICE` carries the matching 4(d) attribution.
 Earlier files under `apps/chat/components/ai-elements/` arrived with the ChatJS
 fork and are covered by the "Forked wholesale" row, not by these.
 
-## Rejected — do not reintroduce
+## Previously rejected — bar lifted for local-only use
 
-These were evaluated and disqualified. Recorded so they are not re-evaluated.
+**Policy reversal, 2026-08-20, by the project owner.** This repository is a
+private, local-only project: it is not distributed, not deployed, not offered to
+users over a network, and has exactly one user, who is also its author. Every
+row below was disqualified on a licence ground that only bites on one of those
+activities. With none of them happening, the ground does not apply and the bar
+is lifted.
 
-| Candidate | Why it is barred |
-|---|---|
-| `tldraw/tldraw` | Proprietary; requires a paid runtime licence key in production. |
-| `666ghj/MiroFish` | AGPL-3.0. Use `camel-ai/oasis` (Apache-2.0) underneath instead. |
-| `origin-space/originui` | Now redirects to Cal.com `coss`, which is AGPL-3.0. Silent trap. |
-| `lobehub/lobehub` | Custom licence: derivative works require a commercial licence. |
-| `open-webui/open-webui` | Forbids removing branding above 50 users. |
-| `langgenius/dify` | Bars multi-tenant use; asserts an appearance patent on its design. |
-| `zaidmukaddam/scira`, `khoj-ai/khoj` | AGPL-3.0 network copyleft. |
-| `firecrawl` **server** | AGPL-3.0. The npm client is MIT and is fine. |
-| `FranciscoMoretti/ai-sdk-deep-research` | **No licence at all** — all rights reserved. |
-| Arctic Shift **source** | `license: null`. Calling its public API is fine; copying code is not. |
-| Reddit torrent dumps | Redistributed user content, incl. since-deleted posts. GDPR exposure. |
-| `not-an-aardvark/snoowrap` | Archived 2023; depends on `request`, deprecated 2020. |
+The table is KEPT rather than deleted, and the reason it is kept is the third
+column. AGPL-3.0 obligations trigger on conveying the work or offering it as a
+network service; a custom "no derivative works" clause triggers on distributing
+a derivative. None of that is happening today. If it ever does, each row below
+becomes a live obligation again, and the cost of discharging it is not the same
+for every row — which is exactly what a "delete the table" reconciliation would
+have thrown away.
+
+| Candidate | Original ground | What it costs IF this ever ships or is networked |
+|---|---|---|
+| SearXNG, Redlib, self-hosted Firecrawl **in this compose file** | AGPL-3.0 attaches by packaging | Remove from `docker-compose.yml` and reference by URL, or publish this repo's source under AGPL-3.0. See the retired packaging rule below. |
+| `firecrawl` **server** | AGPL-3.0 | Same as above. The npm client is MIT and was never barred. |
+| `666ghj/MiroFish` | AGPL-3.0 | Same as above. `camel-ai/oasis` (Apache-2.0) remains the engine underneath regardless. |
+| `zaidmukaddam/scira`, `khoj-ai/khoj` | AGPL-3.0 network copyleft | Offering either over a network obliges a source offer to every user. |
+| `lobehub/lobehub` | Custom licence: derivative works need a commercial licence | Buy the commercial licence, or remove the derived code. |
+| `open-webui/open-webui` | Forbids removing branding above 50 users | Keep the branding, or stay under 50 users. Irrelevant at one user. |
+| `langgenius/dify` | Bars multi-tenant use; asserts an appearance patent on its design | Single-tenant is compliant. Multi-tenant is not, and the design patent is a separate exposure from the licence. |
+| `origin-space/originui` | Redirects to Cal.com `coss`, AGPL-3.0 | Same AGPL remediation. The redirect is still a trap worth knowing about. |
+
+### Different risk class: no licence at all
+
+These two are **not** copyleft. There is no licence, so the default applies and
+all rights are reserved. Copyleft obligations attach to distribution; the
+copyright owner's exclusive right of reproduction attaches to **copying**. That
+makes these a distinct category, and their remediation is deletion and a
+rewrite rather than a source offer.
+
+| Candidate | Ground | Remediation if it ever matters |
+|---|---|---|
+| `FranciscoMoretti/ai-sdk-deep-research` | No `LICENSE` file — all rights reserved | Delete the copied code and reimplement the approach from the observable behaviour. |
+| Arctic Shift **source** | `license: null` — all rights reserved | Same. Calling its public **API** was never barred and never needed to be. |
+
+## Still barred — and NOT for licence reasons
+
+The reversal above is a licence decision. It does not reach these, and reading
+it as a blanket "everything is allowed now" is the specific mistake this
+section exists to prevent.
+
+| Candidate | Why it is still barred | Category |
+|---|---|---|
+| Reddit torrent dumps | Redistributed user content including since-deleted posts. This is the erasure problem in its purest form, and a data-protection decision is not a licence decision. Independently, the dumps are 3.97 TB against 63 GB of free disk, so the task as specified is also physically impossible. | Data protection + physically infeasible |
+| `tldraw/tldraw` | Licence is NOASSERTION and it **enforces at runtime**: without a purchased key it draws a watermark. Lifting an internal policy does not produce a key, so nothing about this reversal changes the outcome. | Requires payment, not permission |
+| `not-an-aardvark/snoowrap` | Archived 2023; depends on `request`, deprecated 2020. Rot, not licensing. | Unmaintained dependency |
+
+**The GDPR and erasure posture is unchanged.** `DemandSignal` still has no
+`author` field; usernames are still dropped at parse time in
+`apps/research/app/sources/reddit_rss.py` and
+`apps/research/app/sources/reddit_shreddit.py`, or never requested at all. That
+is a data-protection decision taken on its own merits and it survives this
+reversal untouched. Do not conflate the two.
 
 ## The research subsystem has its own ledger
 
@@ -108,9 +149,24 @@ audit must read both.** Every entry there pins the upstream SHA it was taken
 at, because borrowed code is frozen and upstream fixes never arrive on their
 own.
 
-## Packaging rule for AGPL services
+## Packaging rule for AGPL services — RETIRED 2026-08-20
 
-SearXNG, Redlib and self-hosted Firecrawl are **AGPL-3.0**. Calling them over
-HTTP is clean. Bundling them in a shipped `docker-compose.yml`, or shipping a
-patched build, puts AGPL work in our distribution artefact and triggers its
-source-offer obligation. Reference them by URL in docs; never vendor or patch.
+The rule read: SearXNG, Redlib and self-hosted Firecrawl are AGPL-3.0; calling
+them over HTTP is clean, but bundling them in a shipped `docker-compose.yml`
+puts AGPL work in our distribution artefact and triggers the source-offer
+obligation, so reference them by URL and never vendor or patch.
+
+**Retired because its premise is a shipped artefact, and this compose file is
+not one.** It describes a local development stack on one machine. Nothing is
+conveyed to anybody, so there is no distribution for AGPL to attach to.
+
+The reasoning is preserved verbatim above rather than deleted, because it is
+correct and becomes live again the moment this repository is published or the
+compose file is used to deploy anything for anyone else. If that day comes: the
+AGPL services must either come out of the file, or this repository's own source
+must be offered under AGPL-3.0.
+
+One part of the old rule stands on its own merits and is NOT retired: **never
+vendor or patch these services.** A patched build is a maintenance liability
+and forfeits upstream security fixes, which was true before the licence
+question and stays true after it.

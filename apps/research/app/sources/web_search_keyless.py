@@ -189,10 +189,15 @@ class KeylessWebSearchSource:
     descriptor = DESCRIPTOR
 
     def __init__(self, searxng_url: str | None = None) -> None:
-        # Operator-supplied, referenced BY URL only. SearXNG is AGPL-3.0: calling
-        # it over HTTP is clean, but it is never vendored, never patched, and
-        # deliberately absent from this repo's docker-compose.yml, because AGPL
-        # attaches by packaging rather than by calling.
+        # Operator-supplied, and it stays a URL rather than becoming a hardcoded
+        # service name: the sidecar runs on the HOST in dev, where a compose
+        # service name would not resolve.
+        #
+        # This used to carry a note that SearXNG is AGPL-3.0 and therefore had
+        # to stay out of docker-compose.yml. That bar was lifted on 2026-08-20
+        # for local-only use — see THIRD_PARTY.md. What survives the reversal:
+        # never vendor and never patch it, because a patched build forfeits
+        # upstream security fixes, which was never a licence argument.
         self._searxng_url = (searxng_url or "").strip().rstrip("/")
 
     def fetch(self, query: SourceQuery) -> list[SourceItem]:

@@ -88,7 +88,7 @@ erasure.
 | `RESEARCH_ENABLED_SOURCES` | `hackernews,web-keyless` | Comma-separated ids. Unknown ids are reported at `/v1/health`, not ignored. |
 | `GITHUB_TOKEN` | — | Required by the `github` source. |
 | `REDDIT_ENABLED_ACK` | — | Required by both Reddit sources, in addition to enabling the id. |
-| `RESEARCH_SEARXNG_URL` | — | Optional last rung of the keyless ladder. Referenced by URL only — SearXNG is AGPL-3.0 and is deliberately absent from `docker-compose.yml`. |
+| `RESEARCH_SEARXNG_URL` | — | Last rung of the keyless ladder. Stays a URL because the sidecar runs on the host in dev, where a compose service name would not resolve. |
 | `RESEARCH_SIM_MODEL` | `gpt-4o-mini` | CAMEL model type for the simulation. |
 | `RESEARCH_SIM_BASE_URL` | — | OpenAI-compatible gateway for the simulation. |
 | `RESEARCH_SIM_CONCURRENCY` | `8` | OASIS `semaphore=`. Its own default is 128, which will 429 a shared gateway. |

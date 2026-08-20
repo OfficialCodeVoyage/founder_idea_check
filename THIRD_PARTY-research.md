@@ -163,23 +163,40 @@ Facts verified by direct file read, each load-bearing:
 
 ---
 
-## Barred — do not reintroduce
+## Previously barred — bar lifted for local-only use, 2026-08-20
 
 Re-stated here because this subsystem is where the temptation lives.
 
-| Candidate | Why it is barred |
-|---|---|
-| **Arctic Shift source** | `license: null` — all rights reserved. Its **public API is fine to call**, and `app/sources/arctic_shift.py` now does exactly that: the contract was read from its published `api/README.md` and verified against the running service, and not one line of its source appears in this repo. |
-| Reddit torrent dumps | Redistributed user content including since-deleted posts. The erasure problem in its purest form. |
-| `666ghj/MiroFish` | AGPL-3.0. `camel-ai/oasis` (Apache-2.0) is the same engine without it. |
-| `lobehub/lobehub` | Custom licence: derivative works require a commercial licence. |
-| `open-webui/open-webui` | Forbids removing branding above 50 users. |
-| `langgenius/dify` | Bars multi-tenant use; asserts an appearance patent on its design. |
-| `zaidmukaddam/scira`, `khoj-ai/khoj` | AGPL-3.0 network copyleft. |
-| `firecrawl` **server** | AGPL-3.0. The npm client is MIT and is fine. |
-| SearXNG / Redlib / self-hosted Firecrawl **in a shipped compose file** | AGPL-3.0 attaches by packaging. Reference by URL only — `RESEARCH_SEARXNG_URL` exists for exactly this. `docker-compose.yml` says so in a comment. |
+**Policy reversal by the project owner.** This repository is private and
+local-only: not distributed, not deployed, not offered over a network, one user
+who is also the author. The rows below were disqualified on licence grounds
+that bite only on those activities. The full reasoning, and what each row costs
+if that ever changes, is in `THIRD_PARTY.md` under
+"Previously rejected — bar lifted for local-only use". Read it there rather
+than duplicating it; these two files disagreeing is worse than either being
+terse.
 
----
+| Candidate | Original ground | Status |
+|---|---|---|
+| SearXNG / Redlib / self-hosted Firecrawl **in a shipped compose file** | AGPL-3.0 attaches by packaging | Bar lifted. The packaging rule is retired — see `THIRD_PARTY.md`. `docker-compose.yml` no longer claims otherwise. |
+| `firecrawl` **server** | AGPL-3.0 | Bar lifted. The npm client is MIT and was never barred. |
+| `666ghj/MiroFish` | AGPL-3.0 | Bar lifted. `camel-ai/oasis` (Apache-2.0) is still the engine underneath. |
+| `zaidmukaddam/scira`, `khoj-ai/khoj` | AGPL-3.0 network copyleft | Bar lifted. |
+| `lobehub/lobehub` | Derivative works require a commercial licence | Bar lifted. |
+| `open-webui/open-webui` | Forbids removing branding above 50 users | Bar lifted; at one user the clause never engaged. |
+| `langgenius/dify` | Bars multi-tenant use; asserts an appearance patent | Bar lifted for single-tenant local use. The design patent is a separate exposure from the licence. |
+| **Arctic Shift source** | `license: null` — all rights reserved | Bar lifted for local use, but note this is a DIFFERENT risk class: no licence restricts copying itself, not just distribution. Its **public API was always fine to call**, and `app/sources/arctic_shift.py` does exactly that — the contract was read from its published `api/README.md` and verified against the running service. |
+
+### Still barred here, and not for licence reasons
+
+| Candidate | Why | Category |
+|---|---|---|
+| Reddit torrent dumps | Redistributed user content including since-deleted posts — the erasure problem in its purest form. A data-protection decision, which this licence reversal does not reach. Separately: 3.97 TB against 63 GB free, so it is physically infeasible as specified. | Data protection + infeasible |
+
+**The erasure posture in this subsystem is unchanged.** The author is still
+dropped at parse time, not at serialisation time, in both Reddit adapters, and
+`DemandSignal` still has no `author` field. Those decisions were taken on
+data-protection grounds and stand on their own.
 
 ## Licence obligations discharged
 

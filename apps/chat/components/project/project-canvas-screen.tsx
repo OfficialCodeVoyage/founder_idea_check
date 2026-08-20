@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { Suspense } from "react";
 import { ProjectCanvas } from "@/components/canvas/project-canvas";
 import { PersonaCard } from "@/components/persona/persona-card";
 import { auth } from "@/lib/auth";
@@ -14,12 +15,42 @@ import { loadProjectCanvas } from "@/lib/project/canvas-data";
  * calls that produce the graph run in `loadProjectCanvas`, so the client
  * receives a decided graph rather than a raw verdict (CANVAS-INTEGRATION-NOTES
  * §4). `ProjectCanvas` itself composes and computes nothing.
+ *
+ * SPLIT INTO A STATIC SHELL AND A SUSPENDED BODY, the same shape
+ * `app/(chat)/layout.tsx` uses. Everything below the frame depends on WHO IS
+ * ASKING — the session, then a project only its owner may see — so with
+ * `cacheComponents` on, reading it directly made the whole navigation
+ * uncacheable and Next reported the route as unable to be instant.
+ *
+ * The fix is Suspense, NOT `"use cache"`. Caching a component that reads the
+ * session would serve one founder's project to another; the dev overlay offers
+ * that option generically and it is the one option this component must never
+ * take. The frame renders immediately, the private part streams in.
  */
-export async function ProjectCanvasScreen({
-  projectId,
-}: {
-  projectId: string;
-}) {
+export function ProjectCanvasScreen({ projectId }: { projectId: string }) {
+  return (
+    <div className="flex h-[calc(100dvh_-_var(--header-height))] min-h-0 flex-col">
+      <Suspense fallback={<ProjectCanvasSkeleton />}>
+        <ProjectCanvasContent projectId={projectId} />
+      </Suspense>
+    </div>
+  );
+}
+
+/** The frame's contents while the private half is still loading. */
+function ProjectCanvasSkeleton() {
+  return (
+    <>
+      <div className="flex shrink-0 flex-wrap items-baseline gap-2 border-b px-4 py-3">
+        <div className="h-5 w-40 animate-pulse rounded bg-muted" />
+        <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+      </div>
+      <div className="min-h-0 flex-1 animate-pulse bg-muted/30" />
+    </>
+  );
+}
+
+async function ProjectCanvasContent({ projectId }: { projectId: string }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user) {
     redirect("/");
@@ -36,7 +67,7 @@ export async function ProjectCanvasScreen({
   }
 
   return (
-    <div className="flex h-[calc(100dvh_-_var(--header-height))] min-h-0 flex-col">
+    <>
       <div className="flex shrink-0 flex-wrap items-baseline gap-2 border-b px-4 py-3">
         <h1 className="font-medium text-base">{data.projectName}</h1>
         <span className="text-muted-foreground text-xs">
@@ -73,6 +104,6 @@ export async function ProjectCanvasScreen({
           )}
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

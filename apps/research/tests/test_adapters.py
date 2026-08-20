@@ -189,18 +189,9 @@ class TestKeylessWebSearch:
         assert rows[2][2] == "Third snippet"
 
     def test_strips_style_and_script_contents_not_just_tags(self):
-        # Otherwise Startpage's inline emotion CSS leaks into the title.
+        # Inline CSS/JS otherwise leaks into a title or snippet.
         assert web_search_keyless.strip_html("<style>.a{color:red}</style>Title") == "Title"
         assert web_search_keyless.strip_html("<script>var x=1</script>Body") == "Body"
-
-    def test_parses_startpage_markup(self):
-        html = (
-            '<a class="result-title result-link css-hash" href="https://example.com/x">'
-            "<h2>A Title</h2></a>"
-            '<p class="w-gl__description css-hash">A description</p>'
-        )
-        rows = web_search_keyless.parse_startpage(html, 10)
-        assert rows == [("A Title", "https://example.com/x", "A description")]
 
     def test_a_fully_blocked_ladder_raises_blocked_and_names_every_rung(self):
         source = web_search_keyless.KeylessWebSearchSource()
@@ -209,25 +200,34 @@ class TestKeylessWebSearch:
             raise SourceBlocked("HTTP 403")
 
         source._ddg = refuse
-        source._startpage = refuse
         # searxng has no URL configured, so it refuses on its own.
 
         with pytest.raises(SourceBlocked) as caught:
             source.fetch(SourceQuery(query="q", date_from="2026-07-01", date_to="2026-08-01"))
         detail = caught.value.detail
         assert "duckduckgo" in detail
-        assert "startpage" in detail
         assert "searxng" in detail
         assert "202" in detail  # names the actual DDG challenge behaviour
 
-    def test_falls_through_to_startpage_when_duckduckgo_is_blocked(self):
+    def test_searxng_is_tried_first_so_the_local_rung_wins(self):
+        # Order is load-bearing: the local rung has no rate limit to trip, so
+        # spending a remote request before trying it is pure waste.
+        source = web_search_keyless.KeylessWebSearchSource(searxng_url="http://127.0.0.1:9")
+        source._searxng = lambda _q: [("T", "https://example.com/sx", "S")]
+        source._ddg = lambda _q: (_ for _ in ()).throw(
+            AssertionError("duckduckgo must not be reached when searxng answers")
+        )
+        items = source.fetch(SourceQuery(query="q", date_from="2026-07-01", date_to="2026-08-01"))
+        assert items[0].metadata["keyless_backend"] == "searxng"
+
+    def test_falls_through_to_duckduckgo_when_searxng_is_unavailable(self):
+        # The container is not running. That must not take keyless search down.
         source = web_search_keyless.KeylessWebSearchSource()
-        source._ddg = lambda _q: (_ for _ in ()).throw(SourceBlocked("202 challenge"))
-        source._startpage = lambda _q: [("T", "https://example.com/a", "S")]
+        source._ddg = lambda _q: [("T", "https://example.com/a", "S")]
 
         items = source.fetch(SourceQuery(query="q", date_from="2026-07-01", date_to="2026-08-01"))
         assert len(items) == 1
-        assert items[0].metadata["keyless_backend"] == "startpage"
+        assert items[0].metadata["keyless_backend"] == "duckduckgo"
 
 
 class TestGitHub:

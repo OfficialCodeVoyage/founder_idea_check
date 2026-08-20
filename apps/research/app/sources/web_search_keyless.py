@@ -12,16 +12,31 @@
 #
 #   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/web_search_keyless.py&since=2026-08-18" --jq '.[].commit.message'
 # ─────────────────────────────────────────────────────────────────────────────
-"""Keyless web search: DuckDuckGo HTML, then Startpage, then an operator SearXNG.
+"""Keyless web search: a local SearXNG first, DuckDuckGo HTML as the fallback.
 
-WHY A LADDER AND NOT ONE ENDPOINT. Upstream documents that DuckDuckGo's HTML
-endpoint anomaly-blocks datacenter IPs with an HTTP 202 challenge page — a
-success status carrying no results — while Startpage still serves organic
-results from the same egress. A single-endpoint implementation would report
-"nothing found" for every query from a Vercel or AWS host, forever.
+WHY A LADDER AND NOT ONE ENDPOINT. DuckDuckGo's HTML endpoint anomaly-blocks
+datacenter IPs with an HTTP 202 challenge page — a success status carrying no
+results. A single-endpoint implementation would report "nothing found" for every
+query from such a host, forever, which is the exact failure mode
+`app/errors.py` exists to prevent. A ladder that runs out of rungs therefore
+raises `SourceBlocked` naming every rung it tried.
 
-That is the exact failure mode `app/errors.py` exists to prevent, so a ladder
-that runs out of rungs raises `SourceBlocked` naming every rung it tried.
+WHY SEARXNG IS FIRST. It runs on this machine (`docker-compose.yml`), so it has
+no rate limit we can trip and no anomaly detection to fall foul of, and it fans
+out across roughly a dozen upstream engines internally — including the ones a
+single scraper cannot reach. Its own JSON reports which of those engines failed,
+so a partial upstream outage degrades instead of disappearing.
+
+WHY DUCKDUCKGO IS STILL HERE. SearXNG is a container, and the sidecar can run
+without one. If the ladder were a single local rung, `docker compose up` would
+become a hard requirement for keyless search rather than a convenience.
+
+STARTPAGE WAS THE THIRD RUNG AND WAS REMOVED 2026-08-20, on measurement rather
+than on taste: it answered HTTP 200 and parsed to ZERO results, which is the
+silent-empty this module is built to avoid. The local SearXNG independently
+reports `startpage: CAPTCHA` in its own `unresponsive_engines` for the same
+queries, so both observations agree. Its parser and regexes are gone with it;
+`unwrap_ddg_redirect` is NOT Startpage's and stays.
 """
 
 from __future__ import annotations
@@ -43,9 +58,8 @@ DESCRIPTOR = SourceDescriptor(
     enabled_in_self_host=True,
     gate_reason=(
         "Reads ordinary public search result pages with no credential and no access "
-        "control to route around. Falls through DuckDuckGo, Startpage and an optional "
-        "operator-supplied SearXNG URL; a fully blocked ladder is reported as blocked, "
-        "not as zero results."
+        "control to route around. Tries a local SearXNG first, then DuckDuckGo; a "
+        "fully blocked ladder is reported as blocked, not as zero results."
     ),
     required_credentials=(),
     # Lower than HN: a search-result snippet is a summary of evidence, not the
@@ -54,12 +68,11 @@ DESCRIPTOR = SourceDescriptor(
 )
 
 _DDG_HTML_URL = "https://html.duckduckgo.com/html/"
-_STARTPAGE_HTML_URL = "https://www.startpage.com/sp/search"
 
 _TAG_RE = re.compile(r"<[^>]+>")
 # Strip <style>/<script> blocks INCLUDING their contents before dropping tags,
-# so inline CSS/JS text (notably Startpage's emotion styles) never leaks into a
-# title or snippet.
+# so inline CSS/JS text never leaks into a title or snippet. Result pages carry
+# plenty of it.
 _STYLE_SCRIPT_RE = re.compile(r"<(style|script)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 
 _RESULT_A_RE = re.compile(
@@ -70,21 +83,6 @@ _SNIPPET_RE = re.compile(
     r'class="result__snippet"[^>]*>(?P<snippet>.*?)</a>',
     re.IGNORECASE | re.DOTALL,
 )
-
-# Startpage marks each organic hit with <a class="result-title result-link …"
-# href="<target>">…<h2>title</h2></a> and the description in a following
-# <p class="…description…">. Class names carry hashed suffixes, so match on the
-# stable "result-title" / "description" substrings rather than the full class.
-_SP_RESULT_RE = re.compile(
-    r'<a\b[^>]*class="[^"]*result-title[^"]*"[^>]*href="(?P<href>https?://[^"]+)"[^>]*>(?P<inner>.*?)</a>',
-    re.IGNORECASE | re.DOTALL,
-)
-_SP_H2_RE = re.compile(r"<h2\b[^>]*>(?P<title>.*?)</h2>", re.IGNORECASE | re.DOTALL)
-_SP_DESC_RE = re.compile(
-    r'<p\b[^>]*class="[^"]*description[^"]*"[^>]*>(?P<snippet>.*?)</p>',
-    re.IGNORECASE | re.DOTALL,
-)
-
 
 def strip_html(fragment: str) -> str:
     without_blocks = _STYLE_SCRIPT_RE.sub("", fragment or "")
@@ -126,35 +124,6 @@ def parse_ddg(text: str, limit: int) -> list[tuple[str, str, str]]:
         snippet_match = _SNIPPET_RE.search(window)
         snippet = strip_html(snippet_match.group("snippet")) if snippet_match else ""
         out.append((strip_html(match.group("title")), target, snippet))
-    return out
-
-
-def parse_startpage(text: str, limit: int) -> list[tuple[str, str, str]]:
-    """PURE. -> [(title, url, snippet)]."""
-    out: list[tuple[str, str, str]] = []
-    results = list(_SP_RESULT_RE.finditer(text))
-    descriptions = list(_SP_DESC_RE.finditer(text))
-    for match in results:
-        if len(out) >= limit:
-            break
-        target = html.unescape(match.group("href"))
-        if not target.startswith("http"):
-            continue
-        heading = _SP_H2_RE.search(match.group("inner"))
-        title = strip_html(heading.group("title") if heading else match.group("inner"))
-        if not title:
-            continue
-        snippet = ""
-        for description in descriptions:
-            # `>=`, not `>`. The description block begins AT the anchor's end
-            # when the markup has no whitespace between `</a>` and `<p>`, which
-            # minified Startpage HTML routinely does not. Upstream uses `>` and
-            # silently loses every snippet in that case; tests/test_adapters.py
-            # pins the boundary.
-            if description.start() >= match.end():
-                snippet = strip_html(description.group("snippet"))
-                break
-        out.append((title, target, snippet))
     return out
 
 
@@ -203,10 +172,11 @@ class KeylessWebSearchSource:
     def fetch(self, query: SourceQuery) -> list[SourceItem]:
         attempts: list[str] = []
 
+        # SearXNG first: local, unmetered, and internally fans out across many
+        # engines. DuckDuckGo second, so a stack without containers still works.
         for backend, runner in (
-            ("duckduckgo", self._ddg),
-            ("startpage", self._startpage),
             ("searxng", self._searxng),
+            ("duckduckgo", self._ddg),
         ):
             try:
                 rows = runner(query)
@@ -229,10 +199,6 @@ class KeylessWebSearchSource:
     def _ddg(self, query: SourceQuery) -> list[tuple[str, str, str]]:
         url = f"{_DDG_HTML_URL}?{urlencode({'q': query.query})}"
         return parse_ddg(get_text(url, accept="text/html"), query.limit)
-
-    def _startpage(self, query: SourceQuery) -> list[tuple[str, str, str]]:
-        url = f"{_STARTPAGE_HTML_URL}?{urlencode({'query': query.query})}"
-        return parse_startpage(get_text(url, accept="text/html"), query.limit)
 
     def _searxng(self, query: SourceQuery) -> list[tuple[str, str, str]]:
         if not self._searxng_url:

@@ -106,7 +106,7 @@ have thrown away.
 | `lobehub/lobehub` | Custom licence: derivative works need a commercial licence | Buy the commercial licence, or remove the derived code. |
 | `open-webui/open-webui` | Forbids removing branding above 50 users | Keep the branding, or stay under 50 users. Irrelevant at one user. |
 | `langgenius/dify` | Bars multi-tenant use; asserts an appearance patent on its design | Single-tenant is compliant. Multi-tenant is not, and the design patent is a separate exposure from the licence. |
-| `origin-space/originui` | Redirects to Cal.com `coss`, AGPL-3.0 | Same AGPL remediation. The redirect is still a trap worth knowing about. |
+| `origin-space/originui` | Redirects to a `coss` monorepo whose root LICENSE is AGPL-3.0 | Bar lifted, and the boundary is now MEASURED rather than assumed. `LICENSING.md` carves out exactly two directories as MIT — `apps/origin/` and `apps/ui/` — and `apps/origin/LICENSE.md` is a plain MIT notice ("Copyright (c) 2025 coss.com / Originally Copyright (c) 2025 Origin UI"). So Origin UI itself is MIT and always was; everything in `packages/` and the rest of the tree is AGPL. Take from `apps/origin/` only. Note `apps/ui/` is the Base UI successor and syncs its components FROM the AGPL `packages/ui`, so its MIT carve-out does not obviously cover the sources it imports. |
 
 ### Different risk class: no licence at all
 
@@ -121,6 +121,31 @@ rewrite rather than a source offer.
 | `FranciscoMoretti/ai-sdk-deep-research` | No `LICENSE` file — all rights reserved | Delete the copied code and reimplement the approach from the observable behaviour. |
 | Arctic Shift **source** | `license: null` — all rights reserved | Same. Calling its public **API** was never barred and never needed to be. |
 
+### Evaluated after the reversal and declined on merit
+
+Not licence decisions. Recorded so the same two candidates are not re-costed.
+
+| Candidate | Why it was declined |
+|---|---|
+| Origin UI `hooks/use-file-upload.ts` | Redundant. It is a headless dropzone with zero dependencies, which would be attractive if we had nothing — but `react-dropzone@^14.3.8` is already a dependency and already wired in `components/multimodal-input.tsx` (`useDropzone`, `getRootProps`, `isDragActive`, `onDrop`, `accept`). Replacing a working, maintained library with a vendored copy of someone else's reimplementation is a downgrade. |
+| Origin UI `ui/multiselect.tsx` | No call site. 619 lines, and its only dependency (`cmdk`) is already present, so the cost is low — but there is no multi-value input anywhere in this UI to attach it to. Unimported components rot: they are not exercised, not linted into shape by use, and become misleading when a real requirement finally arrives with different needs. Revisit when something actually needs to select many of a thing. |
+
+### Provenance discipline: reviewed after the reversal, and KEPT
+
+Two follow-up tasks proposed dropping the attribution and SHA-pinning overhead
+now that the licence pressure is gone. Both were evaluated and both are
+declined, because in each case the licence was only ever half the reason.
+
+| Proposed removal | Why it stays |
+|---|---|
+| The Apache-2.0 §4(d) `NOTICE` attributions for ChatJS and AI Elements | §4(d) attaches to distribution, so strictly it is not triggered by a private tree. But the notice is also the only record of WHAT was taken and HOW it was modified — the AI Elements generator emits files with no licence or author header at all, so deleting this leaves vendored third-party code indistinguishable from ours. That is a comprehension cost paid forever to save 47 lines once. |
+| The pinned upstream SHAs and the `gh api …&since=` line in every vendored file's banner | This is not a licence mechanism, it is a SECURITY mechanism, and the header of this very file says why: borrowed code is frozen, and upstream fixes never arrive on their own. The pinned SHA plus that one command is the entire apparatus for discovering that an upstream fixed a bug in code we copied. Removing it does not reduce obligation, it removes the ability to notice. |
+| The `biome.jsonc` exclusion of `components/ai-elements` | Kept for the same reason. It exists so a formatter cannot rewrite vendored files and destroy the ability to `diff` them against upstream. That diff is how the previous row's mechanism is actually exercised. |
+
+The general rule this leaves behind: a practice justified on BOTH licence and
+engineering grounds does not become removable when only the licence ground is
+withdrawn. Check the second reason before deleting.
+
 ## Still barred — and NOT for licence reasons
 
 The reversal above is a licence decision. It does not reach these, and reading
@@ -130,7 +155,7 @@ section exists to prevent.
 | Candidate | Why it is still barred | Category |
 |---|---|---|
 | Reddit torrent dumps | Redistributed user content including since-deleted posts. This is the erasure problem in its purest form, and a data-protection decision is not a licence decision. Independently, the dumps are 3.97 TB against 63 GB of free disk, so the task as specified is also physically impossible. | Data protection + physically infeasible |
-| `tldraw/tldraw` | Licence is NOASSERTION and it **enforces at runtime**: without a purchased key it draws a watermark. Lifting an internal policy does not produce a key, so nothing about this reversal changes the outcome. | Requires payment, not permission |
+| `tldraw/tldraw` | Not adopted, but the previously recorded reason was WRONG and the real one is worse. Verified 2026-08-20 against `LICENSE.md` and `apps/docs/content/sdk-features/license-key.mdx` upstream. (a) The licence explicitly PERMITS this use: it bars "Production Environments" and defines those to exclude internal development, and a private local stack on loopback is a Development Environment by its own definition. (b) There is no watermark here — unlicensed **development** runs fully, and the watermark belongs to the *Hobby* licence tier; nothing is transmitted from development environments either. (c) What actually happens is a cliff, not a degradation: in production (HTTPS, non-loopback host, `NODE_ENV=production`) an unlicensed SDK "logs errors to the console and, after five seconds, **stops rendering the editor**". So a canvas built on tldraw would work perfectly throughout development and die on first deploy — the worst possible failure timing. `@xyflow/react` already works, is already wired, and has no such cliff, so the swap is speculative work with an invisible tripwire. | Works in dev, stops rendering in prod |
 | `not-an-aardvark/snoowrap` | Archived 2023; depends on `request`, deprecated 2020. Rot, not licensing. | Unmaintained dependency |
 | `redlib-org/redlib` | Licence bar lifted, then **rejected on measurement**. Redlib is a proxy: it inherits this machine's egress IP and fetches Reddit's `.json` endpoints, which are the blocked ones. Probed 2026-08-20 with `redlib:latest` v0.36.0 running locally — every route returned its "Failed to parse page JSON data" error page, and its own logs showed `403 Forbidden` from Reddit on `/r/rust/hot.json`. Meanwhile the `.rss` endpoints this repo already uses returned **200** with 50 KB of Atom from the same machine and the same second. Adopting Redlib would have swapped a working lane for a broken one. Upstream tracks this as issue #446. | Does not work, measured |
 | Arctic Shift **self-hosted ingestion** | Licence bar lifted; **blocked on physics**, and it is the same wall as the Reddit dumps rather than a separate one. Upstream's README opens its usage section with "First download one or more dumps" and directs bulk users to "use the monthly dumps instead" of the API. That corpus is 3.97 TB against 66 GB free. The public API remains fine to call and this repo still calls it — which is why the retry/backoff/overload machinery in `arctic_shift.py` was NOT deleted as planned. | Physically infeasible |

@@ -1,6 +1,7 @@
 "use client";
 
-import { MoreHorizontal } from "lucide-react";
+import { FlaskConical, MoreHorizontal, Network } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { DeleteProjectDialog } from "@/components/delete-project-dialog";
 import { InternalLink } from "@/components/internal-link";
@@ -19,6 +20,9 @@ import {
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { useRenameProject } from "@/hooks/chat-sync-hooks";
 import type { Project } from "@/lib/db/schema";
@@ -40,6 +44,17 @@ export function SidebarProjectItem({
 
   const projectHref = `/project/${project.id}` as const;
 
+  /**
+   * `isActive` comes from `parseChatIdFromPathname`, which only recognises
+   * `/project/:id` and `/project/:id/chat/:id`. The canvas and simulation paths
+   * are deliberately NOT matched — that is what makes them `passthrough` and
+   * therefore visible at all — so relying on `isActive` here would collapse the
+   * sub-menu the moment you clicked into one of its own entries.
+   */
+  const pathname = usePathname();
+  const isWithinProject =
+    pathname === projectHref || pathname.startsWith(`${projectHref}/`);
+
   const handleRename = async (data: ProjectDetailsData) => {
     await renameProject({
       id: project.id,
@@ -53,7 +68,11 @@ export function SidebarProjectItem({
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild className="cursor-pointer" isActive={isActive}>
+      <SidebarMenuButton
+        asChild
+        className="cursor-pointer"
+        isActive={isActive || isWithinProject}
+      >
         <InternalLink
           href={projectHref}
           onNavigate={() => {
@@ -87,6 +106,41 @@ export function SidebarProjectItem({
           />
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {isWithinProject ? (
+        <SidebarMenuSub>
+          <SidebarMenuSubItem>
+            <SidebarMenuSubButton
+              asChild
+              isActive={pathname === `${projectHref}/canvas`}
+            >
+              <InternalLink
+                href={`${projectHref}/canvas`}
+                onNavigate={() => setOpenMobile(false)}
+                prefetch={false}
+              >
+                <Network size={14} />
+                <span>Canvas</span>
+              </InternalLink>
+            </SidebarMenuSubButton>
+          </SidebarMenuSubItem>
+          <SidebarMenuSubItem>
+            <SidebarMenuSubButton
+              asChild
+              isActive={pathname === `${projectHref}/simulation`}
+            >
+              <InternalLink
+                href={`${projectHref}/simulation`}
+                onNavigate={() => setOpenMobile(false)}
+                prefetch={false}
+              >
+                <FlaskConical size={14} />
+                <span>Simulation</span>
+              </InternalLink>
+            </SidebarMenuSubButton>
+          </SidebarMenuSubItem>
+        </SidebarMenuSub>
+      ) : null}
 
       <ProjectDetailsDialog
         initialColor={project.iconColor as ProjectColorName}

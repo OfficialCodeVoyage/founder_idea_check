@@ -1,32 +1,79 @@
-# Local development stack for the research sidecar.
+# Local development stack.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# WHAT IS DELIBERATELY ABSENT FROM THIS FILE, AND WHY
+# WHAT THIS FILE OWNS
 #
-# 1. SearXNG. It is AGPL-3.0. Calling it over HTTP is clean; putting it in a
-#    docker-compose.yml that ships with this repository is not — AGPL attaches
-#    by PACKAGING, not by linking, so a compose file that pulls and runs it
-#    makes AGPL work part of our distribution artefact and triggers the
-#    source-offer obligation for the whole thing. The same applies to Redlib and
-#    to self-hosted Firecrawl.
+#   postgres  ic-pg     pgvector/pgvector:pg17   host :5433  <- apps/chat data
+#   redis     ic-redis  redis:7-alpine           host :6380  <- apps/chat cache
+#   research  (built)   apps/research            host :8099  <- signals sidecar
 #
-#    If you want the SearXNG rung of the keyless ladder, run an instance
-#    YOURSELF, separately, and point `RESEARCH_SEARXNG_URL` at it. Referencing
-#    a URL is not packaging.
+# Postgres and Redis were previously started by hand with bare `docker run`
+# (see git history of README-DEV.md). They are adopted here so that ONE command
+# brings the whole stack up and so that services added later share a network
+# with them. `container_name:` is pinned to the historical names because the
+# docs, and probably your shell history, say `docker exec ic-pg psql ...`.
 #
-# 2. Neo4j. OASIS defaults to the igraph IN-MEMORY backend
-#    (`oasis/social_agent/agent_graph.py:178-190` @ 40bf1705 — neo4j needs an
-#    explicit `backend="neo4j"` plus a valid Neo4jConfig, and neither documented
-#    generator passes one). The `neo4j` driver is installed as an OASIS
-#    dependency and imported at module scope, but no connection is ever opened.
-#    A graph database here would be a service nobody talks to.
+# DATA. Adoption moved the Postgres data directory from the anonymous volume
+# Docker created for it onto the named volume `pgdata` below. The original
+# anonymous volume was NOT deleted; if this stack ever comes up with an empty
+# database, that volume still holds the pre-adoption bytes.
 #
-# 3. Postgres and Redis. Those belong to `apps/chat` and are configured by its
-#    own tooling; duplicating them here would give a developer two databases and
-#    no idea which one holds their data.
+# NETWORKING. Compose puts every service on the project's default network, so
+# services reach each other by SERVICE NAME (`postgres:5432`, not
+# `localhost:5433`). Note the asymmetry that bites: anything you run on the
+# HOST — `bun run dev:local`, or the research sidecar started from its venv —
+# is not on that network and must use the published host port instead. Any new
+# service that host processes need to reach therefore has to publish a port,
+# and its URL has to stay configurable.
+#
+# NEO4J is still absent, and that is unrelated to licensing: OASIS defaults to
+# the igraph IN-MEMORY backend (`oasis/social_agent/agent_graph.py:178-190` @
+# 40bf1705 — neo4j needs an explicit `backend="neo4j"` plus a valid
+# Neo4jConfig, and neither documented generator passes one). The `neo4j` driver
+# is installed as an OASIS dependency and imported at module scope, but no
+# connection is ever opened. A graph database here would be a service nobody
+# talks to.
 # ─────────────────────────────────────────────────────────────────────────────
 
+name: ideacheck
+
 services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: ic-pg
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ideacheck
+    ports:
+      # 5433, not 5432 — port 5432 is routinely taken by an unrelated local
+      # Postgres. `DATABASE_URL` in the repo-root .env.local points here.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ideacheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ic-redis
+    ports:
+      # 6380, not 6379, for the same reason as above.
+      - "6380:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   research:
     build:
       context: ./apps/research
@@ -81,3 +128,11 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+
+volumes:
+  # Named, so `docker compose down` and any later recreate reattach the same
+  # bytes. Before adoption these were anonymous volumes, which compose would
+  # not have reattached — it would have started an EMPTY database and looked
+  # like it worked.
+  pgdata:
+  redisdata:

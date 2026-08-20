@@ -82,3 +82,7 @@ apps/electron/branding.json
 
 # Agent worktrees (ephemeral, each is its own git repo)
 .claude/worktrees/
+
+# Local database dumps taken before risky container/volume surgery.
+# Contains real user content — never commit.
+.local-backup/

@@ -23,20 +23,20 @@ export PATH="$HOME/.bun/bin:$PATH"
 Both run on **offset ports** so they cannot collide with anything already on 5432/6379.
 
 ```bash
-docker run -d --name ic-pg    -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres \
-  -e POSTGRES_DB=ideacheck -p 5433:5432 pgvector/pgvector:pg17
-docker run -d --name ic-redis -p 6380:6379 redis:7-alpine
+docker compose up -d postgres redis
 ```
+
+That brings up `ic-pg` (Postgres 17 + pgvector, host port **5433**) and `ic-redis`
+(host port **6380**). Both use named volumes, so your data survives a recreate.
+Plain `docker compose up -d` also builds and starts the research sidecar.
 
 > The Postgres image is `pgvector/pgvector:pg17`, not `postgres:17-alpine`. It is
 > plain Postgres 17 plus the `vector` extension, which `ProjectFact.embedding`
 > needs — on the stock image the first migration fails with
-> `type "vector" does not exist`. Already have an `ic-pg` on the stock image?
-> You can keep your data: `docker rm -f ic-pg`, then re-run the command above
-> adding `-v <your-volume>:/var/lib/postgresql/data`. The data directory is
-> compatible, so nothing is lost.
+> `type "vector" does not exist`.
 
-Already created them once? `docker start ic-pg ic-redis`.
+Stop them with `docker compose stop`. `docker compose down` removes the
+containers but keeps the `pgdata` / `redisdata` volumes — your data stays put.
 
 ---
 

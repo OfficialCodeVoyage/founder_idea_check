@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
@@ -6,12 +7,23 @@ import { defineConfig, devices } from "@playwright/test";
  */
 import { config } from "dotenv";
 
+/**
+ * The env file lives at the REPO ROOT, not in apps/chat, and this path is
+ * resolved from this file rather than from the working directory: playwright
+ * may be invoked from either, and a bare ".env.local" silently loaded nothing
+ * from here.
+ */
 config({
-  path: ".env.local",
+  // biome-ignore lint/correctness/noGlobalDirnameFilename: playwright transpiles this config to CJS via pirates, so `import.meta.dirname` — the rule's suggested fix — makes its loader treat the file as ESM and throw "exports is not defined in ES module scope" before any test runs. `__dirname` is what this loader actually provides.
+  path: path.resolve(__dirname, "../../.env.local"),
 });
 
-/* Use process.env.PORT by default and fallback to port 3000 */
-const PORT = process.env.PORT || 3000;
+/**
+ * Default 3100, matching `scripts/dev-local.sh`. Port 3000 is routinely taken
+ * by an unrelated project on this machine, and pointing the suite at it means
+ * asserting against somebody else's app rather than failing.
+ */
+const PORT = process.env.PORT || 3100;
 
 /**
  * Set webServer.url and use.baseURL with the location
@@ -106,7 +118,9 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: "bun dev",
+    // `bun dev` starts Next on its own default port and does not load the
+    // repo-root env file; `dev:local` is the command that does both.
+    command: "bun run dev:local",
     url: baseURL,
     timeout: 120 * 1000,
     reuseExistingServer: !process.env.CI,

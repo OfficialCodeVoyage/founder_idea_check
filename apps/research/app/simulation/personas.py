@@ -100,6 +100,30 @@ class Reaction:
     #: -1 (rejects it) .. +1 (would use it).
     sentiment: float
 
+    #: Which OASIS table this came from: a top-level "post" or a "comment" on
+    #: one. Flattening both into one list — as this used to — throws away the
+    #: only thread structure a run produces, so any feed built on the flattened
+    #: payload can only be a styled list in an order it invented.
+    kind: str = "post"
+
+    #: `post.post_id` or `comment.comment_id`. The edge target for replies.
+    reaction_id: int | None = None
+
+    #: For a comment, the `post_id` it answers. For a repost, the
+    #: `original_post_id`. None for an original post — OASIS stores NULL there
+    #: and that NULL is meaningful, so it is not defaulted to 0.
+    parent_id: int | None = None
+
+    #: Which `env.step()` produced this. 0 is the seeded pitch; 1..n are the
+    #: agent rounds.
+    #:
+    #: DERIVED FROM ROW-ID WATERMARKS taken after each step, not from
+    #: `created_at`. OASIS's schema (`post.sql`, `comment.sql`) has no round
+    #: column, and ordering by its simulated clock would be an inference
+    #: presented as a fact. None means the watermark could not be read, which
+    #: is deliberately distinguishable from round 0.
+    round: int | None = None
+
 
 def _tokens(text: str) -> set[str]:
     cleaned = _WORD_RE.sub(" ", (text or "").lower())

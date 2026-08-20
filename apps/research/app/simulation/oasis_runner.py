@@ -95,7 +95,70 @@ def _build_model(oasis_module):
     return ModelFactory.create(**kwargs)
 
 
-def _read_reactions(db_path: Path, usernames: list[str], seed_text: str = "") -> list[Reaction]:
+def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
+    """Does this table exist at all?
+
+    Split from the query attempt so that "OASIS never created this table" and
+    "the table is there but its columns changed" stay distinguishable. The first
+    is normal; the second must be loud.
+    """
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", (table,)
+    ).fetchone()
+    return row is not None
+
+
+def _watermarks(db_path: Path) -> tuple[int, int]:
+    """Highest post and comment row id currently in the database.
+
+    Called after each `env.step()` so a row can later be attributed to the round
+    that wrote it. Defensive on purpose: this runs INSIDE a live simulation, and
+    failing to read a watermark must degrade `round` to None rather than kill a
+    run that is otherwise producing good reactions. sqlite may also be mid-write
+    and briefly locked. Opened read-only so this can never disturb OASIS.
+    """
+    try:
+        connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return (0, 0)
+    try:
+        highest: list[int] = []
+        for table, column in (("post", "post_id"), ("comment", "comment_id")):
+            try:
+                row = connection.execute(f"SELECT MAX({column}) FROM {table}").fetchone()
+                highest.append(int(row[0]) if row and row[0] is not None else 0)
+            except sqlite3.Error:
+                highest.append(0)
+        return (highest[0], highest[1])
+    finally:
+        connection.close()
+
+
+def _round_for(
+    kind: str, row_id: int | None, watermarks: list[tuple[int, int]] | None
+) -> int | None:
+    """Which round wrote this row, from the watermarks taken after each step.
+
+    A row belongs to the FIRST round whose high-water mark it falls within. A
+    row above every watermark is attributed to the last round rather than to
+    None: it exists, so something wrote it, and the final step is the only
+    candidate.
+    """
+    if not watermarks or row_id is None:
+        return None
+    position = 0 if kind == "post" else 1
+    for index, mark in enumerate(watermarks):
+        if row_id <= mark[position]:
+            return index
+    return len(watermarks) - 1
+
+
+def _read_reactions(
+    db_path: Path,
+    usernames: list[str],
+    seed_text: str = "",
+    watermarks: list[tuple[int, int]] | None = None,
+) -> list[Reaction]:
     """Read agent utterances out of the OASIS sqlite database.
 
     The `post` and `comment` tables are what an agent actually SAID; the `trace`
@@ -112,6 +175,14 @@ def _read_reactions(db_path: Path, usernames: list[str], seed_text: str = "") ->
     run collapsing onto one opinion, and an echo of the prompt was making
     collapse harder to detect. Observed live at 4 personas / 2 rounds: 1 of 8
     reactions was a verbatim echo. At the 2-persona minimum it would be 1 of 3.
+
+    WHAT `watermarks` IS FOR. OASIS has no round column — `post.sql` and
+    `comment.sql` carry only `created_at`, a simulated clock. `_run` therefore
+    records `(max post_id, max comment_id)` after every `env.step()`, and a row
+    belongs to the first round whose watermark it falls within. That is a fact
+    about when the row was written rather than an order inferred from
+    timestamps. Passing None leaves `round` None everywhere, which is
+    distinguishable from round 0 on purpose.
     """
     if not db_path.exists():
         raise SimulationUnavailable(
@@ -125,15 +196,41 @@ def _read_reactions(db_path: Path, usernames: list[str], seed_text: str = "") ->
     connection = sqlite3.connect(db_path)
     try:
         connection.row_factory = sqlite3.Row
-        for table, column in (("post", "content"), ("comment", "content")):
-            try:
-                rows = connection.execute(
-                    f"SELECT user_id, {column} AS text FROM {table}"
-                ).fetchall()
-            except sqlite3.Error:
+        # `original_post_id` is a post's parent (NULL unless it is a repost);
+        # `post_id` is a comment's. Aliasing both to `parent` keeps one loop
+        # without pretending they are the same column.
+        queries = (
+            (
+                "post",
+                "SELECT post_id AS rid, user_id, content AS text, "
+                "original_post_id AS parent FROM post",
+            ),
+            (
+                "comment",
+                "SELECT comment_id AS rid, user_id, content AS text, "
+                "post_id AS parent FROM comment",
+            ),
+        )
+        for kind, query in queries:
+            if not _table_exists(connection, kind):
                 # A table OASIS did not create in this run. Not a failure: the
                 # other table may still carry every reaction.
                 continue
+            try:
+                rows = connection.execute(query).fetchall()
+            except sqlite3.Error as error:
+                # THE TABLE EXISTS AND THE QUERY STILL FAILED, so its columns
+                # are not what this reader expects — an OASIS upgrade renamed
+                # or dropped one. Swallowing that would return zero reactions
+                # from a run that produced plenty, which is indistinguishable
+                # from every persona ignoring the pitch. It is named instead.
+                raise SimulationUnavailable(
+                    "simulation-schema-drift",
+                    f"the OASIS `{kind}` table exists but does not have the "
+                    f"columns this reader needs ({error}). Reactions cannot be "
+                    "read, and reporting zero would look like agent "
+                    "indifference rather than a schema change.",
+                ) from error
             for row in rows:
                 text = (row["text"] or "").strip()
                 if not text:
@@ -144,8 +241,20 @@ def _read_reactions(db_path: Path, usernames: list[str], seed_text: str = "") ->
                     continue
                 index = int(row["user_id"] or 0)
                 username = usernames[index] if 0 <= index < len(usernames) else f"agent-{index}"
+                row_id = row["rid"]
+                parent = row["parent"]
                 reactions.append(
-                    Reaction(username=username, text=text, sentiment=score_sentiment(text))
+                    Reaction(
+                        username=username,
+                        text=text,
+                        sentiment=score_sentiment(text),
+                        kind=kind,
+                        reaction_id=int(row_id) if row_id is not None else None,
+                        # NULL preserved rather than coerced to 0: "no parent"
+                        # and "parent number zero" are different facts.
+                        parent_id=int(parent) if parent is not None else None,
+                        round=_round_for(kind, row_id, watermarks),
+                    )
                 )
     finally:
         connection.close()
@@ -190,6 +299,9 @@ async def _run(personas: list[dict], pitch: str, rounds: int, workdir: Path) -> 
         semaphore=int(os.environ.get("RESEARCH_SIM_CONCURRENCY", "8")),
     )
 
+    # (max post_id, max comment_id) after each step. Index 0 is the seed round.
+    watermarks: list[tuple[int, int]] = []
+
     try:
         await env.reset()
 
@@ -205,12 +317,19 @@ async def _run(personas: list[dict], pitch: str, rounds: int, workdir: Path) -> 
             }
         )
 
+        watermarks.append(_watermarks(db_path))
+
         for _ in range(max(1, rounds)):
             await env.step({agent: oasis.LLMAction() for _, agent in env.agent_graph.get_agents()})
+            # After the step, not before: the point is to bound what this round
+            # wrote.
+            watermarks.append(_watermarks(db_path))
     finally:
         await env.close()
 
-    return _read_reactions(db_path, [str(p["username"]) for p in personas], pitch)
+    return _read_reactions(
+        db_path, [str(p["username"]) for p in personas], pitch, watermarks
+    )
 
 
 def run_simulation(personas: list[dict], pitch: str, rounds: int = 2) -> list[Reaction]:

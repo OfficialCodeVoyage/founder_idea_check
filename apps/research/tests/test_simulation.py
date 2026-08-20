@@ -223,14 +223,37 @@ class TestReadReactionsExcludesSeed:
     """
 
     @staticmethod
-    def _db(tmp_path, rows):
+    def _db(tmp_path, rows, comments=()):
+        """Build a database with OASIS's REAL column names.
+
+        Mirrors `oasis/social_platform/schema/post.sql` and `comment.sql`. The
+        earlier fixture declared `post(user_id, content)` only, which stopped
+        being a faithful stand-in once the reader started selecting `post_id`
+        and `original_post_id` — and a fixture that is not faithful tests the
+        fixture.
+        """
         import sqlite3
 
         path = tmp_path / "oasis.db"
         connection = sqlite3.connect(path)
         try:
-            connection.execute("CREATE TABLE post (user_id INTEGER, content TEXT)")
-            connection.executemany("INSERT INTO post VALUES (?, ?)", rows)
+            connection.execute(
+                "CREATE TABLE post (post_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "user_id INTEGER, original_post_id INTEGER, content TEXT)"
+            )
+            connection.executemany(
+                "INSERT INTO post (user_id, original_post_id, content) VALUES (?, NULL, ?)",
+                rows,
+            )
+            if comments:
+                connection.execute(
+                    "CREATE TABLE comment (comment_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "post_id INTEGER, user_id INTEGER, content TEXT)"
+                )
+                connection.executemany(
+                    "INSERT INTO comment (post_id, user_id, content) VALUES (?, ?, ?)",
+                    comments,
+                )
             connection.commit()
         finally:
             connection.close()
@@ -269,3 +292,106 @@ class TestReadReactionsExcludesSeed:
         path = self._db(tmp_path, [(0, "one"), (1, "two")])
 
         assert len(_read_reactions(path, ["a", "b"])) == 2
+
+
+class TestReactionPayloadCarriesStructure:
+    """A flat list of (username, text, sentiment) cannot be threaded.
+
+    Without `kind`, `parent_id` and `round` the only feed you can build is a
+    styled list in an order it invented. These pin the structure that makes a
+    real thread possible.
+    """
+
+    # staticmethod() explicitly: a bare reference would rebind as an instance
+    # method in this class and swallow `tmp_path` as `self`.
+    _db = staticmethod(TestReadReactionsExcludesSeed._db)
+
+    def test_distinguishes_a_comment_from_a_post(self, tmp_path):
+        from app.simulation.oasis_runner import _read_reactions
+
+        path = self._db(
+            tmp_path,
+            [(0, "seed pitch"), (1, "top level take")],
+            comments=[(1, 2, "replying to the pitch")],
+        )
+        reactions = _read_reactions(path, ["a", "b", "c"])
+        kinds = {r.text: r.kind for r in reactions}
+        assert kinds["top level take"] == "post"
+        assert kinds["replying to the pitch"] == "comment"
+
+    def test_a_comment_points_at_the_post_it_answers(self, tmp_path):
+        from app.simulation.oasis_runner import _read_reactions
+
+        path = self._db(
+            tmp_path, [(0, "seed pitch")], comments=[(1, 1, "I disagree with this")]
+        )
+        comment = next(r for r in _read_reactions(path, ["a", "b"]) if r.kind == "comment")
+        assert comment.parent_id == 1
+        assert comment.reaction_id == 1
+
+    def test_an_original_post_has_no_parent_and_says_so_with_none(self, tmp_path):
+        from app.simulation.oasis_runner import _read_reactions
+
+        # None, not 0: "no parent" and "parent number zero" are different facts,
+        # and an edge drawn to post 0 would be a fabricated reply.
+        path = self._db(tmp_path, [(0, "standalone opinion")])
+        post = _read_reactions(path, ["a"])[0]
+        assert post.parent_id is None
+
+    def test_round_is_none_without_watermarks_not_zero(self, tmp_path):
+        from app.simulation.oasis_runner import _read_reactions
+
+        # "Not measured" must not read as "round 0", which is the seed round.
+        path = self._db(tmp_path, [(0, "a take")])
+        assert _read_reactions(path, ["a"])[0].round is None
+
+    def test_watermarks_attribute_each_row_to_the_step_that_wrote_it(self, tmp_path):
+        from app.simulation.oasis_runner import _read_reactions
+
+        path = self._db(tmp_path, [(0, "seed"), (1, "round one take"), (2, "round two take")])
+        # Seed step ended at post_id 1; round 1 ended at 2; round 2 at 3.
+        watermarks = [(1, 0), (2, 0), (3, 0)]
+        by_text = {
+            r.text: r.round for r in _read_reactions(path, ["a", "b", "c"], "", watermarks)
+        }
+        assert by_text["seed"] == 0
+        assert by_text["round one take"] == 1
+        assert by_text["round two take"] == 2
+
+    def test_a_row_above_every_watermark_lands_in_the_last_round(self, tmp_path):
+        from app.simulation.oasis_runner import _read_reactions
+
+        # It exists, so something wrote it, and the final step is the only
+        # candidate. None would claim it was never measured.
+        path = self._db(tmp_path, [(0, "one"), (1, "two")])
+        rounds = [r.round for r in _read_reactions(path, ["a", "b"], "", [(1, 0)])]
+        assert rounds == [0, 0]
+
+    def test_a_table_whose_columns_changed_raises_instead_of_reporting_zero(self, tmp_path):
+        import sqlite3
+
+        import pytest
+
+        from app.simulation.oasis_runner import SimulationUnavailable, _read_reactions
+
+        # An OASIS upgrade that renames a column must not present as "every
+        # persona ignored the pitch".
+        path = tmp_path / "drift.db"
+        connection = sqlite3.connect(path)
+        try:
+            connection.execute("CREATE TABLE post (user_id INTEGER, body TEXT)")
+            connection.execute("INSERT INTO post VALUES (1, 'a take')")
+            connection.commit()
+        finally:
+            connection.close()
+
+        with pytest.raises(SimulationUnavailable) as caught:
+            _read_reactions(path, ["a"])
+        assert caught.value.kind == "simulation-schema-drift"
+
+    def test_a_missing_table_is_still_tolerated(self, tmp_path):
+        from app.simulation.oasis_runner import _read_reactions
+
+        # No `comment` table at all is normal — nobody commented.
+        path = self._db(tmp_path, [(0, "just a post")])
+        assert len(_read_reactions(path, ["a"])) == 1

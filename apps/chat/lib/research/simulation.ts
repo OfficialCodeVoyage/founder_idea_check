@@ -185,13 +185,44 @@ export function toOasisPersonas(
 // (b) THE DIVERGENCE CHECK. This is the Step 8 gate, as a pure function.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** One persona's reaction, read back from the OASIS sqlite `trace` table. */
+/**
+ * One persona's reaction, read back from the OASIS sqlite `post` and `comment`
+ * tables by the sidecar.
+ *
+ * The structural fields below are optional because the sidecar can genuinely
+ * fail to determine them — a database whose watermark could not be read yields
+ * `round: null` — and because a reaction that predates this shape is still a
+ * reaction. Consumers must therefore treat absence as "unknown", never as a
+ * default: `round ?? 0` would silently file an unmeasured reaction into the
+ * seed round, and `parentId ?? 0` would draw a reply edge to post zero that
+ * nobody wrote.
+ */
 export type PersonaReaction = {
   username: string;
   /** What the agent said. */
   text: string;
   /** -1 (rejects it) .. +1 (would use it), scored by the sidecar. */
   sentiment: number;
+  /**
+   * Whether this was a top-level post or a comment on one. Without it the two
+   * are indistinguishable and a feed can only be a flat list.
+   */
+  kind?: "post" | "comment";
+  /** `post.post_id` or `comment.comment_id` — the target of a reply edge. */
+  reactionId?: number | null;
+  /**
+   * The post a comment answers, or a repost's original. `null` for an original
+   * post, and that null is meaningful: there is no parent, as opposed to a
+   * parent we failed to record.
+   */
+  parentId?: number | null;
+  /**
+   * Which `env.step()` produced it: 0 is the seeded pitch, 1..n the agent
+   * rounds. Derived from row-id watermarks rather than from OASIS's simulated
+   * clock, because its schema has no round column and ordering by timestamp
+   * would be an inference dressed as a fact.
+   */
+  round?: number | null;
 };
 
 export type DivergenceReport = {

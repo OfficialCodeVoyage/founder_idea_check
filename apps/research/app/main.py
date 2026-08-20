@@ -198,8 +198,23 @@ def simulate(request: SimulationRequest) -> dict:
 
     return {
         "ok": True,
+        # Hand-built rather than `asdict` so that adding a field to Reaction is
+        # a deliberate act here too — a field that reaches the sidecar boundary
+        # but not the client is worse than one that was never added, because the
+        # producer's tests pass and the consumer sees nothing.
         "reactions": [
-            {"username": r.username, "text": r.text, "sentiment": r.sentiment} for r in reactions
+            {
+                "username": r.username,
+                "text": r.text,
+                "sentiment": r.sentiment,
+                "kind": r.kind,
+                "reactionId": r.reaction_id,
+                "parentId": r.parent_id,
+                # None stays None across the wire. `round or 0` would file an
+                # unmeasured reaction into the seed round.
+                "round": r.round,
+            }
+            for r in reactions
         ],
         # The verdict travels with the reactions so a caller that ignores it
         # still has it in the payload it logs.

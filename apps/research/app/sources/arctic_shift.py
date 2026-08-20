@@ -95,6 +95,18 @@ _FIELDS = (
 #: string, and as a 422 with the same string. Either way it is a TRANSPORT
 #: FAILURE, not an empty result set, and conflating the two is how a degraded
 #: lane gets written into a report as "no demand for this idea".
+# DO NOT DELETE THIS MACHINERY. It was slated for removal in the batch that
+# added SearXNG, on the plan that self-hosting Arctic Shift would remove the
+# need for retry, backoff and the overload sniffer. Self-hosting was then
+# investigated and is NOT possible here: upstream's own README opens the usage
+# section with "First download one or more dumps" and tells bulk users to "use
+# the monthly dumps instead" of the API. Those dumps are 3.97 TB against 66 GB
+# of free disk — the same wall the Reddit-dump corpus task hit, reached by a
+# different road.
+#
+# So this adapter still calls the PUBLIC API, which still sheds load by
+# answering 200 with {"error": "Timeout. Maybe slow down a bit"}. Removing the
+# retry path would delete the handling for a condition that is still live.
 _OVERLOAD_MARKERS = ("timeout", "slow down")
 
 #: The archive is genuinely flaky under load — measured live, three identical

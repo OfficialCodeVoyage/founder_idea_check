@@ -267,31 +267,35 @@ function buildFactNodes(facts: CanvasFactInput[]): CanvasNode[] {
 }
 
 function buildPersonaNodes(personas: CanvasPersonaInput[]): CanvasNode[] {
-  return byKey(personas, (p) => `${p.name} ${p.id}`).map((persona, row) => ({
-    type: "persona",
-    id: personaNodeId(persona.id),
-    position: position("persona", row),
-    title: persona.name,
-    subtitle: persona.summary
-      ? truncatedSubtitle(persona.summary, SUBTITLE_MAX)
-      : null,
-    status: personaStatus(persona),
-    personaId: persona.id,
-    evidenceCount: persona.evidenceCount,
-  }));
+  return byKey(personas, (p) => `${p.name}\u0000${p.id}`).map(
+    (persona, row) => ({
+      type: "persona",
+      id: personaNodeId(persona.id),
+      position: position("persona", row),
+      title: persona.name,
+      subtitle: persona.summary
+        ? truncatedSubtitle(persona.summary, SUBTITLE_MAX)
+        : null,
+      status: personaStatus(persona),
+      personaId: persona.id,
+      evidenceCount: persona.evidenceCount,
+    })
+  );
 }
 
 function buildArtifactNodes(artifacts: CanvasArtifactInput[]): CanvasNode[] {
-  return byKey(artifacts, (a) => `${a.title} ${a.id}`).map((artifact, row) => ({
-    type: "artifact",
-    id: artifactNodeId(artifact.id),
-    position: position("artifact", row),
-    title: artifact.title,
-    subtitle: artifact.kind,
-    status: artifactStatus(artifact),
-    documentId: artifact.id,
-    kind: artifact.kind,
-  }));
+  return byKey(artifacts, (a) => `${a.title}\u0000${a.id}`).map(
+    (artifact, row) => ({
+      type: "artifact",
+      id: artifactNodeId(artifact.id),
+      position: position("artifact", row),
+      title: artifact.title,
+      subtitle: artifact.kind,
+      status: artifactStatus(artifact),
+      documentId: artifact.id,
+      kind: artifact.kind,
+    })
+  );
 }
 
 function buildTaskNodes(

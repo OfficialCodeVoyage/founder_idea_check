@@ -114,3 +114,62 @@ export function resolveChatSeedModel({
 
   return null;
 }
+
+/**
+ * WHICH MODEL A CHAT OPENS IN, in one place with one precedence order.
+ *
+ * A PROJECT CHAT DEFAULTS TO THE CONFIGURED INTERVIEWER. Before this, a new
+ * project chat opened in whatever model the global `chat-model` cookie last
+ * held — so the same eight-phase interview was conducted by a different model
+ * depending on what the founder happened to pick in an unrelated chat, and two
+ * founders working the same product got different interview quality for reasons
+ * neither of them chose. The interview produces the transcript the gate is then
+ * asked to judge, so that is not a cosmetic difference.
+ *
+ * IT IS A DEFAULT, NOT A PIN. The founder can still change the model from the
+ * picker, and that choice survives: it is written onto the user row's
+ * `metadata.selectedModel`, so `resolveChatSeedModel` finds it on the next
+ * mount and returns it from a HIGHER precedence slot than this one. A pin would
+ * have meant reassigning the model on every mount, which is the defect this
+ * file was created to remove, pointed at a different cause.
+ *
+ * Precedence, highest first:
+ *   1. `?modelId=` deep link — an explicit request in the URL.
+ *   2. The chat's own history — what this conversation was actually held in,
+ *      including a change the founder made mid-chat.
+ *   3. The configured interviewer, for a project chat with no history yet.
+ *   4. Nothing, which leaves the global default in charge (plain chats).
+ *
+ * The configured interviewer is validated like every other id: a config naming
+ * a model this gateway does not serve falls through to the global default
+ * rather than seeding the composer with something unselectable.
+ *
+ * PURE. No React, no I/O, no clock.
+ */
+export function resolveOpeningModelId({
+  deepLinkModelId,
+  seedModelId,
+  projectInterviewerModelId,
+  isKnownModel,
+}: {
+  deepLinkModelId?: AppModelId;
+  seedModelId?: AppModelId;
+  /**
+   * `config.ai.workflows.chat`, and ONLY for a project chat. Undefined for a
+   * plain chat — the interviewer default is a project concept, and applying it
+   * everywhere would quietly override the picker for ordinary conversations.
+   */
+  projectInterviewerModelId?: string;
+  isKnownModel: (id: string) => boolean;
+}): AppModelId | undefined {
+  if (deepLinkModelId) {
+    return deepLinkModelId;
+  }
+  if (seedModelId) {
+    return seedModelId;
+  }
+  if (projectInterviewerModelId && isKnownModel(projectInterviewerModelId)) {
+    return projectInterviewerModelId as AppModelId;
+  }
+  return;
+}

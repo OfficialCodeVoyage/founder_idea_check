@@ -183,20 +183,44 @@ function OutcomePanel({ result }: { result: RunSimulationResult }) {
   );
 }
 
+/**
+ * THREE STATES, AND `null` IS CHECKED FIRST.
+ *
+ * `run.usable` is `true` diverged, `false` collapsed, `null` never assessed.
+ * Writing `run.usable ? … : …` folds null in with false and puts the COLLAPSED
+ * badge on a run that produced nothing — the exact bug this column was made
+ * nullable to end. The null branch comes first, and nothing here may treat
+ * `usable` as a boolean.
+ */
 function HistoryRow({ run }: { run: SimulationRun }) {
   const divergence = run.divergence as DivergenceReport | null;
+  const notAssessed = run.usable === null;
   return (
     <li className="rounded-md border p-2">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={run.usable ? "default" : "secondary"}>
-          {run.usable ? "DIVERGED" : "COLLAPSED"}
-        </Badge>
+        {notAssessed ? (
+          <Badge variant="outline">NO RESULT</Badge>
+        ) : (
+          <Badge variant={run.usable ? "default" : "secondary"}>
+            {run.usable ? "DIVERGED" : "COLLAPSED"}
+          </Badge>
+        )}
         <span className="text-muted-foreground text-xs">
           {new Date(run.createdAt).toLocaleString()}
         </span>
       </div>
       <p className="mt-1 line-clamp-2 text-sm">{run.pitch}</p>
-      {divergence ? (
+      {notAssessed ? (
+        <p className="mt-1 text-muted-foreground text-xs">
+          This run produced no usable reactions
+          {run.notAssessedKind ? ` (${run.notAssessedKind})` : ""}
+          {typeof run.agentErrors === "number" && run.agentErrors > 0
+            ? ` — ${run.agentErrors} agent action(s) failed`
+            : ""}
+          . It was not judged, which is different from the personas agreeing.
+        </p>
+      ) : null}
+      {divergence && !notAssessed ? (
         <div className="mt-1">
           <DivergenceBar divergence={divergence} />
         </div>
@@ -259,7 +283,8 @@ export function SimulationPanel({
         <h2 className="font-medium text-sm">Past runs</h2>
         {history.length === 0 ? (
           <p className="mt-1 text-muted-foreground text-sm">
-            Nothing yet. Runs are kept whether or not they diverged.
+            Nothing yet. Runs are kept whether they diverged, collapsed, or
+            produced nothing at all.
           </p>
         ) : (
           <ul className="mt-2 space-y-2">

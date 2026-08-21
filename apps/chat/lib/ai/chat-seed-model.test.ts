@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveChatSeedModel } from "./chat-seed-model";
+import { resolveChatSeedModel, resolveOpeningModelId } from "./chat-seed-model";
 import type { ChatMessage, SelectedModelValue } from "./types";
 
 const KNOWN = new Set(["gpt-5.2", "gpt-5.6-terra", "claude-x"]);
@@ -98,5 +98,60 @@ describe("resolveChatSeedModel", () => {
     expect(
       resolve([message("user", "gpt-5.2"), message("user", null)])
     ).toEqual({ modelId: "gpt-5.2", selection: "gpt-5.2" });
+  });
+});
+
+describe("resolveOpeningModelId — which model a chat opens in", () => {
+  const known = (id: string) =>
+    ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5-nano"].includes(id);
+
+  it("opens a NEW project chat in the configured interviewer", () => {
+    // The point of T10e: the same eight-phase interview should not be conducted
+    // by whatever model a founder last picked in an unrelated chat.
+    expect(
+      resolveOpeningModelId({
+        isKnownModel: known,
+        projectInterviewerModelId: "gpt-5.6-terra",
+      })
+    ).toBe("gpt-5.6-terra");
+  });
+
+  it("leaves a plain chat alone so the global default still applies", () => {
+    expect(resolveOpeningModelId({ isKnownModel: known })).toBeUndefined();
+  });
+
+  it("lets the founder's own choice WIN over the configured interviewer", () => {
+    // This is what keeps it a default rather than a pin. A model the founder
+    // picked mid-chat is written to the user row and comes back as the seed.
+    expect(
+      resolveOpeningModelId({
+        isKnownModel: known,
+        projectInterviewerModelId: "gpt-5.6-terra",
+        seedModelId: "gpt-5.6-luna",
+      })
+    ).toBe("gpt-5.6-luna");
+  });
+
+  it("lets an explicit deep link outrank everything", () => {
+    expect(
+      resolveOpeningModelId({
+        deepLinkModelId: "gpt-5-nano",
+        isKnownModel: known,
+        projectInterviewerModelId: "gpt-5.6-terra",
+        seedModelId: "gpt-5.6-luna",
+      })
+    ).toBe("gpt-5-nano");
+  });
+
+  it("falls through when the configured interviewer is not a servable model", () => {
+    // A config naming a model this gateway does not serve must not seed the
+    // composer with something unselectable — better the global default than a
+    // picker showing a model that cannot answer.
+    expect(
+      resolveOpeningModelId({
+        isKnownModel: known,
+        projectInterviewerModelId: "gpt-5.2-chat-latest",
+      })
+    ).toBeUndefined();
   });
 });

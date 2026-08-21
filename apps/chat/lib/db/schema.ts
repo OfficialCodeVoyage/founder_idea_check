@@ -841,13 +841,45 @@ export const simulationRun = pgTable(
     pitch: text("pitch").notNull(),
     /** Full DivergenceReport. Store it even when the run collapsed. */
     divergence: jsonb("divergence").notNull(),
-    /** False for a collapsed run. NOT a reason to delete the row. */
-    usable: boolean("usable").notNull(),
+    /**
+     * `true` diverged, `false` collapsed, **`null` NOT ASSESSED**.
+     *
+     * The null is the point. This column was `notNull`, so a run that produced
+     * nothing — every agent call 400'd — could only be written as `false`, and
+     * `false` is the COLLAPSED badge. A run that never happened was therefore
+     * stored and rendered identically to one where the personas unanimously
+     * agreed, and those two facts send a founder in opposite directions.
+     *
+     * A reader must narrow on `null` FIRST. `usable === false` now means
+     * "assessed, and it collapsed"; `!usable` would fold the two back together
+     * and is the mistake this column shape exists to make visible.
+     */
+    usable: boolean("usable"),
+    /**
+     * Why a run was not assessed: `no-reactions` or `too-few-reactions`. NULL
+     * exactly when `usable` is non-null — the two travel together.
+     */
+    notAssessedKind: varchar("notAssessedKind", { length: 32 }),
+    /**
+     * How many agent actions the sidecar watched fail. NULL means it did not
+     * report a count, which is NOT the same as zero.
+     */
+    agentErrors: integer("agentErrors"),
     reactions: jsonb("reactions").notNull(),
   },
   (t) => ({
     SimulationRun_project_id_idx: index("SimulationRun_project_id_idx").on(
       t.projectId
+    ),
+    /**
+     * A row is EITHER assessed or not, never half of each. Without this, a
+     * `usable: null` row with no reason, or a `usable: false` row that also
+     * claims it was never assessed, is storable — and both read as a verdict to
+     * anything that only checks one column.
+     */
+    SimulationRun_assessment_coherent: check(
+      "SimulationRun_assessment_coherent",
+      sql`("SimulationRun"."usable" IS NULL) = ("SimulationRun"."notAssessedKind" IS NOT NULL)`
     ),
   })
 );

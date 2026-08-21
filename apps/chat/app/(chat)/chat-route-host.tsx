@@ -16,7 +16,10 @@ import {
 } from "@/hooks/chat-sync-hooks";
 import { useChatSystemInitialState } from "@/hooks/use-chat-system-initial-state";
 import type { AppModelId } from "@/lib/ai/app-models";
-import { resolveChatSeedModel } from "@/lib/ai/chat-seed-model";
+import {
+  resolveChatSeedModel,
+  resolveOpeningModelId,
+} from "@/lib/ai/chat-seed-model";
 import {
   type AppRuntime,
   type AppRuntimeData,
@@ -28,6 +31,7 @@ import {
   type ChatRuntimeId,
   createMainChatRuntimeId,
 } from "@/lib/chat-runtime-id";
+import { config } from "@/lib/config";
 import { useRuntime, useRuntimeActions } from "@/lib/runtime-registry";
 import { useRuntimeIsChatPersisted } from "@/lib/stores/hooks-chat-persistence";
 import { useChatModels } from "@/providers/chat-models-provider";
@@ -415,6 +419,17 @@ function HostedChatRoute({ route }: { route: HostedParsedChatRoute }) {
    * arrives late: a mid-chat cookie write would then reassign a running chat's
    * model, which is the bug this removes.
    */
+  // A project chat is either the project home route or a persisted chat with a
+  // projectId. `getProjectIdForChatSystem` already encodes that pairing; this
+  // reuses it rather than re-deriving the rule a second way.
+  const isProjectChat = Boolean(
+    getProjectIdForChatSystem({
+      persistedRoute,
+      projectId: projectQuery.data?.id,
+      route,
+    })
+  );
+
   const seedModel = useMemo(
     () =>
       resolveChatSeedModel({
@@ -423,7 +438,21 @@ function HostedChatRoute({ route }: { route: HostedParsedChatRoute }) {
       }),
     [getModelById, initialMessages]
   );
-  const overrideModelId = deepLinkModelId ?? seedModel?.modelId;
+  // A project chat with no history yet opens in the configured interviewer
+  // rather than in whatever the global cookie last held. Still a default: the
+  // picker overrides it, and that choice comes back through `seedModel` on the
+  // next mount, which outranks this.
+  const overrideModelId = resolveOpeningModelId({
+    deepLinkModelId,
+    isKnownModel: (modelId) => Boolean(getModelById(modelId)),
+    // Both project shapes count: the project home route and a persisted chat
+    // that belongs to a project. A plain chat passes undefined and keeps the
+    // global default.
+    projectInterviewerModelId: isProjectChat
+      ? config.ai.workflows.chat
+      : undefined,
+    seedModelId: seedModel?.modelId,
+  });
   // The deep link carries a single model, so it must not be paired with a
   // parallel selection recovered from history.
   const overrideModelSelection = deepLinkModelId

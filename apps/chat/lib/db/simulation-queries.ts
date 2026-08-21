@@ -196,7 +196,21 @@ export type InsertSimulationRunInput = {
   pitch: string;
   /** The full DivergenceReport, stored even when the run collapsed. */
   divergence: unknown;
-  usable: boolean;
+  /**
+   * `true` diverged, `false` collapsed, `null` NOT ASSESSED — and the third one
+   * is why this is a union rather than a boolean. A run that produced nothing
+   * used to be storable only as `false`, which is the COLLAPSED badge.
+   */
+  usable: boolean | null;
+  /**
+   * Required exactly when `usable` is null, forbidden otherwise. The database
+   * enforces the same pairing in `SimulationRun_assessment_coherent`, so a
+   * caller that gets this wrong fails loudly rather than writing a row that
+   * reads as a verdict.
+   */
+  notAssessedKind?: string | null;
+  /** Agent actions the sidecar watched fail. `null` = not counted, NOT zero. */
+  agentErrors?: number | null;
   reactions: unknown;
 };
 
@@ -212,6 +226,8 @@ export async function insertSimulationRun(
         pitch: input.pitch,
         divergence: input.divergence,
         usable: input.usable,
+        notAssessedKind: input.notAssessedKind ?? null,
+        agentErrors: input.agentErrors ?? null,
         reactions: input.reactions,
       })
       .returning();

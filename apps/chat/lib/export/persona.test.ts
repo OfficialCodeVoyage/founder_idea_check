@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   PERSONA_DOCUMENT_KIND,
+  type PersonaVersionDiff,
   serializePersonaArtifact,
 } from "@/lib/personas/artifact";
 import {
@@ -111,10 +112,14 @@ function render(personas: ExportPersona[]) {
   return files[0].contents;
 }
 
-function readable(over: Partial<PersonaArtifact> = {}): ExportPersona {
+function readable(
+  over: Partial<PersonaArtifact> = {},
+  history: PersonaVersionDiff[] = []
+): ExportPersona {
   return {
     artifact: artifact(over),
     documentId: "doc-1",
+    history,
     status: "readable",
     title: "Persona: Ops lead (v1)",
     version: 1,
@@ -280,5 +285,109 @@ describe("toExportPersonas", () => {
 
   it("returns nothing for no rows", () => {
     expect(toExportPersonas([])).toEqual([]);
+  });
+});
+
+describe("PERSONA.md carries the change history", () => {
+  it("states plainly when a persona has never been revised", () => {
+    const md = render([readable()]);
+    expect(md).toContain("How this persona changed");
+    // "One version" must not read as "confirmed". A founder seeing no history
+    // should learn that nothing has been re-examined, not that it held up.
+    expect(md).toContain("only ever had one version");
+    expect(md).toContain("not the same as it having been confirmed");
+  });
+
+  it("renders each version step with what the attribute was and became", () => {
+    const md = render([
+      readable({}, [
+        {
+          fromVersion: 1,
+          toVersion: 2,
+          changes: [
+            {
+              key: "role",
+              from: "bookkeeper using spreadsheets",
+              to: "bookkeeper using QuickBooks",
+              regressed: false,
+            },
+          ],
+        },
+      ]),
+    ]);
+    expect(md).toContain("v1 → v2");
+    expect(md).toContain("bookkeeper using spreadsheets");
+    expect(md).toContain("bookkeeper using QuickBooks");
+  });
+
+  it("MARKS an attribute that lost its evidence", () => {
+    // The half a founder least wants to see and most needs to: something they
+    // believed is no longer supported.
+    const md = render([
+      readable({}, [
+        {
+          fromVersion: 1,
+          toVersion: 2,
+          changes: [
+            { key: "role", from: "owner", to: "manager", regressed: true },
+          ],
+        },
+      ]),
+    ]);
+    expect(md).toContain("Lost its evidence");
+    expect(md).toContain("**yes**");
+  });
+
+  it("spells out a value that was never established rather than leaving a blank cell", () => {
+    // An empty table cell reads as "unchanged" or as a rendering bug. Neither
+    // is what null means here.
+    const md = render([
+      readable({}, [
+        {
+          fromVersion: 1,
+          toVersion: 2,
+          changes: [
+            { key: "role", from: null, to: "office manager", regressed: false },
+          ],
+        },
+      ]),
+    ]);
+    expect(md).toContain("_(not established)_");
+  });
+
+  it("says so when a regeneration changed nothing", () => {
+    const md = render([
+      readable({}, [{ fromVersion: 1, toVersion: 2, changes: [] }]),
+    ]);
+    expect(md).toContain("Regenerated, and no attribute changed");
+  });
+
+  it("escapes a pipe in a model-written value so it cannot forge a column", () => {
+    const md = render([
+      readable({}, [
+        {
+          fromVersion: 1,
+          toVersion: 2,
+          changes: [
+            {
+              key: "role",
+              from: "a | b | c",
+              to: "d\ne",
+              regressed: false,
+            },
+          ],
+        },
+      ]),
+    ]);
+    // The raw pipe must not survive into the table, and neither must the raw
+    // newline — both forge structure in a document an agent is told to obey.
+    expect(md).not.toContain("| a | b | c |");
+    expect(md).toContain("\\|");
+  });
+
+  it("no longer claims version history is unexported", () => {
+    expect(render([readable()])).not.toContain(
+      "Version history is not exported"
+    );
   });
 });

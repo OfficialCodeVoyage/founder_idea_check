@@ -166,6 +166,12 @@ describe("buildHandoff — the tree", () => {
               },
             },
             documentId: "doc-1",
+            // Required, and NOT defaulted by the renderer on purpose: an
+            // absent history would render as "only ever had one version",
+            // which is a claim, not a blank. The `as unknown as` cast below is
+            // what let this field go missing without a type error — worth
+            // knowing when adding the next one.
+            history: [],
             status: "readable",
             title: "Persona: Ops lead (v1)",
             version: 1,

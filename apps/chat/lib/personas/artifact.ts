@@ -378,3 +378,53 @@ export function personaAttributeChanges(
   }
   return changes;
 }
+
+export type PersonaVersionDiff = {
+  /** The version this diff arrives AT. `from` is the one before it. */
+  fromVersion: number;
+  toVersion: number;
+  changes: PersonaAttributeChange[];
+};
+
+/**
+ * PURE. The whole change history of one persona document, oldest step first.
+ *
+ * WHY THE EXPORT WANTS THIS. The handoff used to ship only the newest version,
+ * so a reader saw the founder's current belief and had no way to know it had
+ * ever been anything else. That hides the most valuable thing an eight-phase
+ * interview produces: not the persona, but the fact that the founder started
+ * with one idea of their user and evidence moved them off it. "Age 30-40, uses
+ * spreadsheets" becoming "45-55, uses QuickBooks" because interview three
+ * contradicted the guess IS the work.
+ *
+ * UNREADABLE VERSIONS ARE SKIPPED, NOT GUESSED AT. A row that does not parse
+ * cannot be diffed, so it contributes no step rather than a step against the
+ * last readable one — which would attribute a change to the wrong version. The
+ * gap is therefore visible in the version numbers: a jump from v2 to v4 says
+ * v3 could not be read.
+ *
+ * A version that changed nothing produces an entry with an EMPTY `changes`
+ * array rather than being dropped. "We regenerated and nothing moved" is a
+ * result, and the caller decides whether to show it.
+ */
+export function personaVersionHistory(
+  rows: readonly PersonaDocumentRowLike[]
+): PersonaVersionDiff[] {
+  const ordered = orderPersonaVersions(rows).filter(
+    (v): v is PersonaVersion & { artifact: PersonaArtifact } =>
+      v.artifact !== null
+  );
+
+  const diffs: PersonaVersionDiff[] = [];
+  for (let i = 1; i < ordered.length; i++) {
+    diffs.push({
+      fromVersion: ordered[i - 1].version,
+      toVersion: ordered[i].version,
+      changes: personaAttributeChanges(
+        ordered[i - 1].artifact.persona,
+        ordered[i].artifact.persona
+      ),
+    });
+  }
+  return diffs;
+}

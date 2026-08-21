@@ -1,3 +1,4 @@
+import type { PersonaVersionDiff } from "@/lib/personas/artifact";
 import type { PersonaArtifact } from "@/lib/personas/types";
 import type { StoredFact } from "@/lib/phases/context";
 
@@ -102,6 +103,13 @@ export type ExportPersona =
       version: number;
       title: string;
       artifact: PersonaArtifact;
+      /**
+       * How this persona changed on its way to the version above, oldest step
+       * first. Empty for a persona that has only ever had one version — which
+       * is a fact worth stating in the document, not a reason to omit the
+       * section.
+       */
+      history: PersonaVersionDiff[];
     }
   | {
       status: "unreadable";

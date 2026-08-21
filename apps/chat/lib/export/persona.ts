@@ -1,6 +1,7 @@
 import {
   latestPersonaPerDocument,
   type PersonaDocumentRowLike,
+  personaVersionHistory,
 } from "@/lib/personas/artifact";
 import { personaAttributeEntries } from "@/lib/personas/normalize";
 import type {
@@ -10,7 +11,13 @@ import type {
 } from "@/lib/personas/types";
 import { PERSONA_INTERVIEW_FLOOR } from "@/lib/personas/types";
 import type { DocumentContext } from "./grounding";
-import { blockquote, bulletList, joinSections, singleLine } from "./markdown";
+import {
+  blockquote,
+  bulletList,
+  joinSections,
+  singleLine,
+  tableCell,
+} from "./markdown";
 import { PLANNING_DIR } from "./planning";
 import type { ExportFile, ExportPersona } from "./types";
 
@@ -58,11 +65,27 @@ export const PERSONA_PATH = `${PLANNING_DIR}/PERSONA.md`;
 export function toExportPersonas(
   rows: readonly PersonaDocumentRowLike[]
 ): ExportPersona[] {
+  // Grouped once so the history for a document is computed from that
+  // document's own rows. Diffing across documents would invent changes between
+  // two unrelated personas.
+  const rowsByDocument = new Map<string, PersonaDocumentRowLike[]>();
+  for (const row of rows) {
+    const existing = rowsByDocument.get(row.id);
+    if (existing) {
+      existing.push(row);
+    } else {
+      rowsByDocument.set(row.id, [row]);
+    }
+  }
+
   return latestPersonaPerDocument(rows).map((latest) =>
     latest.artifact
       ? {
           artifact: latest.artifact,
           documentId: latest.documentId,
+          history: personaVersionHistory(
+            rowsByDocument.get(latest.documentId) ?? []
+          ),
           status: "readable",
           title: latest.title,
           version: latest.version,
@@ -131,6 +154,72 @@ function renderAttribute(label: string, attribute: PersonaAttribute): string {
     "",
     renderEvidence(attribute.evidence),
   ].join("\n");
+}
+
+/**
+ * The change history, as a readable section.
+ *
+ * VALUES GO THROUGH `tableCell`, not raw. Every `from`/`to` here is
+ * model-written text landing in a table in a document the founder circulates
+ * and an agent is told to obey — an unescaped pipe would forge a column and an
+ * unescaped newline would forge a row. Same rule the rest of this file follows.
+ *
+ * A LOST VALUE IS NOT A BLANK CELL. `null` means the attribute was not
+ * established at that version, and an empty cell would read as "unchanged" or
+ * as a rendering bug. It is spelled out.
+ *
+ * `regressed` gets its own column because it is the half a founder least wants
+ * to see: an attribute that was evidenced and is no longer. That is something
+ * they believed losing its support, which is exactly what version history is
+ * for.
+ */
+function renderPersonaHistory(entry: ReadableExportPersona): string {
+  if (entry.history.length === 0) {
+    return [
+      "## How this persona changed",
+      [
+        "_This persona has only ever had one version, so there is nothing to",
+        "compare. That is not the same as it having been confirmed — it means",
+        "it has not been revised since it was first generated._",
+      ].join(" "),
+    ].join("\n\n");
+  }
+
+  const steps = entry.history.map((diff) => {
+    const heading = `### v${diff.fromVersion} → v${diff.toVersion}`;
+    if (diff.changes.length === 0) {
+      return [heading, "", "_Regenerated, and no attribute changed._"].join(
+        "\n"
+      );
+    }
+    const rows = diff.changes.map((change) => {
+      const from =
+        change.from === null ? "_(not established)_" : tableCell(change.from);
+      const to =
+        change.to === null ? "_(not established)_" : tableCell(change.to);
+      return `| ${tableCell(change.key)} | ${from} | ${to} | ${change.regressed ? "**yes**" : "no"} |`;
+    });
+    return [
+      heading,
+      "",
+      "| Attribute | Was | Became | Lost its evidence |",
+      "|---|---|---|---|",
+      ...rows,
+    ].join("\n");
+  });
+
+  // ONE element per PARAGRAPH. Splitting the italic intro across array entries
+  // put a blank line inside the emphasis, so `_..._` never closed and the
+  // markdown rendered as literal underscores.
+  return [
+    "## How this persona changed",
+    [
+      "_Oldest change first. This is the record of the founder's understanding",
+      "moving, and what it moved from. A row marked in the last column is an",
+      "attribute that WAS evidenced and no longer is._",
+    ].join(" "),
+    ...steps,
+  ].join("\n\n");
 }
 
 type ReadableExportPersona = Extract<ExportPersona, { status: "readable" }>;
@@ -237,6 +326,11 @@ function renderReadablePersona(entry: ReadableExportPersona): string {
     )
   );
 
+  // LAST, deliberately. The history is context for the values above, and a
+  // reader who meets "this used to say something else" before meeting the
+  // current claim has to hold two versions in their head to read either.
+  sections.push(renderPersonaHistory(entry));
+
   return joinSections(sections);
 }
 
@@ -280,7 +374,7 @@ export function renderPersonaDocument(
 
   return joinSections([
     "# Persona",
-    `_As of ${context.generatedOn}. ${personas.length} persona document${personas.length === 1 ? "" : "s"}, newest version of each. Version history is not exported._`,
+    `_As of ${context.generatedOn}. ${personas.length} persona document${personas.length === 1 ? "" : "s"}, newest version of each, with the change history of each._`,
     [
       "> Every value below is either evidenced, labelled as the founder's own",
       "> assumption, or marked not established. Nothing here was inferred to",

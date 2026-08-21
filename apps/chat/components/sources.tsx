@@ -26,6 +26,12 @@ const SourcesList = ({
   sources: SearchResultItem[] | undefined;
 }) => (
   <div className="space-y-3">
+    {/*
+      Keyed on the url, which is unique only because `toSearchResults` in
+      deep-research/sidecar-search.ts dedupes by url. The sidecar's own dedup is
+      by text similarity and skips empty-text items entirely, so without that
+      step this key collides — see the note in components/research-task.tsx.
+    */}
     {sources?.map((source: SearchResultItem) => (
       <a
         className="block rounded-lg bg-secondary p-4 transition-colors hover:bg-accent"

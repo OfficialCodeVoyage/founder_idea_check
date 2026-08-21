@@ -101,6 +101,20 @@ export const ChatLayoutMain = ({
  * rendered" — and this group renders its second panel conditionally. No
  * `autoSaveId` is set, so these ids are not yet part of a storage key; if one is
  * ever added, they become one.
+ *
+ * VERIFIED 2026-08-21, having previously been unverifiable. The warning cannot
+ * fire until the artifact panel actually opens, so this was checked by opening
+ * it for real: a document artifact was created in a live chat, at which point
+ * both panels register (`chat-main`, `chat-secondary`) with flex-grow 65 and 35,
+ * and the console carries zero errors and neither library warning. The 65/35
+ * split does apply on the mount where the second panel appears, which is the
+ * behaviour the `defaultSize` comment above reasons about.
+ *
+ * NOT covered by an automated test, and the reason is worth knowing: the e2e
+ * suite is anonymous-only and cannot drive a real turn, so it cannot create an
+ * artifact and cannot open this panel. The e2e spec therefore still asserts only
+ * the "Invalid layout total size" half. Closing that gap needs the mock model
+ * provider (T2), not another assertion here.
  */
 type ChatLayoutSecondaryProps = ComponentProps<typeof ResizablePanel>;
 

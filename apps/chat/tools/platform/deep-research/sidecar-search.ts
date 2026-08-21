@@ -98,15 +98,48 @@ function describeFailures(failures: readonly SignalFailure[]): string {
 
 type SearchResult = { url: string; title: string; content: string };
 
+/**
+ * DEDUPED BY URL, first occurrence wins.
+ *
+ * The sidecar does NOT guarantee unique urls. `app/pipeline/dedupe.py` removes
+ * near-duplicates by TEXT similarity at a 0.7 threshold, not by url, and it has
+ * an explicit branch that keeps any item whose text is empty without comparing
+ * it to anything. Verified by running it: two items sharing a url survive
+ * together both when their text is empty and when their text differs enough to
+ * fall under the threshold.
+ *
+ * Two reasons that matters here, and the second is the important one.
+ *
+ * 1. `key={result.url}` in components/research-task.tsx and
+ *    `key={source.url}` in components/sources.tsx then collide, which React
+ *    reports as a duplicate-key warning and which makes list reconciliation
+ *    undefined.
+ * 2. THE SAME SOURCE LISTED TWICE READS AS TWO PIECES OF EVIDENCE. That is the
+ *    exact failure this product exists to prevent, arriving through a
+ *    rendering list rather than through a judgement. One permalink is one
+ *    citation however many times a harvest happened to return it.
+ *
+ * First occurrence wins because the sidecar has already ordered signals by its
+ * own relevance, so the first is the better-scored one.
+ */
 function toSearchResults(signals: readonly DemandSignal[]): SearchResult[] {
-  return signals.map((signal) => ({
-    url: signal.url,
-    title: signal.title,
-    // The snippet is already capped to an excerpt by the sidecar, deliberately:
-    // a permalink plus a short quote is a citation, a stored full copy is a
-    // republication. Do not widen this into a full-body fetch.
-    content: signal.snippet,
-  }));
+  const seen = new Set<string>();
+  const results: SearchResult[] = [];
+  for (const signal of signals) {
+    if (seen.has(signal.url)) {
+      continue;
+    }
+    seen.add(signal.url);
+    results.push({
+      url: signal.url,
+      title: signal.title,
+      // The snippet is already capped to an excerpt by the sidecar,
+      // deliberately: a permalink plus a short quote is a citation, a stored
+      // full copy is a republication. Do not widen this into a full-body fetch.
+      content: signal.snippet,
+    });
+  }
+  return results;
 }
 
 const searchQueriesSchema = z

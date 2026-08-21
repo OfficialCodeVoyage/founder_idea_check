@@ -169,6 +169,43 @@ describe("sidecarWebSearch", () => {
     expect(results).toHaveLength(2);
   });
 
+  it("lists one url ONCE even when two sources return it", async () => {
+    // The sidecar does not guarantee unique urls: app/pipeline/dedupe.py drops
+    // near-duplicates by TEXT similarity at 0.7, not by url, and keeps any item
+    // whose text is empty without comparing it at all. Verified by running that
+    // function directly — a shared url survives both when the text is empty and
+    // when the wording differs.
+    //
+    // Two consequences, and the second is why this test exists rather than just
+    // a key fix: React's `key={result.url}` collides, AND the same permalink
+    // listed twice reads to a founder as two pieces of evidence. One permalink
+    // is one citation however many harvests returned it.
+    const { stream } = recordingStream();
+    const duplicated = {
+      id: "dup",
+      url: "https://example.com/same",
+      title: "The same page",
+      snippet: "Same page, found twice.",
+    };
+    const tool = sidecarWebSearch({
+      dataStream: stream,
+      writeTopLevelUpdates: false,
+      fetchImpl: fetchReturning({
+        hackernews: signalBody("hackernews", [signal(duplicated)]),
+        "web-keyless": signalBody("web-keyless", [
+          signal({ ...duplicated, id: "dup-2" }),
+        ]),
+      }),
+    });
+
+    const result = await runTool(tool, [{ query: "same", maxResults: 5 }]);
+
+    const results = result.searches.flatMap((s) => s.results);
+    const urls = results.map((r) => r.url);
+    expect(urls).toEqual(["https://example.com/same"]);
+    expect(new Set(urls).size).toBe(urls.length);
+  });
+
   it("only asks the two operator-enabled sources", async () => {
     const seen: string[] = [];
     const { stream } = recordingStream();

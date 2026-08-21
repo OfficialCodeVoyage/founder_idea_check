@@ -62,6 +62,17 @@ export const ResearchTask = ({
             update.results && (
               <div className="flex flex-wrap gap-2">
                 {update.type === "web" &&
+                  /*
+                    KEYED ON THE URL, and that is only safe because the url is
+                    deduped at the producer. The sidecar does NOT guarantee
+                    unique urls — app/pipeline/dedupe.py drops near-duplicates by
+                    text similarity, not by url, and keeps any item whose text is
+                    empty without comparing it — so `toSearchResults` in
+                    deep-research/sidecar-search.ts dedupes, and a test there
+                    locks it. Do not remove that dedup: this key collides
+                    without it, and worse, the same permalink listed twice reads
+                    as two pieces of evidence.
+                  */
                   update.results.map((result) => (
                     <WebSourceBadge key={result.url} result={result} />
                   ))}

@@ -354,6 +354,27 @@ async function persistVerdict({
  * from the exchange that just happened in THIS chat, and the project tail could
  * belong to a different conversation entirely.
  */
+/**
+ * WHAT THE POST-TURN PASS DID, reported to its caller.
+ *
+ * Returned rather than void so the route can sequence a persona regeneration
+ * off it without this module importing lib/personas (which reaches the db
+ * client, and would drag a heavy import into every consumer of this file).
+ *
+ * `assessed: false` is NOT the same as a BLOCK. It means the gate never
+ * reached a verdict — the phase could not be resolved, or the pass failed and
+ * a fail-closed row was written. A caller must not read it as a judgement.
+ */
+export type PhasePassOutcome =
+  | {
+      status: "assessed";
+      phaseKey: string;
+      decision: "PASS" | "WARN" | "BLOCK";
+      /** Facts this turn's extraction inserted or revised. */
+      factsChanged: number;
+    }
+  | { status: "not-assessed"; phaseKey: string | null; reason: string };
+
 export async function runPostTurnPhasePass({
   projectId,
   chatId,
@@ -362,7 +383,7 @@ export async function runPostTurnPhasePass({
   projectId: string;
   chatId: string;
   assistantMessageId: string | null;
-}): Promise<void> {
+}): Promise<PhasePassOutcome> {
   let phase: PhaseDefinition;
   let workflowComplete: boolean;
   try {
@@ -381,17 +402,27 @@ export async function runPostTurnPhasePass({
       { error, projectId, chatId },
       "phase pass could not resolve the current phase"
     );
-    return;
+    return {
+      status: "not-assessed",
+      phaseKey: null,
+      reason: "the current phase could not be resolved",
+    };
   }
 
   try {
-    await runPhasePass({
+    const { decision, factsChanged } = await runPhasePass({
       projectId,
       chatId,
       assistantMessageId,
       phase,
       workflowComplete,
     });
+    return {
+      status: "assessed",
+      phaseKey: phase.key,
+      decision,
+      factsChanged,
+    };
   } catch (error) {
     // A post-turn pass must never break the stream. But it must also never fail
     // SILENTLY: before this, no key meant no model, which threw, which was
@@ -404,6 +435,10 @@ export async function runPostTurnPhasePass({
       "phase pass failed — writing a fail-closed BLOCK"
     );
     await writeFailClosed({ projectId, phase, message, workflowComplete });
+    // A fail-closed BLOCK is written, but the gate did not ASSESS anything.
+    // Reporting it as a BLOCK decision here would invite a caller to treat a
+    // failure as a judgement.
+    return { status: "not-assessed", phaseKey: phase.key, reason: message };
   }
 }
 
@@ -420,7 +455,7 @@ async function runPhasePass({
   /** From resolveCurrentPhase. Keeps a finished arc from being un-finished. */
   workflowComplete: boolean;
   phase: PhaseDefinition;
-}): Promise<void> {
+}): Promise<{ decision: "PASS" | "WARN" | "BLOCK"; factsChanged: number }> {
   const [projectMessages, chatMessages, priorRows] = await Promise.all([
     getAllMessagesByProjectId({ projectId }),
     getAllMessagesByChatId({ chatId }),
@@ -481,6 +516,7 @@ async function runPhasePass({
   );
 
   const { inserts, updates } = reconcileFacts(known, extracted);
+  const factsChanged = inserts.length + updates.length;
   await upsertProjectFacts({
     projectId,
     phaseKey: phase.key,
@@ -535,6 +571,8 @@ async function runPhasePass({
   );
 
   await persistVerdict({ projectId, phase, verdict, workflowComplete });
+
+  return { decision: verdict.decision, factsChanged };
 }
 
 /**

@@ -10,7 +10,11 @@ import type { StoredFact } from "@/lib/phases/context";
 import { PHASE_THREE } from "@/lib/phases/definitions-discovery";
 import { loadPersonaPrompt, loadPrompt } from "@/lib/phases/runtime";
 import type { TranscriptTurn } from "@/lib/phases/types";
-import type { PersonaVersion } from "./artifact";
+import {
+  describePersonaWriteFailure,
+  type PersonaPersistence,
+  type PersonaVersion,
+} from "./artifact";
 import { failClosedPersonaArtifact, generatePersona } from "./generate";
 import { createModelPersonaGenerator } from "./model-adapter";
 import { createPersonaStore } from "./store";
@@ -88,10 +92,12 @@ export type RegeneratePersonaInput = {
 export type RegeneratePersonaResult = {
   artifact: PersonaArtifact;
   /**
-   * NULL when nothing was written. A degraded artifact is returned for display
-   * but is NOT persisted — see the comment on the write below.
+   * WHAT HAPPENED TO THE WRITE. Replaces a nullable `version`, which collapsed
+   * "deliberately not persisted because degraded" and "the write failed" into
+   * one null — so a database refusal returned success with an empty
+   * explanation. Callers must switch on `status`.
    */
-  version: PersonaVersion | null;
+  persistence: PersonaPersistence;
 };
 
 /**
@@ -127,11 +133,10 @@ export async function regeneratePersona(
       { error, projectId: input.projectId },
       "no language model available for persona generation"
     );
+    const reason = `no language model is available for persona generation (${message})`;
     return {
-      artifact: failClosedPersonaArtifact(
-        `no language model is available for persona generation (${message})`
-      ),
-      version: null,
+      artifact: failClosedPersonaArtifact(reason),
+      persistence: { status: "withheld", reasons: [reason] },
     };
   }
 
@@ -155,12 +160,21 @@ export async function regeneratePersona(
     }
   );
 
-  if (artifact.degradedReasons.length > 0) {
+  // Destructured rather than length-checked so the non-empty tuple is produced
+  // by narrowing instead of by an assertion.
+  const [firstReason, ...otherReasons] = artifact.degradedReasons;
+  if (firstReason !== undefined) {
     log.warn(
       { projectId: input.projectId, reasons: artifact.degradedReasons },
       "persona was not persisted — this version is not a finding"
     );
-    return { artifact, version: null };
+    return {
+      artifact,
+      persistence: {
+        status: "withheld",
+        reasons: [firstReason, ...otherReasons],
+      },
+    };
   }
 
   try {
@@ -175,15 +189,22 @@ export async function regeneratePersona(
       // project, so an unscoped write is a persona that silently never appears.
       projectId: input.projectId,
     });
-    return { artifact, version };
+    return { artifact, persistence: { status: "stored", version } };
   } catch (error) {
     // The persona was generated but could not be stored. Say so: telling the
-    // caller it was saved would have them regenerate and see the old one.
+    // caller it was saved would have them regenerate and see the old one, and
+    // reporting it as "degraded" would blame the model for a database fault.
     log.error(
       { error, projectId: input.projectId, documentId: input.documentId },
       "persona version could not be written"
     );
-    return { artifact, version: null };
+    return {
+      artifact,
+      persistence: {
+        status: "write-failed",
+        reason: describePersonaWriteFailure(error),
+      },
+    };
   }
 }
 

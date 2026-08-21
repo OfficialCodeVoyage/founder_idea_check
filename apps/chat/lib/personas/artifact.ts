@@ -192,6 +192,45 @@ export function buildPersonaVersionRow({
 // Reading the accumulated versions back.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * WHAT HAPPENED TO THE WRITE. Three states, deliberately not two.
+ *
+ * `version: PersonaVersion | null` collapsed two different facts about the
+ * world into one null: "we chose not to persist this because it is degraded,
+ * and it is not a finding" and "we tried to persist it and the database
+ * refused". The second returned HTTP 200 with `degradedReasons: []`, so the
+ * banner that exists to explain a degraded artifact never fired and the caller
+ * had no way to know anything had gone wrong. A regenerate would then show the
+ * OLD persona with no explanation.
+ *
+ * `reasons` is a non-empty tuple for the same reason `evidence[]` is: a
+ * withheld persona with no stated reason is a compile error, not a runtime
+ * surprise.
+ */
+export type PersonaPersistence =
+  /** Written. This version is in the history. */
+  | { status: "stored"; version: PersonaVersion }
+  /** Degraded, so deliberately NOT written. Mirrors artifact.degradedReasons. */
+  | { status: "withheld"; reasons: [string, ...string[]] }
+  /** The write was ATTEMPTED and FAILED. The artifact is real; the history is not. */
+  | { status: "write-failed"; reason: string };
+
+/**
+ * Keeps the Postgres error code, because "FK violation on messageId" and
+ * "connection refused" need different fixes and both used to vanish into a
+ * server log.
+ */
+export function describePersonaWriteFailure(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : null;
+  const message = error instanceof Error ? error.message : String(error);
+  return code
+    ? `the persona was generated but could not be stored (postgres ${code}: ${message})`
+    : `the persona was generated but could not be stored (${message})`;
+}
+
 export type PersonaVersion = {
   /** 1-based, assigned by createdAt order. v1 is the first thing ever written. */
   version: number;

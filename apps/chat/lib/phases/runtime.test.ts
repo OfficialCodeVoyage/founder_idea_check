@@ -437,13 +437,22 @@ describe("runPostTurnPhasePass", () => {
     getLanguageModel.mockRejectedValue(new Error("no api key"));
     recordGateVerdict.mockRejectedValue(new Error("db down too"));
 
+    // STRENGTHENED, not loosened. The property under test is still "resolves
+    // rather than rejects" — this runs inside after(), where a rejection is an
+    // unhandled rejection. It now also pins the reported outcome: a pass that
+    // could not assess must say "not-assessed", NOT a BLOCK decision. Reporting
+    // the fail-closed BLOCK as a decision here would invite the persona pass,
+    // and anything else downstream, to treat a failure as a judgement.
     await expect(
       runPostTurnPhasePass({
         projectId: PROJECT_ID,
         chatId: CHAT_ID,
         assistantMessageId: "a1",
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({
+      status: "not-assessed",
+      phaseKey: PHASE_ONE.key,
+    });
   });
 
   it("a finished workflow absorbs further verdicts without un-finishing", async () => {

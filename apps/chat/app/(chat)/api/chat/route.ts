@@ -58,6 +58,7 @@ import type { McpConnector } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { MAX_INPUT_TOKENS } from "@/lib/limits/tokens";
 import { createModuleLogger } from "@/lib/logger";
+import { runPostTurnPersonaPass } from "@/lib/personas/post-turn";
 import {
   buildPhaseSystemBlock,
   runPostTurnPhasePass,
@@ -504,13 +505,28 @@ async function createChatStream({
         return;
       }
       const phaseProjectId = finishedChat.projectId;
-      after(() =>
-        runPostTurnPhasePass({
+      const phaseUserId = finishedChat.userId;
+      // THE ROUTE IS THE SEQUENCER. The phase pass now reports what it did, and
+      // the persona pass decides off that report. Kept here rather than inside
+      // runPostTurnPhasePass so lib/phases/runtime.ts does not import
+      // lib/personas (which reaches the db client).
+      //
+      // Awaited in sequence, not raced: the persona is built from the facts the
+      // phase pass has just written, so running them concurrently would build it
+      // from the previous turn's fact store.
+      after(async () => {
+        const outcome = await runPostTurnPhasePass({
           projectId: phaseProjectId,
           chatId,
           assistantMessageId: messageId,
-        })
-      );
+        });
+        await runPostTurnPersonaPass({
+          projectId: phaseProjectId,
+          userId: phaseUserId,
+          assistantMessageId: messageId,
+          outcome,
+        });
+      });
     },
     onError: (error) => {
       clearTimeout(timeoutId);

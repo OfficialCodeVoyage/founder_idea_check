@@ -69,8 +69,16 @@ const config = defineConfig({
     disabledModels: [],
     anonymousModels: ["gpt-5.6-luna"],
     workflows: {
+      // THE GATE JUDGE, and it stays on terra by decision. +4.6pp TAU-Bench and
+      // +2pp GPQA over luna for roughly $0.80 across an 8-phase project. The
+      // gate IS the product and a wrong verdict is user-visible and
+      // irreversible, so the quality is bought deliberately.
       chat: "gpt-5.6-terra",
       title: "gpt-5.6-luna",
+      // Same model as `title` today, different knob on purpose — see the note
+      // on `extract` in lib/config-schema.ts. Moving the fact extractor must
+      // never be a side effect of changing how chats are named.
+      extract: "gpt-5.6-luna",
       pdf: "gpt-5.6-terra",
       chatImageCompatible: "gpt-5.6-luna",
     },
@@ -112,8 +120,27 @@ const config = defineConfig({
          * yields named `unavailable` failures, not silent empty research.
          */
         enabled: true,
-        defaultModel: "gpt-5.6-luna",
+        /**
+         * Five roles, assigned rather than defaulted.
+         *
+         * luna runs the tool loop: 70.7% TAU-Bench and a 1.05M context is
+         * exactly the shape of a research loop, at $0.20/$1.20.
+         *
+         * terra runs summarization and compression because BOTH ARE LOSSY.
+         * They decide what survives into the final report, and nothing
+         * downstream can recover what they discard — the report model would
+         * simply write confidently over a thinner evidence base. Paying
+         * frontier prices at the two stages that throw information away is the
+         * whole point; paying it at the stage that only rephrases what
+         * survived would be the wrong place.
+         *
+         * Status updates are cosmetic progress lines, so luna is plenty.
+         */
+        researchModel: "gpt-5.6-luna",
+        summarizationModel: "gpt-5.6-terra",
+        compressionModel: "gpt-5.6-terra",
         finalReportModel: "gpt-5.6-terra",
+        statusUpdateModel: "gpt-5.6-luna",
         allowClarification: true,
         maxResearcherIterations: 1,
         maxConcurrentResearchUnits: 2,

@@ -40,9 +40,31 @@ function gatewayVideoModelId<G extends GatewayType>() {
   return z.custom<GatewayVideoModelIdMap[G]>((v) => typeof v === "string");
 }
 
+/**
+ * FIVE ROLES, FIVE KNOBS. `configuration.ts` threads five distinct models into
+ * a deep-research run, and two config keys used to feed all five — so
+ * `defaultModel` silently drove summarization, research, compression AND status
+ * updates at once.
+ *
+ * That mattered because summarization and compression are LOSSY. Whatever they
+ * drop, the final report model can never recover: it writes confidently over a
+ * thinner evidence base and the founder reads a finding laundered out of a
+ * guess. Tying those two stages to the same knob as "write a status line" made
+ * the cheapest possible reason the deciding one. They are now assigned
+ * deliberately, and `defaultModel` is renamed `researchModel` because that is
+ * the only role it actually still plays.
+ */
 const deepResearchToolConfigSchema = z.object({
-  defaultModel: z.string(),
+  /** The tool loop. Wants a strong tool-user and a large context. */
+  researchModel: z.string(),
+  /** LOSSY. Reads raw sources and throws most of them away. */
+  summarizationModel: z.string(),
+  /** LOSSY. Squeezes a researcher's notes into what survives to the report. */
+  compressionModel: z.string(),
+  /** Writes the report over whatever the two lossy stages left. */
   finalReportModel: z.string(),
+  /** Cosmetic progress lines. The one place cheapness costs nothing. */
+  statusUpdateModel: z.string(),
   allowClarification: z
     .boolean()
     .describe("Whether to ask clarifying questions before starting research"),
@@ -106,6 +128,17 @@ function createAiSchema<G extends GatewayType>(g: G) {
       .object({
         chat: gatewayModelId<G>(),
         title: gatewayModelId<G>(),
+        /**
+         * The FACT EXTRACTOR, split off `title` deliberately.
+         *
+         * One knob used to serve "name this chat" and "write the fact ledger",
+         * on the reasoning that the extractor is schema-constrained so a cheap
+         * model is enough. But a schema constrains SHAPE, not JUDGEMENT: this
+         * model decides which claims in a transcript are facts and assigns the
+         * 0-100 confidence the gate then acts on, and every downstream artifact
+         * reads ProjectFact. It must be tunable without touching chat titles.
+         */
+        extract: gatewayModelId<G>(),
         pdf: gatewayModelId<G>(),
         chatImageCompatible: gatewayModelId<G>(),
       })
@@ -176,8 +209,11 @@ function createAiSchema<G extends GatewayType>(g: G) {
         ]),
         deepResearch: deepResearchToolConfigSchema.extend({
           enabled: z.boolean().describe("Requires web search access"),
-          defaultModel: gatewayModelId<G>(),
+          researchModel: gatewayModelId<G>(),
+          summarizationModel: gatewayModelId<G>(),
+          compressionModel: gatewayModelId<G>(),
           finalReportModel: gatewayModelId<G>(),
+          statusUpdateModel: gatewayModelId<G>(),
         }),
       })
       .describe("Default model and runtime configuration grouped by tool"),
@@ -495,9 +531,19 @@ type AiToolsShape = AiShape["tools"];
 
 // All helper types are Partial — fields not provided are filled by applyDefaults
 type DeepResearchToolInputFor<G extends GatewayType> = Partial<
-  Omit<AiToolsShape["deepResearch"], "defaultModel" | "finalReportModel"> & {
-    defaultModel: GatewayModelIdMap[G];
+  Omit<
+    AiToolsShape["deepResearch"],
+    | "researchModel"
+    | "summarizationModel"
+    | "compressionModel"
+    | "finalReportModel"
+    | "statusUpdateModel"
+  > & {
+    researchModel: GatewayModelIdMap[G];
+    summarizationModel: GatewayModelIdMap[G];
+    compressionModel: GatewayModelIdMap[G];
     finalReportModel: GatewayModelIdMap[G];
+    statusUpdateModel: GatewayModelIdMap[G];
   }
 >;
 type ImageToolInputFor<G extends GatewayType> = [

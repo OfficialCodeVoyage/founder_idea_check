@@ -134,6 +134,7 @@ describe("the table itself", () => {
     for (const modelId of [
       "gpt-5.6-terra",
       "gpt-5.6-luna",
+      "gpt-5.6-sol",
       "gpt-5.2",
       "gpt-5-mini",
       "gpt-5-nano",

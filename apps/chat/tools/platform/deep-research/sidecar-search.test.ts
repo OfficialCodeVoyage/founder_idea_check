@@ -18,8 +18,11 @@ vi.mock("@/lib/config", () => ({
           hosted: false,
           // Inline, not a const: vi.mock factories are hoisted above it.
           researchSidecarUrl: "http://sidecar.test:8099",
-          defaultModel: "test-model",
+          researchModel: "test-model",
+          summarizationModel: "test-model",
+          compressionModel: "test-model",
           finalReportModel: "test-model",
+          statusUpdateModel: "test-model",
           allowClarification: true,
           maxConcurrentResearchUnits: 2,
           maxSearchQueries: 2,

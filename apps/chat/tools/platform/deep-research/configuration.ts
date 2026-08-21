@@ -65,7 +65,10 @@ function getSearchApi(): SearchAPI {
 
 export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
   const {
-    defaultModel,
+    researchModel,
+    summarizationModel,
+    compressionModel,
+    statusUpdateModel,
     finalReportModel,
     allowClarification,
     maxConcurrentResearchUnits,
@@ -86,16 +89,20 @@ export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
     max_researcher_iterations: maxResearcherIterations,
     max_researcher_steps: maxResearcherSteps,
 
-    // Model Configuration - use same model for research/compression/summarization
-    summarization_model: defaultModel,
+    // Model Configuration — FIVE DISTINCT ROLES, five config keys. These used
+    // to be two: `defaultModel` drove summarization, research, compression and
+    // status updates alike, which meant the two LOSSY stages were priced by the
+    // same knob as a progress line. What summarization and compression discard,
+    // the final report model cannot recover.
+    summarization_model: summarizationModel,
     summarization_model_max_tokens: 4000,
-    research_model: defaultModel,
+    research_model: researchModel,
     research_model_max_tokens: 4000,
-    compression_model: defaultModel,
+    compression_model: compressionModel,
     compression_model_max_tokens: 4000,
     final_report_model: finalReportModel,
     final_report_model_max_tokens: 6000,
-    status_update_model: defaultModel,
+    status_update_model: statusUpdateModel,
     status_update_model_max_tokens: 4000,
   };
 }

@@ -104,6 +104,20 @@ export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapabilities>> =
       tier: "frontier",
       toolTransport: "responses-only",
     },
+    "gpt-5.6-sol": {
+      // PRICE CORRECTION, 2026-08-21. NEXT-BATCH-2026-08-21.md lists sol at
+      // $5.00 / $0.50 / $30.00, and several third-party pricing pages still say
+      // the same "since launch". OpenAI's own model page states $4 / $0.40 /
+      // $20 and calls it a reduction, quoted verbatim twice. The batch
+      // document's row is stale — it was gathered for a model no workflow uses,
+      // so nobody re-checked it. Primary source wins; if you change this back,
+      // quote where you read it.
+      contextWindow: 1_050_000,
+      maxOutput: 128_000,
+      prices: { input: 4.0, cachedInput: 0.4, output: 20.0 },
+      tier: "frontier",
+      toolTransport: "responses-only",
+    },
     "gpt-5.6-luna": {
       contextWindow: 1_050_000,
       maxOutput: 128_000,

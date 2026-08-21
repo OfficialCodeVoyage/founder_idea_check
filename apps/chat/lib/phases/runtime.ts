@@ -489,13 +489,22 @@ async function runPhasePass({
   }));
 
   // Both ids come from config.ai.workflows. workflows.chat is the JUDGE (the
-  // gate is the product, so it gets the stronger model) and workflows.title is
-  // the extractor (schema-constrained, so a cheap model is enough). Resolved
-  // INSIDE the guarded path on purpose: with no gateway key this throws, and
-  // the caller turns that into a written fail-closed BLOCK rather than silence.
+  // gate is the product, so it gets the stronger model) and workflows.extract
+  // is the fact extractor.
+  //
+  // The extractor used to read workflows.title, on the reasoning that it is
+  // schema-constrained so a cheap model would do. A schema constrains SHAPE,
+  // not JUDGEMENT — this model decides which claims are facts and sets the
+  // 0-100 confidence the gate acts on. It now has its own knob, so retuning it
+  // is not a side effect of changing how chats get named. Same model as `title`
+  // today; the point is that it need not stay that way.
+  //
+  // Resolved INSIDE the guarded path on purpose: with no gateway key this
+  // throws, and the caller turns that into a written fail-closed BLOCK rather
+  // than silence.
   const [gateModel, extractModel] = await Promise.all([
     getLanguageModel(config.ai.workflows.chat),
-    getLanguageModel(config.ai.workflows.title),
+    getLanguageModel(config.ai.workflows.extract),
   ]);
 
   const extracted = await extractFacts(

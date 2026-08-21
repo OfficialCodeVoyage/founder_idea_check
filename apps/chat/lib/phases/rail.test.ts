@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import {
   advanceRailWait,
+  describeGateVerdict,
   describeRail,
   type RailStatus,
   type RailWait,
@@ -206,5 +207,181 @@ describe("advanceRailWait", () => {
 
   it("does not move to unreported from idle", () => {
     expect(advanceRailWait(idle, { type: "ceiling-reached" })).toBe(idle);
+  });
+});
+
+function verdict(
+  over: Partial<Parameters<typeof describeGateVerdict>[0]> = {}
+) {
+  return describeGateVerdict({
+    decision: null,
+    missing: [],
+    workflowComplete: false,
+    total: TOTAL,
+    assessment: "idle",
+    ...over,
+  });
+}
+
+describe("describeGateVerdict — the card shows the WHOLE refusal", () => {
+  it("names every gap, not just the first", () => {
+    // The rail shows `missing.at(0)` because it has 36px. That is why a founder
+    // blocked on three criteria could see exactly one of them. This is the
+    // whole point of the card.
+    const view = verdict({
+      decision: "BLOCK",
+      missing: ["no permalink", "segment is not a buyer", "no price named"],
+    });
+    expect(view.assessed).toBe(true);
+    assert(view.assessed);
+    expect(view.gaps).toEqual([
+      "no permalink",
+      "segment is not a buyer",
+      "no price named",
+    ]);
+  });
+
+  it("does NOT report a verdict for a phase the gate has not assessed", () => {
+    const view = verdict({ decision: null, missing: [] });
+    expect(view.assessed).toBe(false);
+    assert(!view.assessed);
+    // No status and no label to read. Rendering "BLOCKED" for a phase nobody
+    // judged is the inversion this whole feature exists to prevent, so it is a
+    // compile error rather than a convention.
+    expect("status" in view).toBe(false);
+    expect("gaps" in view).toBe(false);
+    expect(view.note).toContain("not assessed");
+  });
+
+  it("keeps 'refused and named no gap' apart from 'passed'", () => {
+    // Both have an empty `missing`. An empty gap list alone cannot tell them
+    // apart, which is why the note exists.
+    const blocked = verdict({ decision: "BLOCK", missing: [] });
+    const passed = verdict({ decision: "PASS", missing: [] });
+    assert(blocked.assessed && passed.assessed);
+    expect(blocked.gaps).toEqual([]);
+    expect(passed.gaps).toEqual([]);
+    expect(blocked.noGapNote).toContain("refused");
+    expect(passed.noGapNote).toBeNull();
+  });
+
+  it("distinguishes a warned phase from a refused one", () => {
+    const warned = verdict({ decision: "WARN", missing: [] });
+    assert(warned.assessed);
+    expect(warned.status).toBe("thin");
+    expect(warned.noGapNote).toContain("weakness");
+  });
+
+  it("reports a completed arc as complete, not merely passed", () => {
+    const done = verdict({ decision: "PASS", workflowComplete: true });
+    assert(done.assessed);
+    expect(done.status).toBe("complete");
+  });
+
+  it("does not report a WARN on the last phase as COMPLETE", () => {
+    // planPhaseAdvance advances on WARN, so a WARN on phase 8 yields
+    // workflowComplete: true. Calling that COMPLETE would hide, on the arc's
+    // very last verdict, that the gate had reservations. Same rule as the rail.
+    const warned = verdict({ decision: "WARN", workflowComplete: true });
+    assert(warned.assessed);
+    expect(warned.status).toBe("thin");
+  });
+
+  it("carries the gate's own sentences through untouched", () => {
+    const view = verdict({
+      decision: "BLOCK",
+      reason: "No evidence anyone has this problem.",
+      nextQuestion: "Where did you last see someone describe it?",
+    });
+    assert(view.assessed);
+    expect(view.reason).toBe("No evidence anyone has this problem.");
+    expect(view.nextQuestion).toBe(
+      "Where did you last see someone describe it?"
+    );
+  });
+
+  it("surfaces the pending marker on BOTH arms", () => {
+    // A stale verdict must say so whether or not one exists yet, otherwise the
+    // card silently presents an earlier turn's judgement as this turn's.
+    const stale = verdict({ decision: "BLOCK", assessment: "unreported" });
+    const none = verdict({ decision: null, assessment: "waiting" });
+    expect(stale.pending?.marker).toBeTruthy();
+    expect(none.pending?.marker).toBeTruthy();
+  });
+
+  it("agrees with the rail about the status, always", () => {
+    // Two renderers of one fact. They disagreed once already — the rail said
+    // "READY / no assessment yet" after all eight gates passed.
+    for (const decision of ["PASS", "WARN", "BLOCK", null] as const) {
+      for (const workflowComplete of [true, false]) {
+        const r = rail({ decision, workflowComplete });
+        const v = verdict({ decision, workflowComplete });
+        if (v.assessed) {
+          expect(v.status, `${decision}/${workflowComplete}`).toBe(r.status);
+          expect(v.label).toBe(r.label);
+        } else {
+          expect(r.status).toBe("unassessed");
+        }
+      }
+    }
+  });
+});
+
+describe("describeGateVerdict — a fail-closed BLOCK is not a gap list", () => {
+  it("does NOT present a fail-closed verdict as one missing thing", () => {
+    // failClosedVerdict (gate.ts:298) returns perCriterion: [] and
+    // missing: [reason]. Rendering that as "1 thing is missing" tells a founder
+    // the gate found one gap, when the gate never ran and all 8 criteria are
+    // still pending. This is the inversion the whole card exists to avoid,
+    // arriving through the card itself.
+    const view = verdict({
+      criteriaAssessed: 0,
+      decision: "BLOCK",
+      missing: ["the judge call failed (503 upstream)"],
+      verdictReadable: true,
+    });
+    assert(view.assessed);
+    expect(view.coverage).toEqual({ kind: "none-scored" });
+  });
+
+  it("reports a real refusal as scored, with the criterion count", () => {
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: ["no permalink", "no price named"],
+      verdictReadable: true,
+    });
+    assert(view.assessed);
+    expect(view.coverage).toEqual({ kind: "scored", criteria: 8 });
+  });
+
+  it("keeps 'could not be read' apart from 'named no gap'", () => {
+    // toPhaseGateState returns missing: [] when the blob fails to parse, while
+    // still returning the decision — so without this flag an unreadable BLOCK
+    // is indistinguishable from a BLOCK that named nothing.
+    const unreadable = verdict({
+      criteriaAssessed: 0,
+      decision: "BLOCK",
+      missing: [],
+      verdictReadable: false,
+    });
+    const namedNothing = verdict({
+      criteriaAssessed: 5,
+      decision: "BLOCK",
+      missing: [],
+      verdictReadable: true,
+    });
+    assert(unreadable.assessed && namedNothing.assessed);
+    expect(unreadable.coverage.kind).toBe("unreadable");
+    expect(namedNothing.coverage).toEqual({ kind: "scored", criteria: 5 });
+    expect(namedNothing.noGapNote).toContain("refused");
+  });
+
+  it("defaults toward not accusing a working gate of failing closed", () => {
+    // A caller that tracks neither flag still gets `scored` for a verdict that
+    // named gaps. The default must not invent a failure.
+    const view = verdict({ decision: "BLOCK", missing: ["no permalink"] });
+    assert(view.assessed);
+    expect(view.coverage).toEqual({ kind: "scored", criteria: 1 });
   });
 });

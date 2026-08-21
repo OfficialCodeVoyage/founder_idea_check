@@ -31,6 +31,7 @@ function PureChatContent({
         className={cn("bg-background", className)}
         isActive
         isReadonly={isReadonly}
+        projectId={projectId}
         status={status}
       />
     ) : (

@@ -45,6 +45,8 @@ function state(overrides: Partial<PhaseGateState> = {}): PhaseGateState {
     nextQuestion: "What do they do about it today?",
     missing: ["No workaround has been named."],
     attemptCount: 1,
+    criteriaAssessed: 3,
+    verdictReadable: true,
     ...overrides,
   };
 }
@@ -262,6 +264,8 @@ describe("buildPhaseDirective — always", () => {
         missing: ["a third named user"],
         nextQuestion: "Who is the third user?",
         attemptCount: 1,
+        criteriaAssessed: 3,
+        verdictReadable: true,
       });
       expect(text).toContain("VINTAGE");
       expect(text).toContain("predates the message you are answering");
@@ -279,6 +283,8 @@ describe("buildPhaseDirective — always", () => {
       missing: ["a third named user"],
       nextQuestion: "Who is the third user?",
       attemptCount: 1,
+      criteriaAssessed: 3,
+      verdictReadable: true,
     });
 
     // The refusal must still be there when the gap IS open ...
@@ -297,6 +303,8 @@ describe("buildPhaseDirective — always", () => {
       missing: ["a third named user"],
       nextQuestion: "What is the full name of the Houston controller?",
       attemptCount: 1,
+      criteriaAssessed: 3,
+      verdictReadable: true,
     });
 
     expect(text).toContain(
@@ -314,6 +322,8 @@ describe("buildPhaseDirective — always", () => {
       missing: ["a third named user"],
       nextQuestion: null,
       attemptCount: 1,
+      criteriaAssessed: 3,
+      verdictReadable: true,
     });
     expect(text).toContain("must not tell them this phase is complete");
     expect(text).toContain("the gate decides that, and it has not");

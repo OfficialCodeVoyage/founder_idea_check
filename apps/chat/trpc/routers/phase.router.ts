@@ -51,6 +51,15 @@ export const phaseRouter = createTRPCRouter({
         nextQuestion: state?.nextQuestion ?? null,
         missing: state?.missing ?? [],
         /**
+         * How many criteria the judge actually scored, and whether the stored
+         * verdict still parses. The rail does not use either — it has one line
+         * — but the verdict card must, or it would present a fail-closed BLOCK
+         * (`perCriterion: []`, `missing: [reason]`) as a complete gap list of
+         * one item. See PhaseGateState in lib/phases/directive.ts.
+         */
+        criteriaAssessed: state?.criteriaAssessed ?? 0,
+        verdictReadable: state?.verdictReadable ?? true,
+        /**
          * The rail's only client-visible signal that a post-turn pass has
          * LANDED. `after()` has none, so the rail polls until this number
          * CHANGES rather than guessing a delay.

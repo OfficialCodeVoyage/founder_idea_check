@@ -90,6 +90,21 @@ export type DescribeRailInput = {
   /** Total phases, for the completed-arc sentence. */
   total: number;
   assessment: RailAssessment;
+  /**
+   * The gate's own sentences. Optional because the RAIL does not use them — it
+   * has no room — while `describeGateVerdict` below does. Both take one input
+   * type so the two renderers cannot drift onto different payloads.
+   */
+  reason?: string | null;
+  nextQuestion?: string | null;
+  /**
+   * `perCriterion.length` from the stored verdict, and whether it parsed. The
+   * rail does not use them; the card must. Optional so `describeRail`'s callers
+   * are unchanged — and defaulted below in the direction that OVER-reports
+   * uncertainty rather than under-reporting it.
+   */
+  criteriaAssessed?: number;
+  verdictReadable?: boolean;
 };
 
 function resolveStatus({
@@ -156,6 +171,122 @@ export function describeRail(input: DescribeRailInput): RailDescription {
       total: input.total,
     }),
     pending: input.assessment === "idle" ? null : PENDING[input.assessment],
+  };
+}
+
+/**
+ * THE FULL VERDICT, for the card in the transcript.
+ *
+ * `describeRail` above answers "what goes in a 36px strip", and to fit there it
+ * shows `missing.at(0)` — the FIRST gap and no other. That is the right answer
+ * for a rail and the wrong answer for the product: this app's claim is that the
+ * gate refuses and names the gap, and a founder who is blocked on three
+ * criteria could see exactly one of them, on hover, and had no way to learn the
+ * rest without opening the canvas.
+ *
+ * This is the same decision, said in full. Both read the same
+ * `phase.getState` payload, so the badge and the card cannot disagree.
+ *
+ * THE UNASSESSED ARM CARRIES NO VERDICT TO READ. No `status`, no `gaps`, no
+ * `label` — so a caller cannot render "BLOCKED" for a phase the gate has not
+ * looked at, and cannot reach for an empty gap list and conclude nothing was
+ * wrong. Same technique as `SimulationNotAssessed` in
+ * lib/research/simulation.ts, for the same reason.
+ */
+export type GateVerdictView =
+  | {
+      assessed: false;
+      /** Why there is nothing to show. Never blank. */
+      note: string;
+      pending: RailPending | null;
+    }
+  | {
+      assessed: true;
+      status: Exclude<RailStatus, "unassessed">;
+      label: string;
+      /**
+       * EVERY named gap, in order — but read `coverage` first.
+       *
+       * `missing` is NOT the criterion list. `decideGate` fills it per branch,
+       * and `failClosedVerdict` (gate.ts:298) sets `missing: [reason]` with
+       * `perCriterion: []`. Rendering that as "1 thing is missing" tells a
+       * founder the gate found one gap when it actually never ran and every
+       * criterion is still pending.
+       */
+      gaps: readonly string[];
+      /**
+       * Whether `gaps` can be trusted as a list of findings.
+       *
+       * - `scored`      the judge scored `criteria` criteria; gaps are real.
+       * - `none-scored` the gate FAILED CLOSED. Nothing was judged. `gaps`
+       *                 holds a plumbing message, not a finding about the work.
+       * - `unreadable`  the stored verdict no longer parses, so `gaps` is empty
+       *                 for a reason that is not "nothing was wrong".
+       */
+      coverage:
+        | { kind: "scored"; criteria: number }
+        | { kind: "none-scored" }
+        | { kind: "unreadable" };
+      /**
+       * Set only when the gate reached a decision and named no gap at all.
+       * Distinct per status, because "refused and named nothing" is a different
+       * fact from "passed", and an empty `gaps` array alone cannot tell them
+       * apart.
+       */
+      noGapNote: string | null;
+      /** The gate's own words. Null when it wrote none. */
+      reason: string | null;
+      nextQuestion: string | null;
+      pending: RailPending | null;
+    };
+
+/** PURE. The verdict card, from the state the router already returns. */
+export function describeGateVerdict(input: DescribeRailInput): GateVerdictView {
+  const pending =
+    input.assessment === "idle" ? null : PENDING[input.assessment];
+  const status = resolveStatus(input);
+
+  if (status === "unassessed") {
+    return { assessed: false, note: NOT_ASSESSED, pending };
+  }
+
+  const gaps = [...input.missing];
+  let noGapNote: string | null = null;
+  if (gaps.length === 0) {
+    if (status === "blocked") {
+      noGapNote = NO_GAP_BLOCK;
+    } else if (status === "thin") {
+      noGapNote = NO_GAP_WARN;
+    }
+  }
+
+  // The defaults lean toward admitting uncertainty. `verdictReadable`
+  // defaults true because an omitted flag means "the caller does not track
+  // this", and claiming a verdict is unreadable when nobody said so would
+  // invent a failure. `criteriaAssessed` defaults to the gap count, so an
+  // older caller that passes neither still reports `scored` for a verdict that
+  // named gaps, rather than accusing a working gate of having failed closed.
+  const readable = input.verdictReadable ?? true;
+  const scored = input.criteriaAssessed ?? gaps.length;
+  let coverage: Extract<GateVerdictView, { assessed: true }>["coverage"];
+  if (!readable) {
+    coverage = { kind: "unreadable" };
+  } else if (scored === 0) {
+    coverage = { kind: "none-scored" };
+  } else {
+    coverage = { kind: "scored", criteria: scored };
+  }
+
+  return {
+    assessed: true,
+    status,
+    label: LABEL[status],
+    gaps,
+    coverage,
+    noGapNote,
+    reason: input.reason ?? null,
+    nextQuestion: input.nextQuestion ?? null,
+    pending,
   };
 }
 

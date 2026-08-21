@@ -47,6 +47,26 @@ export type PhaseGateState = {
   /** Ordered gap sentences, sanitised. Empty when the verdict is unusable. */
   missing: string[];
   attemptCount: number;
+  /**
+   * HOW MANY CRITERIA THE JUDGE ACTUALLY SCORED — `perCriterion.length`.
+   *
+   * Zero is the signature of `failClosedVerdict` (lib/phases/gate.ts:298),
+   * which returns `perCriterion: []` and `missing: [reason]`. Without this
+   * number, that shape is indistinguishable from a real refusal naming one
+   * gap — so a UI listing `missing` would tell a founder that ONE thing is
+   * missing when in fact the gate never ran and all the criteria are still
+   * pending. `missing` is a branch-specific sentence list, not the criterion
+   * list, and this is what says so.
+   */
+  criteriaAssessed: number;
+  /**
+   * Did the stored verdict blob still parse?
+   *
+   * False collapses into `missing: []` above, which on a BLOCK reads as
+   * "refused and named no gap" — a different fact from "we can no longer read
+   * what it said". Callers must keep the two apart.
+   */
+  verdictReadable: boolean;
 };
 
 /** Longest gap sentence that reaches the model. */
@@ -102,6 +122,8 @@ export function toPhaseGateState(
     nextQuestion: sanitizeSentence(row.nextQuestion),
     missing,
     attemptCount: row.attemptCount,
+    criteriaAssessed: parsed.success ? parsed.data.perCriterion.length : 0,
+    verdictReadable: parsed.success,
   };
 }
 

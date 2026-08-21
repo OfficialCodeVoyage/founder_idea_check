@@ -1,6 +1,7 @@
 "use client";
 
 import { ChatHeader } from "@/components/chat-header";
+import { PhaseGateProvider } from "@/components/phase/phase-gate-provider";
 import { PhaseRail } from "@/components/phase-rail";
 import type { ChatRouteSource } from "@/lib/chat-route";
 import { useChatStatus } from "@/lib/stores/base";
@@ -38,33 +39,50 @@ export function MainChatPanel({
     ? "h-[calc(100dvh_-_var(--header-height)_-_2.25rem)]"
     : "h-[calc(100dvh_-_var(--header-height))]";
 
+  const header = (
+    <ChatHeader
+      chat={chat}
+      chatId={chatId}
+      className={"h-(--header-height)"}
+      hasMessages={hasMessages}
+      isReadonly={isReadonly}
+      projectId={projectId}
+      routeSource={routeSource}
+      user={session?.user}
+    />
+  );
+  const content = (
+    <ChatContent
+      chatId={chatId}
+      className={contentHeight}
+      isReadonly={isReadonly}
+      projectId={projectId}
+    />
+  );
+
+  if (!projectId) {
+    return (
+      <div className={className}>
+        {header}
+        {content}
+      </div>
+    );
+  }
+
+  // The rail and the verdict card BOTH describe the gate, so they share one
+  // query and one wait through the provider rather than polling independently.
+  // It wraps the content too, because the card renders at the foot of the
+  // transcript inside MessagesPane.
   return (
     <div className={className}>
-      <ChatHeader
-        chat={chat}
-        chatId={chatId}
-        className={"h-(--header-height)"}
-        hasMessages={hasMessages}
-        isReadonly={isReadonly}
+      <PhaseGateProvider
+        isStreaming={status === "streaming" || status === "submitted"}
         projectId={projectId}
-        routeSource={routeSource}
-        user={session?.user}
-      />
-
-      {projectId ? (
-        <PhaseRail
-          className="h-9"
-          isStreaming={status === "streaming" || status === "submitted"}
-          projectId={projectId}
-        />
-      ) : null}
-
-      <ChatContent
-        chatId={chatId}
-        className={contentHeight}
-        isReadonly={isReadonly}
-        projectId={projectId}
-      />
+      >
+        {header}
+        <PhaseRail className="h-9" projectId={projectId} />
+        {content}
+      </PhaseGateProvider>
     </div>
   );
 }

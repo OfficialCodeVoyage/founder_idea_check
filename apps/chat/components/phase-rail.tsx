@@ -1,9 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
 import { HandoffExportDialog } from "@/components/export/handoff-export-dialog";
+import { usePhaseGate } from "@/components/phase/phase-gate-provider";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -11,21 +10,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  advanceRailWait,
-  describeRail,
-  RAIL_POLL_CEILING_MS,
-  RAIL_POLL_INTERVAL_MS,
-  type RailStatus,
-  type RailWait,
-} from "@/lib/phases/rail";
+import { describeRail, type RailStatus } from "@/lib/phases/rail";
 import { cn } from "@/lib/utils";
-import { useTRPC } from "@/trpc/react";
 
 const PERCENT = 100;
-
-/** Slow recovery poll once the wait has already timed out. */
-const SLOW_POLL_MS = 15_000;
 
 /**
  * Every judgement about WHAT the rail says lives in `describeRail`
@@ -33,21 +21,6 @@ const SLOW_POLL_MS = 15_000;
  *
  * Neutral outline for `unassessed`: "we have not looked yet" is not a failure.
  */
-/**
- * Poll only while a verdict is outstanding. Keep polling — slowly — after the
- * ceiling, so recovering from a stale "no verdict" note does not depend on the
- * window regaining focus.
- */
-function pollInterval(kind: RailWait["kind"]): number | false {
-  if (kind === "waiting") {
-    return RAIL_POLL_INTERVAL_MS;
-  }
-  if (kind === "unreported") {
-    return SLOW_POLL_MS;
-  }
-  return false;
-}
-
 const STATUS_VARIANT: Record<
   RailStatus,
   "outline" | "default" | "secondary" | "destructive"
@@ -62,74 +35,32 @@ const STATUS_VARIANT: Record<
 export function PhaseRail({
   className,
   projectId,
-  isStreaming,
 }: {
   className?: string;
   projectId: string;
-  /** True while the assistant is answering. The gate runs AFTER that. */
-  isStreaming: boolean;
 }) {
-  const trpc = useTRPC();
-  const [wait, setWait] = useState<RailWait>({ kind: "idle" });
-  const { data } = useQuery({
-    ...trpc.phase.getState.queryOptions({ projectId }),
-    // Poll only while a verdict is outstanding. Keep polling — slowly — after
-    // the ceiling, so recovery from a stale "no verdict" note does not depend
-    // on the window regaining focus.
-    refetchInterval: pollInterval(wait.kind),
-    refetchIntervalInBackground: true,
-  });
-
-  // The OLD trigger was the message count, which changes when the assistant
-  // placeholder is created — i.e. at stream START — while the verdict is
-  // written by runPostTurnPhasePass inside after(), 15-30s after the stream
-  // ENDS. The old 0/1.5/4/8s ladder therefore always expired first and the
-  // rail sat a whole turn behind the answer on screen.
-  //
-  // Now the wait is edge-triggered on the stream ending and cleared by
-  // `assessmentCount` actually CHANGING, so it tracks the event rather than
-  // guessing a delay.
-  // Held in a ref so the turn-ended effect can seed its baseline without
-  // taking `data` as a dependency — re-running it on every poll would restart
-  // the ceiling timer each tick and the wait would never expire.
-  const countRef = useRef<number | null>(null);
-  const wasStreaming = useRef(isStreaming);
-  useEffect(() => {
-    const ended = wasStreaming.current && !isStreaming;
-    wasStreaming.current = isStreaming;
-    if (isStreaming) {
-      setWait((w) => advanceRailWait(w, { type: "turn-started" }));
-      return;
-    }
-    if (!ended) {
-      return;
-    }
-    setWait((w) =>
-      advanceRailWait(w, { type: "turn-ended", count: countRef.current })
-    );
-    const ceiling = setTimeout(
-      () => setWait((w) => advanceRailWait(w, { type: "ceiling-reached" })),
-      RAIL_POLL_CEILING_MS
-    );
-    return () => clearTimeout(ceiling);
-  }, [isStreaming]);
-
-  const observed = data?.assessmentCount ?? null;
-  useEffect(() => {
-    countRef.current = observed;
-    setWait((w) => advanceRailWait(w, { type: "state-read", count: observed }));
-  }, [observed]);
+  // The query and the wait live in PhaseGateProvider so this and
+  // GateVerdictCard cannot disagree about whether a verdict has landed. The
+  // `isStreaming` edge-trigger moved with them — see that file for why the
+  // wait is edge-triggered rather than timed.
+  const gate = usePhaseGate();
+  const data = gate?.data ?? null;
+  const wait = gate?.wait ?? { kind: "idle" as const };
 
   if (!data) {
     return null;
   }
 
+  // `describeRail` shows `missing.at(0)` and that is still right HERE: this is
+  // one line of a 36px strip. The rest of the gaps are no longer lost — they
+  // are in GateVerdictCard, which reads this same payload through the same
+  // provider.
   const rail = describeRail({
+    assessment: wait.kind,
     decision: data.decision,
     missing: data.missing,
-    workflowComplete: data.workflowComplete,
     total: data.total,
-    assessment: wait.kind,
+    workflowComplete: data.workflowComplete,
   });
 
   return (

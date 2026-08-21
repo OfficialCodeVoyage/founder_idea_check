@@ -189,6 +189,7 @@ function toStoredFacts(
     updatedAt: Date;
     phaseKey: string;
     embedding?: number[] | null;
+    origin?: "extracted" | "founder";
   }[]
 ): StoredFact[] {
   return rows.map((r) => ({
@@ -197,6 +198,9 @@ function toStoredFacts(
     confidence: r.confidence,
     updatedAt: r.updatedAt,
     phaseKey: r.phaseKey,
+    // ALWAYS supplied, so an absent origin downstream can only be a
+    // hand-written literal and never a row that lost its provenance.
+    origin: r.origin ?? "extracted",
     // Carried through so the semantic ranker embeds only what is missing. A
     // warm project therefore costs ONE embedding call per turn — the query.
     embedding: r.embedding ?? null,

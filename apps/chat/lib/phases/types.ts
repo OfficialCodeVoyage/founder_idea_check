@@ -190,6 +190,17 @@ export const KnownFactSchema = z.object({
   key: z.string().regex(FACT_KEY_PATTERN),
   value: z.string().min(1),
   confidence: z.number().int().min(0).max(100),
+  /**
+   * Who asserted this: the extractor, or the founder correcting it by hand.
+   *
+   * OPTIONAL, and the omission is deliberate rather than a defaulted unknown.
+   * The gate's eval fixtures hold scores of hand-written KnownFact literals and
+   * every one of them IS an extracted fact; making this required would churn
+   * all of them to restate a default. Absence means "extracted", and the READ
+   * PATH always supplies it explicitly, so absence can never originate from the
+   * database — only from a literal that predates the column.
+   */
+  origin: z.enum(["extracted", "founder"]).optional(),
 });
 
 export type KnownFact = z.infer<typeof KnownFactSchema>;

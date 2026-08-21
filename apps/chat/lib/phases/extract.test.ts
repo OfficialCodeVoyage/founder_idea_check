@@ -184,3 +184,62 @@ describe("extractFacts — never breaks the stream", () => {
     await expect(extractFacts({ extract }, input)).resolves.toEqual([]);
   });
 });
+
+describe("reconcileFacts — a founder's correction is never overwritten", () => {
+  it("SKIPS a key the founder corrected, even at higher confidence", () => {
+    // The case that would otherwise win. A founder fixes a fact, the next
+    // turn's extractor is more confident about the old wording, and the fix
+    // silently disappears — which would make the correction feature a lie.
+    const result = reconcileFacts(
+      [
+        {
+          key: "buyer_role",
+          value: "office manager",
+          confidence: 40,
+          origin: "founder",
+        },
+      ],
+      [
+        {
+          key: "buyer_role",
+          value: "restaurant owner",
+          confidence: 95,
+          evidence: "they said so",
+        },
+      ]
+    );
+    expect(result.updates).toEqual([]);
+    expect(result.skipped).toEqual([
+      { key: "buyer_role", why: "founder-asserted" },
+    ]);
+  });
+
+  it("still overwrites an EXTRACTED fact at equal or higher confidence", () => {
+    // The protection must be narrow. An ordinary extracted fact keeps the old
+    // policy exactly.
+    const result = reconcileFacts(
+      [{ key: "buyer_role", value: "owner", confidence: 40 }],
+      [
+        {
+          key: "buyer_role",
+          value: "office manager",
+          confidence: 60,
+          evidence: "q",
+        },
+      ]
+    );
+    expect(result.updates).toHaveLength(1);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it("treats an absent origin as extracted, not as founder-asserted", () => {
+    // Hand-written literals and pre-column rows omit it. Reading the omission
+    // as "founder" would freeze the whole ledger against every future
+    // extraction.
+    const result = reconcileFacts(
+      [{ key: "k", value: "old", confidence: 10 }],
+      [{ key: "k", value: "new", confidence: 90, evidence: "q" }]
+    );
+    expect(result.updates).toHaveLength(1);
+  });
+});

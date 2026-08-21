@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  FileText,
   FlaskConical,
   ListChecks,
   MoreHorizontal,
@@ -126,6 +127,21 @@ export function SidebarProjectItem({
               >
                 <ListChecks size={14} />
                 <span>Phases</span>
+              </InternalLink>
+            </SidebarMenuSubButton>
+          </SidebarMenuSubItem>
+          <SidebarMenuSubItem>
+            <SidebarMenuSubButton
+              asChild
+              isActive={pathname === `${projectHref}/facts`}
+            >
+              <InternalLink
+                href={`${projectHref}/facts`}
+                onNavigate={() => setOpenMobile(false)}
+                prefetch={false}
+              >
+                <FileText size={14} />
+                <span>Facts</span>
               </InternalLink>
             </SidebarMenuSubButton>
           </SidebarMenuSubItem>

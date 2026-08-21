@@ -607,6 +607,31 @@ export const projectFact = pgTable(
     sourceMessageId: uuid("sourceMessageId").references(() => message.id, {
       onDelete: "set null",
     }),
+    /**
+     * WHO ASSERTED THIS FACT: the extractor, or the founder.
+     *
+     * Every row was implicitly extractor-written until a founder could correct
+     * one. The distinction is load-bearing, not bookkeeping. The gate reads
+     * facts, and the persona, the simulation and the export are all grounded in
+     * them — so a founder able to silently rewrite a value could launder their
+     * own assumption into evidence and then pass their own gate on it. That is
+     * the exact failure this product exists to prevent, which is why the marker
+     * travels into the judge's prompt rather than staying a badge in the UI.
+     *
+     * NOT derived from `sourceMessageId IS NULL`. That column is already null
+     * for extractor writes where the assistant message id was unavailable, and
+     * it is ON DELETE SET NULL — so deleting a message would retroactively
+     * relabel an extracted fact as founder-asserted. An overloaded null is not
+     * a provenance record.
+     */
+    origin: varchar("origin", { enum: ["extracted", "founder"] })
+      .notNull()
+      .default("extracted"),
+    /**
+     * When the founder last corrected it. NULL for an extracted fact; the CHECK
+     * below makes the two move together.
+     */
+    correctedAt: timestamp("correctedAt"),
     extractedAt: timestamp("extractedAt").notNull().defaultNow(),
 
     /**
@@ -664,6 +689,16 @@ export const projectFact = pgTable(
       "ProjectFact_embedding_labelled",
       sql`(${t.embedding} IS NULL) = (${t.embeddingModel} IS NULL)
           AND (${t.embedding} IS NULL) = (${t.embeddingDims} IS NULL)`
+    ),
+    /**
+     * Provenance and its timestamp move together, so "founder-asserted but
+     * never corrected" and "extracted yet carrying a correction time" are both
+     * unrepresentable. Same posture as the embedding check above: the state
+     * that would let a reader draw the wrong conclusion cannot be stored.
+     */
+    origin_coherent_chk: check(
+      "ProjectFact_origin_coherent",
+      sql`(${t.origin} = 'founder') = (${t.correctedAt} IS NOT NULL)`
     ),
   })
 );

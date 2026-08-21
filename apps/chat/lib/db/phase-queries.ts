@@ -234,6 +234,96 @@ export async function getProjectFacts({
 }
 
 /**
+ * THE FOUNDER CORRECTS ONE FACT'S VALUE. Not its key, not its confidence.
+ *
+ * The key is identity — it is half of the (projectId, key) unique index, and
+ * "correcting" it would be a delete plus an insert wearing a rename.
+ *
+ * Confidence is deliberately NOT editable, and removing the control removes the
+ * question rather than answering it badly. `renderFactsLedger` ships this
+ * sentence in every exported FACTS.md: confidence "is the extractor's own
+ * certainty at the moment it recorded the fact — it is not a quality score and
+ * it was never revised upwards by anything". A founder-editable confidence
+ * makes a shipped document lie, and it is the exact dial that would let someone
+ * pass their own gate on an assumption. The correction carries the extracted
+ * row's confidence forward untouched; what changes is the PROVENANCE.
+ *
+ * THE EMBEDDING MUST GO WITH THE VALUE. `embedding` is a vector over
+ * "key: value" (lib/embeddings/text.ts). Leaving it behind would mean fact
+ * SELECTION keeps retrieving on the old wording while the founder reads the new
+ * one — silently, forever. All three embedding columns are nulled together
+ * because ProjectFact_embedding_labelled requires it, and
+ * `backfillFactEmbeddings` re-embeds anything with a null embedding on the next
+ * turn, so no new embedding code is needed.
+ *
+ * Returns the number of rows changed. `projectId` is in the PREDICATE, not just
+ * the values, so a key belonging to another project updates nothing.
+ */
+export async function correctProjectFact({
+  projectId,
+  key,
+  value,
+}: {
+  projectId: string;
+  key: string;
+  value: string;
+}): Promise<number> {
+  try {
+    const rows = await db
+      .update(projectFact)
+      .set({
+        value,
+        origin: "founder",
+        correctedAt: new Date(),
+        embedding: null,
+        embeddingModel: null,
+        embeddingDims: null,
+        embeddedAt: null,
+      })
+      .where(
+        and(eq(projectFact.projectId, projectId), eq(projectFact.key, key))
+      )
+      .returning({ key: projectFact.key });
+    return rows.length;
+  } catch (error) {
+    console.error("Failed to correct project fact in database", error);
+    throw error;
+  }
+}
+
+/**
+ * The founder removes a fact outright.
+ *
+ * Deletion is the honest option when a fact is not merely worded wrong but
+ * false. It is NOT a soft delete: a fact the founder has disowned should not go
+ * on grounding the persona, the simulation or the export from behind a flag.
+ *
+ * Note the consequence, which the UI states before the click: removing facts
+ * can drop a phase below `gate.minFactsRequired`, and the gate will then BLOCK.
+ * That is the gate working.
+ */
+export async function deleteProjectFact({
+  projectId,
+  key,
+}: {
+  projectId: string;
+  key: string;
+}): Promise<number> {
+  try {
+    const rows = await db
+      .delete(projectFact)
+      .where(
+        and(eq(projectFact.projectId, projectId), eq(projectFact.key, key))
+      )
+      .returning({ key: projectFact.key });
+    return rows.length;
+  } catch (error) {
+    console.error("Failed to delete project fact from database", error);
+    throw error;
+  }
+}
+
+/**
  * Plain upsert. All insert-vs-update judgement (confidence policy, vocabulary
  * filtering) already happened in the PURE reconcileFacts()/sanitizeFacts() in
  * lib/phases/extract.ts — this function only writes what it is told.

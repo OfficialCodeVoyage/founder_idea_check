@@ -330,12 +330,30 @@ export function describeCriterion(criterion: ExitCriterion): string {
   }
 }
 
+/**
+ * The fact ledger as the judge and the extractor both see it.
+ *
+ * THE FOUNDER MARKER IS THE POINT OF THE PROVENANCE COLUMN. A fact the founder
+ * corrected by hand is not evidence drawn from the transcript, and a judge that
+ * cannot tell the two apart can be passed on an assumption the founder typed
+ * themselves. The marker is what makes that weighable — it is why the column
+ * exists at all, rather than being a badge in the UI.
+ *
+ * Extracted facts render exactly as before, byte for byte, so no existing
+ * prompt or fixture changes.
+ */
 export function renderFacts(facts: KnownFact[]): string {
   if (facts.length === 0) {
     return "(none established yet)";
   }
   return facts
-    .map((f) => `- ${f.key}: ${f.value} (confidence ${f.confidence})`)
+    .map((f) => {
+      const asserted =
+        f.origin === "founder"
+          ? ", asserted by the founder, not extracted"
+          : "";
+      return `- ${f.key}: ${f.value} (confidence ${f.confidence}${asserted})`;
+    })
     .join("\n");
 }
 

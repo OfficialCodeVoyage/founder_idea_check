@@ -53,6 +53,11 @@ export type StoredFact = {
   /** Phase that last wrote the fact. Provenance; not scored today. */
   phaseKey: string;
   /**
+   * Who asserted it. Always supplied by the read path, so an absent value in a
+   * KnownFact can only come from a hand-written literal, never from a row.
+   */
+  origin?: "extracted" | "founder";
+  /**
    * ProjectFact.embedding, when the row has one. Optional and nullable: a fact
    * whose embedding call failed is still a fact, and the keyword selector still
    * ranks it. EmbeddingFactSelector embeds only the facts missing a vector, so
@@ -62,7 +67,14 @@ export type StoredFact = {
 };
 
 export function toKnownFact(fact: StoredFact): KnownFact {
-  return { key: fact.key, value: fact.value, confidence: fact.confidence };
+  return {
+    key: fact.key,
+    value: fact.value,
+    confidence: fact.confidence,
+    // Carried, not dropped: this is what lets the judge weigh a founder's own
+    // assertion differently from something read out of the transcript.
+    origin: fact.origin,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

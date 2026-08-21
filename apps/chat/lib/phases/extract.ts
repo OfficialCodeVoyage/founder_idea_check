@@ -123,7 +123,10 @@ export type FactReconciliation = {
   /** Keys already in the store whose value or confidence changes. */
   updates: ExtractedFact[];
   /** Keys deliberately left alone. */
-  skipped: { key: string; why: "unchanged" | "lower-confidence" }[];
+  skipped: {
+    key: string;
+    why: "unchanged" | "lower-confidence" | "founder-asserted";
+  }[];
 };
 
 /**
@@ -134,6 +137,13 @@ export type FactReconciliation = {
  * Policy: a new value overwrites only if its confidence is >= the stored
  * value's. A lower-confidence contradiction is dropped, not merged — a later,
  * better evidenced turn will clear the bar and overwrite.
+ *
+ * AND A FOUNDER'S CORRECTION IS NEVER OVERWRITTEN. Once someone has fixed a
+ * fact by hand, an extractor that silently reverted it on the next turn would
+ * make the correction feature a lie — the founder would watch their fix
+ * disappear with no message. It is checked FIRST, before the confidence
+ * comparison, because a high-confidence extraction is exactly the case that
+ * would otherwise win.
  */
 export function reconcileFacts(
   existing: KnownFact[],
@@ -150,6 +160,10 @@ export function reconcileFacts(
     const prior = byKey.get(fact.key);
     if (!prior) {
       result.inserts.push(fact);
+      continue;
+    }
+    if (prior.origin === "founder") {
+      result.skipped.push({ key: fact.key, why: "founder-asserted" });
       continue;
     }
     if (prior.value === fact.value && prior.confidence === fact.confidence) {

@@ -8,6 +8,7 @@ import {
   evaluateGate,
   type GateCriterionMeta,
   type GateJudge,
+  renderFacts,
 } from "./gate";
 import {
   type CriterionEvaluation,
@@ -447,5 +448,34 @@ describe("evaluateGate — the injected seam", () => {
     expect(JSON.stringify(model.doGenerateCalls[0].prompt)).toContain(
       "existing-workarounds"
     );
+  });
+});
+
+describe("renderFacts — the judge can tell who asserted what", () => {
+  it("marks a founder-corrected fact so it cannot read as extracted evidence", () => {
+    // The whole reason the provenance column exists. A judge that cannot tell
+    // the two apart can be passed on an assumption the founder typed
+    // themselves — the exact failure this product exists to prevent.
+    const rendered = renderFacts([
+      { key: "buyer_role", value: "office manager", confidence: 60 },
+      {
+        key: "price_point",
+        value: "$200/mo",
+        confidence: 40,
+        origin: "founder",
+      },
+    ]);
+    expect(rendered).toContain("- buyer_role: office manager (confidence 60)");
+    expect(rendered).toContain("asserted by the founder, not extracted");
+  });
+
+  it("renders an extracted fact byte-for-byte as before", () => {
+    // No existing prompt or fixture may shift. The marker is additive.
+    const explicit = renderFacts([
+      { key: "k", value: "v", confidence: 50, origin: "extracted" },
+    ]);
+    const omitted = renderFacts([{ key: "k", value: "v", confidence: 50 }]);
+    expect(explicit).toBe("- k: v (confidence 50)");
+    expect(omitted).toBe(explicit);
   });
 });

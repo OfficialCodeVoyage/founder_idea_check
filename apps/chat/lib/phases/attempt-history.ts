@@ -35,8 +35,17 @@ export type AttemptDetail =
   | {
       readable: true;
       perCriterion: readonly CriterionEvaluation[];
-      /** Criterion ids the judge did not mark met. */
-      unmet: readonly string[];
+      /**
+       * Criterion ids the judge did not mark met.
+       *
+       * NULL when the judge scored NOTHING — `failClosedVerdict` produces
+       * `perCriterion: []`, and an empty list there means "nothing was
+       * assessed", not "everything passed". A diff that read it as the latter
+       * reports criteria as CLOSED that the founder never touched.
+       */
+      unmet: readonly string[] | null;
+      /** True when the gate failed closed: it reached a decision, scored none. */
+      failedClosed: boolean;
     }
   | { readable: false; why: string };
 
@@ -73,10 +82,16 @@ function toDetail(verdict: unknown): AttemptDetail {
   if (!parsed.success) {
     return { readable: false, why: UNREADABLE };
   }
+  // ZERO SCORED CRITERIA IS ABSENCE, NOT A CLEAN SHEET. Only
+  // `failClosedVerdict` produces it, and treating its empty list as "nothing is
+  // unmet" made the next attempt's diff announce that the founder had closed
+  // five criteria they never touched. Observed live on 2026-08-21.
+  const failedClosed = parsed.data.perCriterion.length === 0;
   return {
     readable: true,
     perCriterion: parsed.data.perCriterion,
-    unmet: unmetIds(parsed.data.perCriterion),
+    unmet: failedClosed ? null : unmetIds(parsed.data.perCriterion),
+    failedClosed,
   };
 }
 
@@ -87,9 +102,13 @@ function toDetail(verdict: unknown): AttemptDetail {
  * attempt. Reporting every criterion as "opened" on the first run would tell a
  * founder they had just broken eight things.
  *
- * A step whose verdict is unreadable also produces an empty diff, and so does
- * the step AFTER it: a diff needs both sides, and guessing across a hole would
+ * A step whose verdict is unreadable produces an empty diff, and so does the
+ * step AFTER it: a diff needs both sides, and guessing across a hole would
  * attribute a change to the wrong attempt.
+ *
+ * THE SAME APPLIES TO A GATE THAT FAILED CLOSED. It parses perfectly and scored
+ * nothing, so its criterion state is absent rather than clean — diffing against
+ * it announced five criteria as "closed" that the founder never touched.
  */
 export function describeAttemptSeries(
   rows: readonly AttemptRow[]
@@ -99,6 +118,8 @@ export function describeAttemptSeries(
 
   for (const row of rows) {
     const detail = toDetail(row.verdict);
+    // A verdict with nothing scored is as uncomparable as one that will not
+    // parse: there is no criterion state on this side to diff against.
     const unmet = detail.readable ? detail.unmet : null;
 
     const comparable = previousUnmet !== null && unmet !== null;

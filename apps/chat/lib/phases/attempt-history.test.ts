@@ -126,3 +126,60 @@ describe("describeAttemptSeries — refusals as a record of learning", () => {
     expect(steps.map((s) => s.attemptNo)).toEqual([1, 2, 3]);
   });
 });
+
+describe("describeAttemptSeries — a gate that failed closed is not progress", () => {
+  const failClosed = {
+    decision: "BLOCK",
+    // Exactly what failClosedVerdict produces: a decision, a reason, and no
+    // criteria scored at all.
+    perCriterion: [],
+    missing: ["the phase pass could not complete"],
+    nextQuestion: "Restate where you have got to.",
+    reason: "Gate failed closed: the phase pass could not complete.",
+  };
+
+  it("does NOT report criteria as closed when the gate simply did not run", () => {
+    // Observed live: a stale dev server made the pass throw, and the next
+    // attempt's diff announced that the founder had closed five criteria they
+    // never touched. An empty perCriterion is absence, not a clean sheet.
+    const steps = describeAttemptSeries([
+      row({ attemptNo: 1, verdict: verdict(["a", "b", "c"]) }),
+      row({ attemptNo: 2, verdict: failClosed }),
+    ]);
+    expect(steps[1].closed).toEqual([]);
+    expect(steps[1].opened).toEqual([]);
+    expect(steps[1].stillOpen).toEqual([]);
+  });
+
+  it("does not report criteria as NEWLY unmet on the attempt after one", () => {
+    const steps = describeAttemptSeries([
+      row({ attemptNo: 1, verdict: failClosed }),
+      row({ attemptNo: 2, verdict: verdict(["a", "b"]) }),
+    ]);
+    expect(steps[1].opened).toEqual([]);
+    expect(steps[1].stillOpen).toEqual([]);
+  });
+
+  it("still marks the fail-closed attempt readable, with its real reason", () => {
+    // It is not a parse failure. The decision and the reason are genuine and a
+    // founder should read them — it just carries no criterion state.
+    const [step] = describeAttemptSeries([row({ verdict: failClosed })]);
+    expect(step.detail.readable).toBe(true);
+    if (step.detail.readable) {
+      expect(step.detail.failedClosed).toBe(true);
+      expect(step.detail.unmet).toBeNull();
+    }
+  });
+
+  it("resumes diffing across the gap once two real verdicts sit together", () => {
+    const steps = describeAttemptSeries([
+      row({ attemptNo: 1, verdict: verdict(["a", "b"]) }),
+      row({ attemptNo: 2, verdict: failClosed }),
+      row({ attemptNo: 3, verdict: verdict(["a", "b"]) }),
+      row({ attemptNo: 4, verdict: verdict(["b"], ["a"]) }),
+    ]);
+    expect(steps[2].closed).toEqual([]);
+    expect(steps[3].closed).toEqual(["a"]);
+    expect(steps[3].stillOpen).toEqual(["b"]);
+  });
+});

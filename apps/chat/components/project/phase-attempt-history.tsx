@@ -143,6 +143,21 @@ export function PhaseAttemptHistory({
               )}
 
               {/*
+                A gate that failed closed reached a decision and scored nothing.
+                Without saying so, its entry looks like an ordinary refusal and
+                the founder reads a plumbing failure as a judgement of their
+                work — and the diff around it is deliberately blank, which needs
+                explaining too.
+              */}
+              {step.detail.readable && step.detail.failedClosed ? (
+                <p className="text-muted-foreground text-xs">
+                  The gate did not run on this attempt — no criterion was
+                  scored, so nothing here says anything about your work, and it
+                  is not compared with the attempts either side.
+                </p>
+              ) : null}
+
+              {/*
                 THE DIFF IS THE POINT. "You closed evidence-of-pain on attempt 3
                 and willingness-to-pay is still open" is what turns a list of
                 refusals into a record of learning. Empty on the first attempt,

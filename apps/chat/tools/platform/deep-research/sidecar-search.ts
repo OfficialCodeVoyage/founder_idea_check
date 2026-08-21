@@ -7,7 +7,7 @@ import { createModuleLogger } from "@/lib/logger";
 import { runSignalHarvest } from "@/lib/signals/provider";
 import {
   ALL_PROVIDERS,
-  DEFAULT_ENABLED_SOURCE_IDS,
+  parseOperatorEnabledSources,
 } from "@/lib/signals/providers";
 import { createSidecarSignalFetcher } from "@/lib/signals/sidecar";
 import type {
@@ -71,18 +71,51 @@ const CREDENTIAL_ENV_NAMES: readonly string[] = [
   ...new Set(ALL_PROVIDERS.flatMap((provider) => provider.requiredCredentials)),
 ];
 
-function currentDeploymentMode(): DeploymentMode {
+/**
+ * READ FROM `RESEARCH_ENABLED_SOURCES`, NOT HARDCODED.
+ *
+ * This used to pin `operatorEnabled` to `DEFAULT_ENABLED_SOURCE_IDS`, which
+ * made the variable a lie on this side: an operator could switch a source on,
+ * the sidecar would agree to serve it, and the app would still refuse it here
+ * — before any request — with the reason "not enabled for this deployment".
+ * True sentence, false cause, and no way to tell from the report which of the
+ * two locks was shut.
+ *
+ * The unknown ids come back alongside rather than folded in, for the same
+ * reason `/v1/health` reports them: a typo must not present as a source that
+ * ran and found nothing.
+ */
+function currentDeployment(): {
+  mode: DeploymentMode;
+  unknownSourceIds: readonly string[];
+} {
   const values = env as unknown as Record<string, string | undefined>;
+  const requested = parseOperatorEnabledSources(
+    values.RESEARCH_ENABLED_SOURCES
+  );
   return {
-    hosted: config.ai.tools.deepResearch.hosted,
-    availableCredentials: CREDENTIAL_ENV_NAMES.filter((name) => {
-      const value = values[name];
-      return typeof value === "string" && value.length > 0;
-    }),
-    // The operator's request, which the gate may still refuse. Hacker News and
-    // the keyless web ladder — both keyless, both on in either mode.
-    operatorEnabled: DEFAULT_ENABLED_SOURCE_IDS,
+    mode: {
+      hosted: config.ai.tools.deepResearch.hosted,
+      availableCredentials: CREDENTIAL_ENV_NAMES.filter((name) => {
+        const value = values[name];
+        return typeof value === "string" && value.length > 0;
+      }),
+      // The operator's request, which the gate may still refuse.
+      operatorEnabled: requested.enabled,
+    },
+    unknownSourceIds: requested.unknown,
   };
+}
+
+/**
+ * Names the ids that matched no descriptor, so a misspelled source reads as a
+ * misspelling rather than as a quiet absence.
+ */
+function describeUnknownSourceIds(ids: readonly string[]): string {
+  if (ids.length === 0) {
+    return "";
+  }
+  return ` RESEARCH_ENABLED_SOURCES names ${ids.length === 1 ? "an id" : "ids"} that match no source: ${ids.join(", ")}.`;
 }
 
 function describeFailures(failures: readonly SignalFailure[]): string {
@@ -244,7 +277,13 @@ Avoid:
 
       const to = now?.() ?? new Date();
       const from = new Date(to.getTime() - LOOKBACK_DAYS * DAY_MS);
-      const mode = currentDeploymentMode();
+      const { mode, unknownSourceIds } = currentDeployment();
+      if (unknownSourceIds.length > 0) {
+        log.warn(
+          { unknownSourceIds },
+          "RESEARCH_ENABLED_SOURCES names unrecognised source ids"
+        );
+      }
       const fetcherFor = createSidecarSignalFetcher({ baseUrl, fetchImpl });
 
       const harvests = await Promise.all(
@@ -311,7 +350,9 @@ Avoid:
       // every source was gate-refused is also empty-but-explained, and both
       // must reach the model as an error rather than as an absence.
       if (allResults.length === 0) {
-        const detail = describeFailures(failures);
+        const detail =
+          describeFailures(failures) +
+          describeUnknownSourceIds(unknownSourceIds);
         log.error(
           { queries, failures, baseUrl },
           "sidecarWebSearch returned no results"

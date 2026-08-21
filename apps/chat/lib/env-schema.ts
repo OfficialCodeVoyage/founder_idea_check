@@ -138,6 +138,18 @@ export const serverEnvSchema = {
     .string()
     .optional()
     .describe('Set to "false" only for BYOK self-host; defaults to hosted'),
+  /**
+   * The SAME variable apps/research reads. Both sides parse it, because both
+   * sides decide with it: the sidecar refuses a source it was not told to run,
+   * and the app declines to ask for one. Unset means the two keyless defaults,
+   * never "everything" — see `parseOperatorEnabledSources`.
+   */
+  RESEARCH_ENABLED_SOURCES: z
+    .string()
+    .optional()
+    .describe(
+      "Comma-separated demand-signal source ids; unset means hackernews,web-keyless"
+    ),
   MCP_ENCRYPTION_KEY: z
     .union([z.string().length(44), z.literal("")])
     .optional()

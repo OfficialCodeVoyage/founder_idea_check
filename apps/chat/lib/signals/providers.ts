@@ -214,3 +214,64 @@ export const DEFAULT_ENABLED_SOURCE_IDS: readonly SignalSourceId[] = [
 export function findProvider(id: string): ProviderDescriptor | null {
   return ALL_PROVIDERS.find((p) => p.id === id) ?? null;
 }
+
+/**
+ * What the operator asked for, split from what that request actually names.
+ *
+ * TWO ARMS BECAUSE AN UNRECOGNISED ID CARRIES NO READABLE VALUE. There is no
+ * descriptor behind `redditt`, so it cannot be held as a `SignalSourceId`, and
+ * folding it into `enabled` would make a typo indistinguishable from a source
+ * that ran and found nothing.
+ */
+export type OperatorSourceRequest = {
+  /** Ids naming a real descriptor. A REQUEST — `decideProviderGate` still rules. */
+  enabled: readonly SignalSourceId[];
+  /** Ids naming nothing. Surfaced to the operator, never quietly dropped. */
+  unknown: readonly string[];
+};
+
+/**
+ * PURE. Reads `RESEARCH_ENABLED_SOURCES` the way the sidecar reads it.
+ *
+ * This exists because the app and the sidecar were disagreeing about the same
+ * variable. `apps/research/app/config.py` parsed it; the app hardcoded
+ * `DEFAULT_ENABLED_SOURCE_IDS`, so a source the operator had switched on and
+ * the sidecar was willing to serve was refused locally before a request was
+ * ever made — a refusal with a true reason ("not enabled for this deployment")
+ * and a false cause. One variable, one meaning, kept in both places.
+ *
+ * FAIL CLOSED, matching `load_settings`:
+ *   - unset or blank -> the two keyless defaults, not "everything"
+ *   - a list of nothing but typos -> NO sources, not a silent fallback to the
+ *     defaults, because a working report would then hide the typo
+ *   - a barred id -> passed through as a request; refusing it here would put
+ *     the legal gate in two places
+ */
+export function parseOperatorEnabledSources(
+  raw: string | undefined
+): OperatorSourceRequest {
+  const trimmed = (raw ?? "").trim();
+  if (trimmed.length === 0) {
+    return { enabled: [...DEFAULT_ENABLED_SOURCE_IDS], unknown: [] };
+  }
+
+  const enabled: SignalSourceId[] = [];
+  const unknown: string[] = [];
+  for (const part of trimmed.split(",")) {
+    const id = part.trim();
+    if (id.length === 0) {
+      continue;
+    }
+    const descriptor = findProvider(id);
+    if (descriptor === null) {
+      if (!unknown.includes(id)) {
+        unknown.push(id);
+      }
+      continue;
+    }
+    if (!enabled.includes(descriptor.id)) {
+      enabled.push(descriptor.id);
+    }
+  }
+  return { enabled, unknown };
+}

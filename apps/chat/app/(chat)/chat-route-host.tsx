@@ -16,6 +16,7 @@ import {
 } from "@/hooks/chat-sync-hooks";
 import { useChatSystemInitialState } from "@/hooks/use-chat-system-initial-state";
 import type { AppModelId } from "@/lib/ai/app-models";
+import { resolveChatSeedModel } from "@/lib/ai/chat-seed-model";
 import {
   type AppRuntime,
   type AppRuntimeData,
@@ -394,7 +395,40 @@ function HostedChatRoute({ route }: { route: HostedParsedChatRoute }) {
     liveRuntime?.data.initialTool ?? persistedInitialState.initialTool;
 
   const value = searchParams.get("modelId");
-  const overrideModelId = getOverrideModelId({ getModelById, route, value });
+  const deepLinkModelId = getOverrideModelId({ getModelById, route, value });
+
+  /**
+   * THE CHAT'S OWN MODEL, so opening an existing chat does not move it onto
+   * whatever was picked last somewhere else. `?modelId=` still wins: it only
+   * exists on the `home` route, which by definition has no messages.
+   *
+   * PRECONDITION, and it is load-bearing: `ChatInputProvider` seeds
+   * `selectedModelId`/`selectedModelSelection` in `useState` INITIALIZERS, so
+   * these props are read exactly ONCE per `runtimeKey` mount. That is correct
+   * here only because the returns below render `<ChatLoadingShell/>` until
+   * `liveRuntime && liveStore` exist, and a persisted route's runtime is not
+   * created until `persistedChat && Array.isArray(persistedMessages)`. If
+   * `ChatSystem` is ever rendered before its messages land, the seed arrives
+   * after the mount that would have used it and this fix silently stops working.
+   *
+   * Do NOT "fix" that with an effect that re-syncs the model when the seed
+   * arrives late: a mid-chat cookie write would then reassign a running chat's
+   * model, which is the bug this removes.
+   */
+  const seedModel = useMemo(
+    () =>
+      resolveChatSeedModel({
+        isKnownModel: (modelId) => Boolean(getModelById(modelId)),
+        messages: initialMessages,
+      }),
+    [getModelById, initialMessages]
+  );
+  const overrideModelId = deepLinkModelId ?? seedModel?.modelId;
+  // The deep link carries a single model, so it must not be paired with a
+  // parallel selection recovered from history.
+  const overrideModelSelection = deepLinkModelId
+    ? undefined
+    : seedModel?.selection;
   const id = runtimeChatId;
   if (shouldShowSessionLoading({ isSessionPending, route })) {
     return null;
@@ -454,6 +488,7 @@ function HostedChatRoute({ route }: { route: HostedParsedChatRoute }) {
       initialTool={initialTool}
       isReadonly={false}
       overrideModelId={overrideModelId}
+      overrideModelSelection={overrideModelSelection}
       projectId={getProjectIdForChatSystem({
         persistedRoute,
         projectId: projectQuery.data?.id,

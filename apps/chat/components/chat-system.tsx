@@ -5,7 +5,11 @@ import { Chat } from "@/components/chat";
 import { DataStreamHandler } from "@/components/data-stream-handler";
 import { ArtifactProvider } from "@/hooks/use-artifact";
 import type { AppModelId } from "@/lib/ai/app-models";
-import type { ChatMessage, UiToolName } from "@/lib/ai/types";
+import type {
+  ChatMessage,
+  SelectedModelValue,
+  UiToolName,
+} from "@/lib/ai/types";
 import type { ChatRouteSource } from "@/lib/chat-route";
 import {
   type CustomChatStoreApi,
@@ -21,6 +25,7 @@ export const ChatSystem = memo(function PureChatSystem({
   isReadonly,
   initialTool = null,
   overrideModelId,
+  overrideModelSelection,
   projectId,
   routeSource = projectId ? "project" : "chat",
   runtimeKey,
@@ -32,6 +37,14 @@ export const ChatSystem = memo(function PureChatSystem({
   isReadonly: boolean;
   initialTool?: UiToolName | null;
   overrideModelId?: AppModelId;
+  /**
+   * The full selection the chat was last held in — a counts object when several
+   * models were requested in parallel. `ChatInputProvider` already seeds
+   * `selectedModelSelection` from `overrideModelSelection ?? overrideModelId ??
+   * defaultModel`, which is the path `MessageEditor` has always used; both props
+   * are read ONCE, in `useState` initializers, on each `runtimeKey` mount.
+   */
+  overrideModelSelection?: SelectedModelValue;
   projectId?: string;
   routeSource?: ChatRouteSource;
   runtimeKey: string;
@@ -59,6 +72,7 @@ export const ChatSystem = memo(function PureChatSystem({
             isProjectContext={!!projectId}
             localStorageEnabled={true}
             overrideModelId={overrideModelId}
+            overrideModelSelection={overrideModelSelection}
           >
             <DataStreamHandler key={`stream:${runtimeKey}`} />
             <Chat

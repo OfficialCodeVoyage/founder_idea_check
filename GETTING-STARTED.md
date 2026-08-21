@@ -196,7 +196,7 @@ Until the key is present, the rail stays on `BLOCKED · "no assessment yet — k
 | Sign-out returns `403 INVALID_ORIGIN` | app served on a port that `APP_URL` does not match | use `bun run dev:local`, which exports `APP_URL` for you |
 | `/project/...` bounces to `/login` | not signed in | http://localhost:3100/api/dev-login |
 | Rail never leaves `BLOCKED` | no `ANTHROPIC_API_KEY`, or a model id the gateway does not serve | step 7; then check the dev-server log |
-| `Insufficient credits` (402) | a new user is funded with 50 cents and there is no top-up UI | `docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 100000;'` |
+| `Insufficient credits` (402) | a new user is funded with 50 cents and there is no top-up UI | `docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 100000;'` — the column is CENTS, so this is $1000.00; the sidebar renders it as `$1000.00` |
 | `DATABASE_URL is not set` from a script | you ran it inside `apps/chat` without the root env | use the root `bun run db:*` scripts |
 | Empty model picker | `lib/ai/models.generated.ts` was built for a different gateway | `bun run fetch:models` |
 

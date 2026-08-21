@@ -136,6 +136,7 @@ of the three `testMatch` regexes. There is no authenticated e2e coverage yet.
 - A new user is funded with 50 credits ($0.50) and there is no top-up route or UI, so a
   long session eventually dead-ends on a bare 402. Bump it directly:
   `docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 100000;'`
+  (`UserCredit.credits` is CENTS: 100000 = $1000.00, and the sidebar shows `$1000.00`.)
 - `lib/phases/runtime.ts` swallows post-turn failures in a bare `catch` so a bad model id
   leaves the rail permanently on `BLOCKED` with nothing in the UI.
 - Switching `ai.gateway` without running `bun run fetch:models` leaves

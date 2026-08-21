@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useGetCredits } from "@/hooks/chat-sync-hooks";
 import authClient from "@/lib/auth-client";
+import { formatCreditBalance } from "@/lib/credits/format-credit-balance";
 import { isElectronRenderer } from "@/lib/electron-auth";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/providers/session-provider";
@@ -113,9 +114,13 @@ export function SidebarUserNav() {
                 <span className="truncate font-medium">
                   {user.name || user.email}
                 </span>
-                <span className="flex items-center gap-1 truncate text-xs">
+                <span
+                  className="flex items-center gap-1 truncate text-xs"
+                  title="Credit balance (USD)"
+                >
                   <DollarSign className="size-3" />
-                  {((credits ?? 0) / 100).toFixed(2)}
+                  <span className="sr-only">Credit balance in US dollars:</span>
+                  {formatCreditBalance(credits)}
                 </span>
               </div>
               <ChevronsUpDown

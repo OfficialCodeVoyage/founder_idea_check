@@ -69,13 +69,39 @@ export const ChatLayoutMain = ({
   return (
     <ResizablePanel
       className={cn(isSecondaryPanelVisible && "hidden md:block", className)}
-      defaultSize={defaultSize}
+      /**
+       * 65 ONLY WHEN THERE IS SOMETHING TO SHARE THE ROW WITH.
+       *
+       * `ChatLayoutSecondary` and `ChatLayoutHandle` both return null while the
+       * artifact panel is closed, which leaves this group with ONE panel
+       * declaring `defaultSize={65}`. react-resizable-panels sums the declared
+       * defaults in `calculateUnsafeDefaultLayout`, so `validatePanelGroupLayout`
+       * logged "Invalid layout total size: 65%. Layout normalization will be
+       * applied." on every clean load and then rescaled to 100 anyway. Declaring
+       * the truth removes the warning without changing a single rendered pixel.
+       *
+       * Safe to change while mounted: Panel's constraint-sync effect deliberately
+       * excludes `defaultSize`, and the group only recomputes a layout from
+       * defaults when panels register or unregister — which is exactly when the
+       * artifact panel opens, and child effects commit before the parent group's,
+       * so the 65/35 split still applies the moment there are two panels.
+       */
+      defaultSize={isSecondaryPanelVisible ? defaultSize : 100}
+      id="chat-main"
       minSize={minSize}
+      order={1}
       {...props}
     />
   );
 };
 
+/**
+ * `id` and `order` on both panels are what the library's second warning asks
+ * for — "Panel id and order props recommended when panels are dynamically
+ * rendered" — and this group renders its second panel conditionally. No
+ * `autoSaveId` is set, so these ids are not yet part of a storage key; if one is
+ * ever added, they become one.
+ */
 type ChatLayoutSecondaryProps = ComponentProps<typeof ResizablePanel>;
 
 export const ChatLayoutSecondary = ({
@@ -90,7 +116,13 @@ export const ChatLayoutSecondary = ({
   }
 
   return (
-    <ResizablePanel defaultSize={defaultSize} minSize={minSize} {...props} />
+    <ResizablePanel
+      defaultSize={defaultSize}
+      id="chat-secondary"
+      minSize={minSize}
+      order={2}
+      {...props}
+    />
   );
 };
 
@@ -110,6 +142,7 @@ export const ChatLayoutHandle = ({
   return (
     <ResizableHandle
       className={cn("hidden md:flex", className)}
+      id="chat-main-secondary"
       withHandle={withHandle}
       {...props}
     />

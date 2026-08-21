@@ -30,7 +30,22 @@ test("the packed package loads its core and React entry points", async () => {
 	);
 
 	try {
-		run(["bun", "run", "build"], packageDirectory);
+		// THIS TEST DOES NOT BUILD. It used to run `bun run build` here, and that
+		// is what made the whole suite fail whenever turbo ran `test:unit` and
+		// `test:types` at the same time: `test:types` ended with `bun run build`
+		// too, `build.ts` starts by deleting `dist/` outright, and so one task
+		// wiped the directory the other was mid-way through packing. `bun pm pack`
+		// then produced a tarball with missing chunks and `node consumer.mjs`
+		// failed to import it — reproducibly, 3 runs out of 3, not intermittently.
+		//
+		// `build` is now a declared turbo dependency of both tasks
+		// (packages/thread/turbo.json), so it runs exactly once before either and
+		// neither writes `dist/` any more. Do not reintroduce a build here.
+		if (!(await Bun.file(join(packageDirectory, "dist/index.js")).exists())) {
+			throw new Error(
+				"dist/index.js is missing. This test reads the built package and no longer builds it; run `bun run build` in packages/thread first, or run it through turbo, which declares build as a dependency.",
+			);
+		}
 		run(
 			[
 				"bun",

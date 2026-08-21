@@ -1,5 +1,6 @@
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { PERSONA_ATTRIBUTE_KEYS } from "@/lib/personas/types";
 import type { StoredFact } from "@/lib/phases/context";
 import { PHASES } from "@/lib/phases/definitions";
 import { buildHandoff, deriveRepoName, runHandoff } from "./handoff";
@@ -32,6 +33,10 @@ function input(overrides: Partial<BuildHandoffInput> = {}): BuildHandoffInput {
     project: { name: "Dog Walker Ops", instructions: "" },
     facts: [fact("target_user", "urban dog walkers", 92)],
     phases: [],
+    // REQUIRED, and this line is the reason it is required: a caller that
+    // forgets it now fails to compile instead of exporting a repo with the
+    // persona silently missing.
+    personas: [],
     generatedAt: GENERATED_AT,
     ...overrides,
   };
@@ -109,6 +114,84 @@ describe("buildHandoff — the tree", () => {
     expect(paths.filter((p) => p.startsWith(".planning/phases/"))).toHaveLength(
       PHASES.length
     );
+  });
+
+  it("always contains the persona document, even with no persona", () => {
+    // The export composed exactly 17 files and none of them was a persona, for
+    // a project that owned a finished persona artifact.
+    const paths = plan?.files.map((f) => f.path) ?? [];
+    expect(paths).toContain(".planning/PERSONA.md");
+    expect(paths).toHaveLength(18);
+    const persona = plan?.files.find((f) => f.path === ".planning/PERSONA.md");
+    expect(persona?.contents).toContain(
+      "No persona artifact has ever been generated"
+    );
+  });
+
+  it("puts a stored persona into the exported file", () => {
+    // Wiring only — the rendering rules (assumption labels, gaps, the
+    // "not a finding" banner, injection containment) are covered in
+    // persona.test.ts against the pure renderer.
+    const outcome = buildHandoff(
+      input({
+        personas: [
+          {
+            artifact: {
+              artifact: "persona",
+              contentVersion: 1,
+              degradedReasons: [],
+              droppedPinnedFactKeys: [],
+              groundedInFactKeys: ["primary_persona"],
+              persona: {
+                attributes: Object.fromEntries(
+                  PERSONA_ATTRIBUTE_KEYS.map((key) => [
+                    key,
+                    {
+                      evidence: [],
+                      gap: `no ${key} recorded`,
+                      status: "not-established",
+                      value: null,
+                    },
+                  ])
+                ),
+                excludedSegments: [],
+                interviews: {
+                  count: 0,
+                  evidence: [],
+                  gap: "no interview count recorded",
+                  meetsFloor: false,
+                  status: "not-established",
+                },
+                label: "Ops lead at a 20-person agency",
+                observableAttributes: [],
+              },
+            },
+            documentId: "doc-1",
+            status: "readable",
+            title: "Persona: Ops lead (v1)",
+            version: 1,
+          },
+          // Object.fromEntries widens to an index signature; the shape is
+          // validated for real by PersonaArtifactSchema in persona.test.ts.
+        ] as unknown as BuildHandoffInput["personas"],
+      })
+    );
+
+    const persona =
+      outcome.status === "ready"
+        ? outcome.plan.files.find((f) => f.path === ".planning/PERSONA.md")
+        : null;
+    expect(persona?.contents).toContain("Ops lead at a 20-person agency");
+    expect(persona?.contents).not.toContain(
+      "No persona artifact has ever been generated"
+    );
+  });
+
+  it("lists the persona document in the README manifest", () => {
+    // A file the repo contains but the manifest omits makes the README wrong.
+    const readme = plan?.files.find((f) => f.path === "README.md");
+    expect(readme?.contents).toContain("`.planning/PERSONA.md`");
+    expect(readme?.contents).toContain("`AGENTS.md`");
   });
 
   it("sorts files by code point so two machines produce the same git tree", () => {

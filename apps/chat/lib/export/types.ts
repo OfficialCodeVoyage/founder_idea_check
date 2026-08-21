@@ -1,3 +1,4 @@
+import type { PersonaArtifact } from "@/lib/personas/types";
 import type { StoredFact } from "@/lib/phases/context";
 
 /**
@@ -85,6 +86,30 @@ export type ExportPhaseState = {
   missing: string[];
 };
 
+/**
+ * One persona document, reduced to its NEWEST version.
+ *
+ * THE UNION IS THE POINT. A stored row that fails `parsePersonaArtifact` still
+ * has to reach the document: dropping it would make "generated but unreadable"
+ * indistinguishable from "never generated", which is the same distinction
+ * `not-established` protects for facts. Neither may be silently rendered as a
+ * persona.
+ */
+export type ExportPersona =
+  | {
+      status: "readable";
+      documentId: string;
+      version: number;
+      title: string;
+      artifact: PersonaArtifact;
+    }
+  | {
+      status: "unreadable";
+      documentId: string;
+      version: number;
+      title: string;
+    };
+
 /** Everything buildHandoff needs. No DB handle, no clock, no filesystem. */
 export type BuildHandoffInput = {
   project: ExportProject;
@@ -92,6 +117,16 @@ export type BuildHandoffInput = {
   facts: StoredFact[];
   /** Phase rows. A phase with no row is treated as `locked`, never as passed. */
   phases: ExportPhaseState[];
+  /**
+   * The newest version of each persona document for the project. Version
+   * HISTORY is not exported.
+   *
+   * REQUIRED, not optional-with-a-default. An optional field means the next
+   * caller that forgets it exports a repository with the persona silently
+   * missing — which is the bug this field exists to fix. Required makes every
+   * call site a compile error until it is answered.
+   */
+  personas: ExportPersona[];
   /**
    * Stamped into the generated documents as provenance.
    *

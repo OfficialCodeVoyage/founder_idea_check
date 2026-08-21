@@ -1,5 +1,6 @@
 import { type DocumentContext, groundFact, renderGrounded } from "./grounding";
 import { joinSections, singleLine } from "./markdown";
+import { PERSONA_PATH } from "./persona";
 import { FACTS_PATH, OPEN_QUESTIONS_PATH, ROADMAP_PATH } from "./planning";
 import type { ExportFile } from "./types";
 
@@ -112,9 +113,11 @@ function renderReadme(context: DocumentContext): string {
       "| --- | --- |",
       "| `PRD.md` | Every established fact, with its confidence and the phase that produced it. |",
       "| `CLAUDE.md` | The operating contract for any AI agent working here. Read it first. |",
+      "| `AGENTS.md` | The same contract, for tools that read AGENTS.md instead. |",
       `| \`${ROADMAP_PATH}\` | The eight phases, their gate status, and what to do next. |`,
       `| \`${OPEN_QUESTIONS_PATH}\` | Everything the workflow asked and never got an evidenced answer to. |`,
       `| \`${FACTS_PATH}\` | The raw fact ledger, for auditing the documents above. |`,
+      `| \`${PERSONA_PATH}\` | The persona, every attribute with its status and its sources. |`,
       "| `.planning/phases/` | One file per phase: goal, exit criteria, gate verdict. |",
     ].join("\n"),
     [

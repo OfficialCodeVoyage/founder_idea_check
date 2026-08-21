@@ -6,6 +6,7 @@ import {
   groundFact,
 } from "./grounding";
 import { assertSafeTree, pickRepoName } from "./paths";
+import { personaFiles } from "./persona";
 import { planningFiles } from "./planning";
 import { renderPrd } from "./prd";
 import { scaffoldFiles } from "./scaffold";
@@ -136,6 +137,7 @@ export function buildHandoff(input: BuildHandoffInput): HandoffOutcome {
     { path: "PRD.md", contents: renderPrd(context) },
     { path: "CLAUDE.md", contents: renderClaudeMd(context) },
     { path: "AGENTS.md", contents: renderAgentsMd(context) },
+    ...personaFiles(context, input.personas),
     ...planningFiles(context),
   ];
 

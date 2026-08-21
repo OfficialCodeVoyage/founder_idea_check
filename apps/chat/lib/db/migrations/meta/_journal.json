@@ -337,6 +337,13 @@
       "when": 1787227203000,
       "tag": "0047_bent_donald_blake",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1787313604000,
+      "tag": "0048_dark_grandmaster",
+      "breakpoints": true
     }
   ]
 }

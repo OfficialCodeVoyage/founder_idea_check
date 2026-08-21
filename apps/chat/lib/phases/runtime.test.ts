@@ -24,7 +24,7 @@ vi.mock("server-only", () => ({}));
 
 const getProjectPhases = vi.fn();
 const getProjectFacts = vi.fn();
-const upsertProjectPhase = vi.fn();
+const recordGateVerdict = vi.fn();
 const upsertProjectFacts = vi.fn();
 const activateProjectPhase = vi.fn();
 const backfillFactEmbeddings = vi.fn();
@@ -40,7 +40,7 @@ vi.mock("@/lib/db/phase-queries", () => ({
   getProjectFacts: (...args: unknown[]) => getProjectFacts(...args),
   getProjectPhases: (...args: unknown[]) => getProjectPhases(...args),
   upsertProjectFacts: (...args: unknown[]) => upsertProjectFacts(...args),
-  upsertProjectPhase: (...args: unknown[]) => upsertProjectPhase(...args),
+  recordGateVerdict: (...args: unknown[]) => recordGateVerdict(...args),
 }));
 
 vi.mock("@/lib/db/queries", () => ({
@@ -172,7 +172,11 @@ beforeEach(() => {
     { phaseKey: PHASE_ONE.key, status: "active" },
   ]);
   getProjectFacts.mockResolvedValue(storedFacts());
-  upsertProjectPhase.mockResolvedValue(undefined);
+  // MUST resolve to an object: persistVerdict destructures `attemptNo` from
+  // it. Left as undefined, the destructure throws inside the path whose whole
+  // job is never to throw, runPostTurnPhasePass's catch converts that into a
+  // fail-closed BLOCK, and roughly eight tests pass for the wrong reason.
+  recordGateVerdict.mockResolvedValue({ attemptNo: 1 });
   upsertProjectFacts.mockResolvedValue(undefined);
   activateProjectPhase.mockResolvedValue(undefined);
   backfillFactEmbeddings.mockResolvedValue({ embedded: 0 });
@@ -299,8 +303,8 @@ describe("runPostTurnPhasePass", () => {
     });
 
     expect(upsertProjectFacts).toHaveBeenCalledTimes(1);
-    expect(upsertProjectPhase).toHaveBeenCalledTimes(1);
-    const row = upsertProjectPhase.mock.calls[0][0];
+    expect(recordGateVerdict).toHaveBeenCalledTimes(1);
+    const row = recordGateVerdict.mock.calls[0][0];
     expect(row.projectId).toBe(PROJECT_ID);
     expect(row.decision).toBe("PASS");
   });
@@ -326,7 +330,7 @@ describe("runPostTurnPhasePass", () => {
       assistantMessageId: "a1",
     });
 
-    expect(upsertProjectPhase.mock.calls[0][0].status).toBe("passed");
+    expect(recordGateVerdict.mock.calls[0][0].status).toBe("passed");
     expect(activateProjectPhase).toHaveBeenCalledWith({
       projectId: PROJECT_ID,
       phaseKey: PHASES[1].key,
@@ -344,7 +348,7 @@ describe("runPostTurnPhasePass", () => {
       assistantMessageId: "a1",
     });
 
-    const row = upsertProjectPhase.mock.calls[0][0];
+    const row = recordGateVerdict.mock.calls[0][0];
     expect(row.decision).toBe("WARN");
     expect(row.status).toBe("passed");
     expect(activateProjectPhase).toHaveBeenCalledTimes(1);
@@ -361,7 +365,7 @@ describe("runPostTurnPhasePass", () => {
       assistantMessageId: "a1",
     });
 
-    const row = upsertProjectPhase.mock.calls[0][0];
+    const row = recordGateVerdict.mock.calls[0][0];
     expect(row.decision).toBe("BLOCK");
     expect(row.status).toBe("active");
     expect(activateProjectPhase).not.toHaveBeenCalled();
@@ -380,7 +384,7 @@ describe("runPostTurnPhasePass", () => {
       assistantMessageId: "a1",
     });
 
-    expect(upsertProjectPhase.mock.calls[0][0].decision).toBe("BLOCK");
+    expect(recordGateVerdict.mock.calls[0][0].decision).toBe("BLOCK");
   });
 
   it("writes a fail-closed BLOCK when the model cannot be resolved at all", async () => {
@@ -395,8 +399,8 @@ describe("runPostTurnPhasePass", () => {
       assistantMessageId: "a1",
     });
 
-    expect(upsertProjectPhase).toHaveBeenCalledTimes(1);
-    const row = upsertProjectPhase.mock.calls[0][0];
+    expect(recordGateVerdict).toHaveBeenCalledTimes(1);
+    const row = recordGateVerdict.mock.calls[0][0];
     expect(row.decision).toBe("BLOCK");
     expect(row.status).toBe("active");
     expect(row.reason).toMatch(FAILED_CLOSED_RE);
@@ -412,7 +416,7 @@ describe("runPostTurnPhasePass", () => {
       assistantMessageId: "a1",
     });
 
-    expect(upsertProjectPhase.mock.calls[0][0].decision).toBe("BLOCK");
+    expect(recordGateVerdict.mock.calls[0][0].decision).toBe("BLOCK");
   });
 
   it("writes NOTHING when the phase itself cannot be resolved", async () => {
@@ -426,12 +430,12 @@ describe("runPostTurnPhasePass", () => {
       assistantMessageId: "a1",
     });
 
-    expect(upsertProjectPhase).not.toHaveBeenCalled();
+    expect(recordGateVerdict).not.toHaveBeenCalled();
   });
 
   it("never throws, even when persisting the fail-closed verdict also fails", async () => {
     getLanguageModel.mockRejectedValue(new Error("no api key"));
-    upsertProjectPhase.mockRejectedValue(new Error("db down too"));
+    recordGateVerdict.mockRejectedValue(new Error("db down too"));
 
     await expect(
       runPostTurnPhasePass({
@@ -454,7 +458,7 @@ describe("runPostTurnPhasePass", () => {
       assistantMessageId: "a1",
     });
 
-    const row = upsertProjectPhase.mock.calls[0][0];
+    const row = recordGateVerdict.mock.calls[0][0];
     expect(row.phaseKey).toBe(PHASES.at(-1)?.key);
     expect(row.status).toBe("passed");
     expect(activateProjectPhase).not.toHaveBeenCalled();
@@ -471,7 +475,7 @@ describe("runPostTurnPhasePass", () => {
     });
 
     expect(backfillFactEmbeddings).toHaveBeenCalledTimes(1);
-    expect(upsertProjectPhase).toHaveBeenCalledTimes(1);
+    expect(recordGateVerdict).toHaveBeenCalledTimes(1);
   });
 
   it("skips the embedding backfill entirely when no provider is configured", async () => {
@@ -705,7 +709,7 @@ describe("phase budgets", () => {
     });
 
     // It still produced a verdict rather than blowing the prompt.
-    expect(upsertProjectPhase).toHaveBeenCalledTimes(1);
+    expect(recordGateVerdict).toHaveBeenCalledTimes(1);
     const prompt = JSON.stringify(judgeModel.doGenerateCalls[0].prompt);
     // The newest turn survived; the oldest did not.
     expect(prompt.length).toBeLessThan(

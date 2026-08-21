@@ -7,8 +7,10 @@ import { PROJECT_FACT_UPSERT_SET } from "./fact-upsert";
 import {
   type ProjectFact,
   type ProjectPhase,
+  type ProjectPhaseAttempt,
   projectFact,
   projectPhase,
+  projectPhaseAttempt,
 } from "./schema";
 
 export async function getProjectPhase({
@@ -92,7 +94,16 @@ export async function activateProjectPhase({
   }
 }
 
-export async function upsertProjectPhase({
+/**
+ * Writes the current phase state AND appends the verdict to the ledger, in one
+ * transaction. Returns the attempt ordinal so callers can report it.
+ *
+ * Named `recordGateVerdict` rather than `upsertProjectPhase` because it no
+ * longer only upserts: every call now leaves a permanent row in
+ * `ProjectPhaseAttempt`. The rename is deliberate — a caller reaching for
+ * "upsert" should not silently get an append.
+ */
+export async function recordGateVerdict({
   projectId,
   phaseKey,
   phaseOrder,
@@ -119,36 +130,88 @@ export async function upsertProjectPhase({
 }) {
   const resolvedStatus =
     status ?? (decision === "PASS" ? ("passed" as const) : ("active" as const));
+  const evaluatedAt = new Date();
   try {
-    return await db
-      .insert(projectPhase)
-      .values({
-        projectId,
-        phaseKey,
-        phaseOrder,
-        status: resolvedStatus,
-        decision,
-        reason,
-        nextQuestion,
-        verdict,
-        attemptCount: 1,
-        evaluatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [projectPhase.projectId, projectPhase.phaseKey],
-        set: {
+    return await db.transaction(async (tx) => {
+      const [current] = await tx
+        .insert(projectPhase)
+        .values({
+          projectId,
+          phaseKey,
+          phaseOrder,
           status: resolvedStatus,
           decision,
           reason,
           nextQuestion,
           verdict,
-          attemptCount: sql`${projectPhase.attemptCount} + 1`,
-          evaluatedAt: new Date(),
-          updatedAt: new Date(),
-        },
+          attemptCount: 1,
+          evaluatedAt,
+        })
+        .onConflictDoUpdate({
+          target: [projectPhase.projectId, projectPhase.phaseKey],
+          set: {
+            status: resolvedStatus,
+            decision,
+            reason,
+            nextQuestion,
+            verdict,
+            attemptCount: sql`${projectPhase.attemptCount} + 1`,
+            evaluatedAt,
+            updatedAt: evaluatedAt,
+          },
+        })
+        .returning({ attemptNo: projectPhase.attemptCount });
+
+      // The ordinal is a label taken from the counter we just advanced; the
+      // ledger's identity is (projectId, phaseKey, evaluatedAt), so a counter
+      // anomaly cannot make this insert collide and roll back the write above.
+      const attemptNo = current?.attemptNo ?? 1;
+      await tx.insert(projectPhaseAttempt).values({
+        projectId,
+        phaseKey,
+        attemptNo,
+        decision,
+        reason,
+        nextQuestion,
+        verdict,
+        status: resolvedStatus,
+        evaluatedAt,
       });
+
+      return { attemptNo };
+    });
   } catch (error) {
-    console.error("Failed to upsert project phase in database", error);
+    console.error("Failed to record gate verdict in database", error);
+    throw error;
+  }
+}
+
+/**
+ * The refusal history for one phase, oldest first.
+ *
+ * Ordered by `evaluatedAt`, which is the key and therefore genuinely
+ * chronological — ordering by `attemptNo` would be a label sort.
+ */
+export async function getProjectPhaseAttempts({
+  projectId,
+  phaseKey,
+}: {
+  projectId: string;
+  phaseKey: string;
+}): Promise<ProjectPhaseAttempt[]> {
+  try {
+    return await db
+      .select()
+      .from(projectPhaseAttempt)
+      .where(
+        and(
+          eq(projectPhaseAttempt.projectId, projectId),
+          eq(projectPhaseAttempt.phaseKey, phaseKey)
+        )
+      )
+      .orderBy(projectPhaseAttempt.evaluatedAt);
+  } catch (error) {
+    console.error("Failed to get phase attempts from database", error);
     throw error;
   }
 }

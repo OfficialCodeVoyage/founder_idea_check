@@ -10,8 +10,8 @@ import {
   backfillFactEmbeddings,
   getProjectFacts,
   getProjectPhases,
+  recordGateVerdict,
   upsertProjectFacts,
-  upsertProjectPhase,
 } from "@/lib/db/phase-queries";
 import {
   getAllMessagesByChatId,
@@ -314,7 +314,7 @@ async function persistVerdict({
 }): Promise<void> {
   const plan = planPhaseAdvance(phase, verdict.decision, workflowComplete);
 
-  await upsertProjectPhase({
+  await recordGateVerdict({
     projectId,
     phaseKey: plan.current.phaseKey,
     phaseOrder: plan.current.phaseOrder,

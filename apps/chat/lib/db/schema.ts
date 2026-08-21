@@ -490,6 +490,90 @@ export const projectPhase = pgTable(
 export type ProjectPhase = InferSelectModel<typeof projectPhase>;
 
 /**
+ * APPEND-ONLY LEDGER OF EVERY GATE VERDICT. One row per gate run, forever.
+ *
+ * WHY THIS EXISTS. `ProjectPhase` holds one row per (projectId, phaseKey) and
+ * `upsertProjectPhase` overwrote `decision`/`reason`/`nextQuestion`/`verdict`
+ * on every run, so each verdict destroyed the previous one. In this product the
+ * REFUSALS ARE THE PRODUCT: a founder refused three times and then passed has a
+ * record of what they had to establish, and that trail is the evidence the app
+ * exists to build. It also made the app nearly impossible to debug — an 8-phase
+ * walkthrough could not recover a refusal it had seen ten minutes earlier.
+ *
+ * THE PRIMARY KEY IS (projectId, phaseKey, evaluatedAt), NOT attemptNo.
+ * `attemptNo` is a plain column for display. Keying on the ordinal would key
+ * the ledger to `ProjectPhase.attemptCount`, a MUTABLE column on an updated
+ * row: if that counter ever regressed below max(attemptNo) — a restore, a
+ * manual repair, a `drizzle-kit push` that recreated the table — the insert
+ * would raise a PK violation, roll back the enclosing transaction, fail to
+ * advance the counter, and then collide identically on every subsequent turn.
+ * That is a PERMANENT write outage for the phase, and because 8 of the 9 live
+ * rows are status='passed', the state it would freeze is "advanced": a stale
+ * PASS the gate could never replace with a BLOCK. A clock cannot do that. This
+ * mirrors `document`, which versions on (id, createdAt) for the same reason.
+ *
+ * `ProjectPhase` is NOT merely a cache of this table's newest row:
+ * `activateProjectPhase` creates rows with a NULL decision and no ledger row at
+ * all, and `phaseOrder`/`status`/`attemptCount` are not projections of any
+ * attempt.
+ *
+ * RETENTION: unbounded, no pruner. A verdict is 6-8 KB, so a realistic project
+ * is under 200 KB. NOTE a real consequence of that choice: message edits and
+ * regenerates delete rows via `deleteMessagesByChatIdAfterMessageId`, and the
+ * founder's words quoted in `verdict.perCriterion[].evidence` used to disappear
+ * at the next gate run because the blob was overwritten. They now persist after
+ * the message they quote is gone. No new data category and no author field, and
+ * erasure still works because this cascades from Project — but message deletion
+ * no longer eventually purges quoted transcript text.
+ */
+export const projectPhaseAttempt = pgTable(
+  "ProjectPhaseAttempt",
+  {
+    projectId: uuid("projectId")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    phaseKey: varchar("phaseKey", { length: 64 }).notNull(),
+    /**
+     * 1-based, for display. Sourced from `ProjectPhase.attemptCount` RETURNING,
+     * so it can in principle repeat or skip after a counter anomaly. Deliberately
+     * NOT the key — see the note above. Read it as a label, not an identity.
+     */
+    attemptNo: integer("attemptNo").notNull(),
+    decision: varchar("decision", {
+      enum: ["PASS", "WARN", "BLOCK"],
+    }).notNull(),
+    reason: text("reason").notNull(),
+    nextQuestion: text("nextQuestion"),
+    /**
+     * Parsed, not cast. `unknown` because this is a json column and genuinely
+     * is unknown on read; callers run `GateVerdictSchema.safeParse`. Typing it
+     * would assert a shape the database does not enforce.
+     */
+    verdict: json("verdict"),
+    /**
+     * The sequencing decision this verdict produced. CAVEAT: on the final
+     * phase `planPhaseAdvance` returns "passed" even for a BLOCK absorbed by a
+     * completed arc, so this does NOT distinguish "advanced" from "blocked but
+     * the workflow was already finished".
+     */
+    status: varchar("status", {
+      enum: ["locked", "active", "passed"],
+    }).notNull(),
+    evaluatedAt: timestamp("evaluatedAt").notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({
+      columns: [t.projectId, t.phaseKey, t.evaluatedAt],
+    }),
+    ProjectPhaseAttempt_project_phase_idx: index(
+      "ProjectPhaseAttempt_project_phase_idx"
+    ).on(t.projectId, t.phaseKey),
+  })
+);
+
+export type ProjectPhaseAttempt = InferSelectModel<typeof projectPhaseAttempt>;
+
+/**
  * The project fact store. Written by the post-turn extraction pass, read back
  * into the system prompt of later phases.
  *

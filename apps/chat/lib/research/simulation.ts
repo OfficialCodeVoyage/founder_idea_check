@@ -335,7 +335,13 @@ export function measureDivergence(
 /** Below this a run is reported as collapsed, not as a finding. */
 export const MIN_DIVERGENCE_SCORE = 0.35;
 
+/** A run that WAS judged. `usable` is a finding about the personas. */
 export type SimulationVerdict = {
+  /**
+   * Discriminant. Present so that "the run was assessed" is a fact the type
+   * system carries, not one a caller infers from the shape.
+   */
+  assessed: true;
   /** Did the run produce something worth reading? */
   usable: boolean;
   /**
@@ -346,40 +352,132 @@ export type SimulationVerdict = {
   usableAsEvidence: false;
   divergence: DivergenceReport;
   reason: string;
+  /**
+   * Agent actions the sidecar watched fail. `null` means the sidecar did not
+   * report a count — NOT that none failed. A run with two survivors out of four
+   * is a partial run, and the founder is looking at half an audience.
+   */
+  agentErrors: number | null;
 };
+
+/**
+ * A run that could NOT be judged. Deliberately has no `usable` field at all, so
+ * that reading one is a compile error rather than a `false` that reads as a
+ * verdict.
+ */
+export type SimulationNotAssessed = {
+  assessed: false;
+  /** The named condition. Never a polarity. */
+  kind: "no-reactions" | "too-few-reactions";
+  usableAsEvidence: false;
+  /** Kept so a caller can still show what little was measured. */
+  divergence: DivergenceReport;
+  reason: string;
+  agentErrors: number | null;
+};
+
+export type SimulationJudgement = SimulationVerdict | SimulationNotAssessed;
 
 /**
  * PURE. The Step 8 decision. Fails closed for the same reason `decideGate`
  * does: there is no second check behind this one.
+ *
+ * WHY THIS RETURNS A UNION. It used to return `usable: false` for an empty
+ * reaction list, and that is how a run in which every single agent call
+ * returned 400 was recorded and rendered as COLLAPSED — the same badge, the
+ * same colour and the same row as a run in which the personas genuinely all
+ * agreed. Those two facts point a founder in opposite directions: one says
+ * "your personas are too alike, seed them from more facts", the other says
+ * "nothing ran, go and look at your model configuration".
+ *
+ * "Not assessed" is not a polarity of "assessed", so it is not a value of
+ * `usable` — it is a different shape, and `SimulationNotAssessed` has no
+ * `usable` key for a caller to read by accident. This is the same distinction
+ * `decideGate` draws between "blocked" and "never evaluated", and the same one
+ * `formatCreditBalance` draws between zero and unknown.
  */
+/**
+ * The clause explaining an agent-error count on a run that produced NOTHING.
+ *
+ * THREE OUTCOMES, NOT TWO. `null` is silence — this sidecar build did not
+ * report a count, and inventing "nothing failed" from that would be exactly the
+ * defaulting this module refuses everywhere else. `0` is a measurement, and on
+ * an empty run it is the interesting one: every persona was reached, none
+ * errored, and none of them said anything. That points at the pitch or the
+ * personas, not at the plumbing.
+ */
+function describeAgentErrorsOnEmptyRun(agentErrors: number | null): string {
+  if (agentErrors === null) {
+    return "";
+  }
+  if (agentErrors > 0) {
+    return ` ${agentErrors} agent action(s) failed during the run.`;
+  }
+  return " No agent action failed, so the personas were reached and simply said nothing.";
+}
+
+/**
+ * The same clause for a run that WAS judged, where only failures are worth
+ * saying. Zero errors is the unremarkable case on a run that produced
+ * reactions, and the empty-run wording ("simply said nothing") would be plainly
+ * false next to a list of things they said — which is exactly how it read in
+ * the browser before this split.
+ */
+function describeAgentErrorsOnJudgedRun(agentErrors: number | null): string {
+  return agentErrors !== null && agentErrors > 0
+    ? ` ${agentErrors} agent action(s) failed during the run, so this verdict is measured over the survivors rather than over the audience you chose.`
+    : "";
+}
+
 export function judgeSimulation(
-  reactions: readonly PersonaReaction[]
-): SimulationVerdict {
+  reactions: readonly PersonaReaction[],
+  agentErrors: number | null = null
+): SimulationJudgement {
   const divergence = measureDivergence(reactions);
 
-  if (reactions.length < 2) {
+  const blameEmpty = describeAgentErrorsOnEmptyRun(agentErrors);
+  const blameJudged = describeAgentErrorsOnJudgedRun(agentErrors);
+
+  if (reactions.length === 0) {
     return {
-      usable: false,
+      assessed: false,
+      kind: "no-reactions",
       usableAsEvidence: false,
       divergence,
-      reason: `The simulation produced ${reactions.length} reaction(s). Divergence is undefined below two, so nothing can be concluded.`,
+      agentErrors,
+      reason: `The simulation produced no reactions at all.${blameEmpty} Nothing can be concluded about divergence from a run that produced nothing — this is not a collapsed audience, it is an absent one.`,
+    };
+  }
+
+  if (reactions.length === 1) {
+    return {
+      assessed: false,
+      kind: "too-few-reactions",
+      usableAsEvidence: false,
+      divergence,
+      agentErrors,
+      reason: `The simulation produced a single reaction.${blameEmpty} Divergence is undefined below two, so this run was not assessed — one agent trivially agrees with itself.`,
     };
   }
 
   if (divergence.score < MIN_DIVERGENCE_SCORE) {
     return {
+      assessed: true,
       usable: false,
       usableAsEvidence: false,
       divergence,
-      reason: `The personas converged: divergence ${divergence.score} is below the ${MIN_DIVERGENCE_SCORE} floor (${divergence.distinctReactions} distinct of ${divergence.totalReactions} reactions, sentiment spread ${divergence.sentimentSpread}). This is one model's opinion restated ${divergence.totalReactions} times, not an audience.`,
+      agentErrors,
+      reason: `The personas converged: divergence ${divergence.score} is below the ${MIN_DIVERGENCE_SCORE} floor (${divergence.distinctReactions} distinct of ${divergence.totalReactions} reactions, sentiment spread ${divergence.sentimentSpread}). This is one model's opinion restated ${divergence.totalReactions} times, not an audience.${blameJudged}`,
     };
   }
 
   return {
+    assessed: true,
     usable: true,
     usableAsEvidence: false,
     divergence,
-    reason: `The personas diverged (score ${divergence.score}, ${divergence.distinctReactions} distinct of ${divergence.totalReactions}). Treat the objections as questions to ask real users, not as demand evidence.`,
+    agentErrors,
+    reason: `The personas diverged (score ${divergence.score}, ${divergence.distinctReactions} distinct of ${divergence.totalReactions}). Treat the objections as questions to ask real users, not as demand evidence.${blameJudged}`,
   };
 }
 
@@ -396,17 +494,31 @@ const SimulationResponseSchema = z.object({
       sentiment: z.number(),
     })
   ),
+  /**
+   * Optional, and `nullable`, and NOT defaulted to 0. An older sidecar does not
+   * send it; `.default(0)` here would turn "this build cannot tell you" into
+   * "nothing failed", which is the exact substitution this whole task exists to
+   * remove.
+   */
+  agentErrors: z.number().int().nullable().optional(),
 });
 
 const SimulationErrorSchema = z.object({
   ok: z.literal(false),
   kind: z.string(),
   detail: z.string(),
+  agentErrors: z.number().int().nullable().optional(),
 });
 
 export type SimulationOutcome =
   | { ok: true; verdict: SimulationVerdict; reactions: PersonaReaction[] }
-  | { ok: false; kind: string; detail: string };
+  | {
+      ok: false;
+      kind: string;
+      detail: string;
+      /** How many agent actions failed, when that is known. */
+      agentErrors?: number | null;
+    };
 
 export type SimulationRunner = (payload: {
   personas: OasisPersona[];
@@ -456,7 +568,12 @@ export async function runSimulation(
 
   const failed = SimulationErrorSchema.safeParse(raw);
   if (failed.success) {
-    return { ok: false, kind: failed.data.kind, detail: failed.data.detail };
+    return {
+      ok: false,
+      kind: failed.data.kind,
+      detail: failed.data.detail,
+      agentErrors: failed.data.agentErrors ?? null,
+    };
   }
 
   const parsed = SimulationResponseSchema.safeParse(raw);
@@ -469,9 +586,31 @@ export async function runSimulation(
     };
   }
 
+  const judgement = judgeSimulation(
+    parsed.data.reactions,
+    parsed.data.agentErrors ?? null
+  );
+
+  // A RUN THAT COULD NOT BE JUDGED IS NOT AN `ok: true` OUTCOME.
+  //
+  // Routing it here rather than returning it as a verdict is what stops the
+  // caller writing a SimulationRun row for it: `usable` in that table is a
+  // non-null boolean, so the only thing an unjudgeable run could be stored as
+  // is `false` — which is the COLLAPSED badge, on a run that never happened.
+  // The named kind travels instead, so the panel can say what actually went
+  // wrong.
+  if (!judgement.assessed) {
+    return {
+      ok: false,
+      kind: judgement.kind,
+      detail: judgement.reason,
+      agentErrors: judgement.agentErrors,
+    };
+  }
+
   return {
     ok: true,
     reactions: parsed.data.reactions,
-    verdict: judgeSimulation(parsed.data.reactions),
+    verdict: judgement,
   };
 }

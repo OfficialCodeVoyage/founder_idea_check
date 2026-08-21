@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
 from app.simulation.oasis_runner import SimulationUnavailable, run_simulation
@@ -183,9 +186,25 @@ class TestJudge:
     def test_is_never_usable_as_evidence(self, reactions):
         assert judge(reactions)["usable_as_evidence"] is False
 
-    def test_rejects_fewer_than_two_reactions(self):
-        assert judge([])["usable"] is False
-        assert judge([Reaction("a", "great", 1.0)])["usable"] is False
+    def test_does_NOT_judge_fewer_than_two_reactions(self):
+        # Replaced, not weakened. The old assertion here was
+        # `judge([])["usable"] is False`, and that False IS the defect: it is
+        # the same value the COLLAPSED badge reads, on a run that produced
+        # nothing. "Not assessed" now has no `usable` key to misread.
+        for reactions, kind in (([], "no-reactions"), ([Reaction("a", "great", 1.0)], "too-few-reactions")):
+            verdict = judge(reactions)
+            assert verdict["assessed"] is False
+            assert verdict["kind"] == kind
+            assert "usable" not in verdict
+            assert verdict["usable_as_evidence"] is False
+
+    def test_a_real_verdict_is_marked_assessed(self):
+        verdict = judge([
+            Reaction("a", "the scheduling problem is real and I would pay", 0.9),
+            Reaction("b", "my group chat handles this fine already", -0.8),
+        ])
+        assert verdict["assessed"] is True
+        assert "usable" in verdict
 
 
 class TestRunSimulationWithoutOasis:
@@ -395,3 +414,173 @@ class TestReactionPayloadCarriesStructure:
         # No `comment` table at all is normal — nobody commented.
         path = self._db(tmp_path, [(0, "just a post")])
         assert len(_read_reactions(path, ["a"])) == 1
+
+
+class TestReasoningEffortIsConditional:
+    """T7. The config dict is present IFF the env var is set.
+
+    Unconditional would be worse than absent: `gpt-4o-mini`, the default, 400s
+    on `reasoning_effort` outright, so an always-on dict breaks every existing
+    deployment in order to fix one nobody has switched to yet.
+    """
+
+    @staticmethod
+    def _built(monkeypatch, effort: str | None):
+        import app.simulation.oasis_runner as runner
+
+        captured: dict = {}
+
+        class _FakeFactory:
+            @staticmethod
+            def create(**kwargs):
+                captured.update(kwargs)
+                return object()
+
+        class _FakePlatform:
+            OPENAI = "openai"
+
+        fake_models = types.ModuleType("camel.models")
+        fake_models.ModelFactory = _FakeFactory
+        fake_types = types.ModuleType("camel.types")
+        fake_types.ModelPlatformType = _FakePlatform
+        monkeypatch.setitem(sys.modules, "camel", types.ModuleType("camel"))
+        monkeypatch.setitem(sys.modules, "camel.models", fake_models)
+        monkeypatch.setitem(sys.modules, "camel.types", fake_types)
+
+        if effort is None:
+            monkeypatch.delenv("RESEARCH_SIM_REASONING_EFFORT", raising=False)
+        else:
+            monkeypatch.setenv("RESEARCH_SIM_REASONING_EFFORT", effort)
+
+        runner._build_model(None)
+        return captured
+
+    def test_absent_when_the_env_var_is_unset(self, monkeypatch):
+        captured = self._built(monkeypatch, None)
+        assert "model_config_dict" not in captured
+
+    def test_absent_when_the_env_var_is_blank_or_whitespace(self, monkeypatch):
+        # A blank var is how a deployment "turns it off"; it must not send `""`,
+        # which is not a valid reasoning effort and would 400 every call.
+        assert "model_config_dict" not in self._built(monkeypatch, "")
+        assert "model_config_dict" not in self._built(monkeypatch, "   ")
+
+    def test_present_when_the_env_var_is_set(self, monkeypatch):
+        captured = self._built(monkeypatch, "none")
+        assert captured["model_config_dict"] == {"reasoning_effort": "none"}
+
+
+class TestModelIdIsValidatedBeforeTheRun:
+    """T7. CAMEL accepts any string, so the provider is asked instead."""
+
+    def test_a_404_from_the_provider_is_a_NAMED_condition(self, monkeypatch):
+        import urllib.error
+
+        import app.simulation.oasis_runner as runner
+
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+        def _raise_404(*_args, **_kwargs):
+            raise urllib.error.HTTPError(
+                url="http://x/models/nope", code=404, msg="Not Found", hdrs=None, fp=None
+            )
+
+        monkeypatch.setattr(runner.urllib.request, "urlopen", _raise_404)
+
+        with pytest.raises(SimulationUnavailable) as caught:
+            runner._validate_model_id("not-a-real-model-xyz")
+        assert caught.value.kind == "unknown-simulation-model"
+        # The message must name the model AND the variable that set it.
+        assert "not-a-real-model-xyz" in caught.value.detail
+        assert "RESEARCH_SIM_MODEL" in caught.value.detail
+
+    def test_no_api_key_means_NOT_CHECKED_rather_than_valid(self, monkeypatch):
+        import app.simulation.oasis_runner as runner
+
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        # None, not True: nothing was verified, and saying "valid" would be a
+        # claim this code has no basis for.
+        assert runner._validate_model_id("anything") is None
+
+    def test_an_unreachable_provider_does_not_fail_the_run(self, monkeypatch):
+        import app.simulation.oasis_runner as runner
+
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+        def _boom(*_args, **_kwargs):
+            raise OSError("network is unreachable")
+
+        monkeypatch.setattr(runner.urllib.request, "urlopen", _boom)
+        # A self-hosted gateway without /models must not be told its model is
+        # wrong. Not checked is not the same as invalid.
+        assert runner._validate_model_id("gpt-4o-mini") is None
+
+    def test_a_401_is_not_reported_as_a_bad_model_id(self, monkeypatch):
+        import urllib.error
+
+        import app.simulation.oasis_runner as runner
+
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+        def _raise_401(*_args, **_kwargs):
+            raise urllib.error.HTTPError(
+                url="http://x", code=401, msg="Unauthorized", hdrs=None, fp=None
+            )
+
+        monkeypatch.setattr(runner.urllib.request, "urlopen", _raise_401)
+        assert runner._validate_model_id("gpt-4o-mini") is None
+
+
+class TestAgentErrorsAreCounted:
+    """T8. OASIS swallows every per-agent failure; this is where it is read."""
+
+    def test_counts_one_error_per_swallowed_agent_failure(self):
+        import logging
+
+        from app.simulation.oasis_runner import _AgentErrorCounter
+
+        counter = _AgentErrorCounter()
+        agent_log = logging.getLogger("social.agent")
+        agent_log.addHandler(counter)
+        try:
+            # Exactly what oasis/social_agent/agent.py:154 emits.
+            agent_log.error("Agent 0 error: Error code: 400 - bad request")
+            agent_log.error("Agent 1 error: Error code: 400 - bad request")
+            agent_log.info("Agent 2 performed action: create_post")
+        finally:
+            agent_log.removeHandler(counter)
+
+        assert counter.count == 2
+        assert len(counter.samples) == 2
+        assert "Agent 0 error" in counter.samples[0]
+
+    def test_keeps_at_most_five_samples_but_keeps_counting(self):
+        import logging
+
+        from app.simulation.oasis_runner import _AgentErrorCounter
+
+        counter = _AgentErrorCounter()
+        agent_log = logging.getLogger("social.agent")
+        agent_log.addHandler(counter)
+        try:
+            for i in range(12):
+                agent_log.error(f"Agent {i} error: boom")
+        finally:
+            agent_log.removeHandler(counter)
+
+        # The count is the fact that matters; the samples are only there to
+        # explain it, so they are capped and the count is not.
+        assert counter.count == 12
+        assert len(counter.samples) == 5
+
+
+class TestSimulationResultKeepsFailuresWithReactions:
+    def test_zero_errors_is_a_measurement_not_an_absence(self):
+        from app.simulation.oasis_runner import SimulationResult
+
+        result = SimulationResult(reactions=[])
+        assert result.agent_errors == 0
+        assert result.agent_error_samples == []
+        # `model_validated` defaults to None — "not checked" — because a default
+        # of True would assert something no one verified.
+        assert result.model_validated is None

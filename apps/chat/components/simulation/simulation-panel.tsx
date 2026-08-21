@@ -30,6 +30,12 @@ import type {
  * verdict refuses.
  */
 
+/**
+ * Sidecar failure kinds that mean the run HAPPENED and returned nothing, as
+ * opposed to never having started. `judgeSimulation` produces both names.
+ */
+const RAN_BUT_EMPTY = new Set(["no-reactions", "too-few-reactions"]);
+
 /** One gap per persona or per seat, so the identifier is the stable half. */
 function gapKey(gap: SimulationSeedGap): string {
   return gap.kind === "orphan-profile" ? gap.profileId : gap.personaDocumentId;
@@ -121,13 +127,31 @@ function OutcomePanel({ result }: { result: RunSimulationResult }) {
 
   const { outcome } = result;
   if (!outcome.ok) {
+    // "It never started" and "it ran and came back empty" are different facts
+    // and get different sentences. Telling a founder "nothing happened" about a
+    // run in which every agent was called and every call failed would be the
+    // same substitution as the COLLAPSED badge, pointing the other way.
+    const ran = RAN_BUT_EMPTY.has(outcome.kind);
     return (
       <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-        <p className="font-medium">The simulation did not run.</p>
+        <p className="font-medium">
+          {ran
+            ? "The simulation ran and came back empty — this is NOT a verdict."
+            : "The simulation did not run."}
+        </p>
         <p className="mt-1 text-muted-foreground">{outcome.detail}</p>
+        {ran && typeof outcome.agentErrors === "number" ? (
+          <p className="mt-1 text-muted-foreground text-xs">
+            {outcome.agentErrors > 0
+              ? `${outcome.agentErrors} agent action(s) failed during the run.`
+              : "No agent action failed, so the personas were reached and posted nothing."}
+          </p>
+        ) : null}
         <p className="mt-1 text-muted-foreground text-xs">
-          Reported as <code>{outcome.kind}</code> — nothing was recorded,
-          because nothing happened.
+          Reported as <code>{outcome.kind}</code> —{" "}
+          {ran
+            ? "not recorded as a run, because a run that produced nothing is not a finding about your personas."
+            : "nothing was recorded, because nothing happened."}
         </p>
       </div>
     );
@@ -139,6 +163,16 @@ function OutcomePanel({ result }: { result: RunSimulationResult }) {
         <Badge variant={outcome.verdict.usable ? "default" : "secondary"}>
           {outcome.verdict.usable ? "DIVERGED" : "COLLAPSED"}
         </Badge>
+        {/*
+          A PARTIAL run still gets a badge, because it was genuinely judged —
+          but the badge is measured over the survivors, not over the audience
+          the founder picked, and that has to be visible next to it.
+        */}
+        {outcome.verdict.agentErrors ? (
+          <Badge variant="outline">
+            PARTIAL — {outcome.verdict.agentErrors} agent action(s) failed
+          </Badge>
+        ) : null}
         <span className="text-sm">{outcome.verdict.reason}</span>
       </div>
       <div className="mt-2">

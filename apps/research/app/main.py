@@ -186,7 +186,7 @@ def simulate(request: SimulationRequest) -> dict:
     state of the default image, not an error.
     """
     try:
-        reactions = run_simulation(request.personas, request.pitch, request.rounds)
+        result = run_simulation(request.personas, request.pitch, request.rounds)
     except SimulationUnavailable as error:
         return {"ok": False, "kind": error.kind, "detail": error.detail}
     except Exception as error:
@@ -194,6 +194,59 @@ def simulate(request: SimulationRequest) -> dict:
             "ok": False,
             "kind": "simulation-failed",
             "detail": f"{type(error).__name__}: {error}",
+        }
+
+    reactions = result.reactions
+
+    # ZERO REACTIONS IS A REFUSAL, NOT A VERDICT.
+    #
+    # This is the shape that produced the worst bug this service has had. Every
+    # agent call 400'd, OASIS swallowed each one, the run "succeeded" with an
+    # empty list, and the app judged that list: divergence undefined, therefore
+    # `usable: false`, stored and rendered as COLLAPSED. A run in which nothing
+    # happened became indistinguishable from a run in which the personas
+    # unanimously agreed — and those two facts point the founder in opposite
+    # directions.
+    #
+    # So an empty result never reaches `judge`. It returns a NAMED failure with
+    # the agent-error count attached, which is the difference between "your
+    # personas all said the same thing" and "none of them could be reached".
+    # BELOW TWO, not just zero. One reaction has the identical pathology: it
+    # cannot be judged, and reporting it as `usable: false` puts the COLLAPSED
+    # badge on a run that was never assessed. Verified live on 2026-08-21 — a
+    # two-agent luna run returned exactly one comment and, before this, a
+    # `usable: false` verdict alongside it.
+    if len(reactions) < 2:
+        blamed = (
+            f"{result.agent_errors} agent action(s) failed"
+            if result.agent_errors
+            else "no agent action failed, so the personas were reached and simply "
+            "posted nothing"
+        )
+        samples = "; ".join(result.agent_error_samples)
+        produced = (
+            "no reactions at all"
+            if not reactions
+            else "a single reaction, and divergence is undefined below two"
+        )
+        return {
+            "ok": False,
+            "kind": "no-reactions" if not reactions else "too-few-reactions",
+            "detail": (
+                f"The simulation ran and produced {produced}: {blamed}."
+                + (f" First failures: {samples}" if samples else "")
+                + " Nothing can be concluded about divergence from this run, which "
+                "is a different fact from the personas having converged."
+            ),
+            "agentErrors": result.agent_errors,
+            "agentErrorSamples": result.agent_error_samples,
+            "modelValidated": result.model_validated,
+            # The partial result is still returned so the founder can read what
+            # the one persona that answered actually said.
+            "reactions": [
+                {"username": r.username, "text": r.text, "sentiment": r.sentiment}
+                for r in reactions
+            ],
         }
 
     return {
@@ -219,6 +272,13 @@ def simulate(request: SimulationRequest) -> dict:
         # The verdict travels with the reactions so a caller that ignores it
         # still has it in the payload it logs.
         "verdict": persona_lib.judge(reactions),
+        # A run can be PARTIAL: four agents, two of them 400'd, two answered.
+        # Divergence over the survivors is measurable but it is not divergence
+        # over the population the founder chose, so the count travels with it
+        # rather than being dropped because the run "worked".
+        "agentErrors": result.agent_errors,
+        "agentErrorSamples": result.agent_error_samples,
+        "modelValidated": result.model_validated,
     }
 
 

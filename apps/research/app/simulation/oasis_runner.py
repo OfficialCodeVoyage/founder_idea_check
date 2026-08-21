@@ -31,12 +31,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sqlite3
 import tempfile
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .personas import Reaction, score_sentiment, validate_personas
+
+#: OpenAI's own endpoint, used when no gateway is configured.
+DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 
 class SimulationUnavailable(Exception):
@@ -46,6 +53,119 @@ class SimulationUnavailable(Exception):
         super().__init__(detail)
         self.kind = kind
         self.detail = detail
+
+
+@dataclass(frozen=True)
+class SimulationResult:
+    """What a run produced, INCLUDING what it failed to produce.
+
+    This used to be a bare `list[Reaction]`, and that is precisely how a run in
+    which every single model call returned 400 became indistinguishable from a
+    run in which every persona genuinely agreed. Both are an empty list. The
+    caller then judged the empty list, found divergence undefined, and stored
+    `usable: false` — a verdict, on a run that never happened.
+
+    So the failures travel WITH the reactions. `agent_errors` is the number of
+    per-agent failures OASIS logged and swallowed; `agent_error_samples` carries
+    the first few messages so the app can say WHY rather than merely that.
+    """
+
+    reactions: list[Reaction]
+    #: How many agent actions failed. 0 means none failed, not "unknown" —
+    #: `run_simulation` always counts, so this is never a stand-in for absence.
+    agent_errors: int = 0
+    agent_error_samples: list[str] = field(default_factory=list)
+    #: True  — the provider confirmed this model id exists.
+    #: None  — the check could not be made (no key, gateway without /models).
+    #: Never False: a model id known to be wrong raises instead of returning.
+    model_validated: bool | None = None
+
+
+class _AgentErrorCounter(logging.Handler):
+    """Counts the per-agent failures OASIS logs and then swallows.
+
+    `oasis/social_agent/agent.py:153-155` @ 40bf1705 catches every exception a
+    model call raises, logs one ERROR record to the `social.agent` logger, and
+    RETURNS the exception object instead of raising it. Nothing upstream ever
+    sees it, so a run where all N agents 400'd completes "successfully" with no
+    reactions. One ERROR record per failed agent action is therefore the only
+    signal OASIS emits, and this handler is the only place it can be read.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.count = 0
+        self.samples: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.ERROR:
+            return
+        self.count += 1
+        if len(self.samples) < 5:
+            try:
+                self.samples.append(record.getMessage())
+            # A record that cannot be formatted must not kill a live run; the
+            # count is still correct, only this sample is unavailable.
+            except Exception:
+                self.samples.append("<log record could not be formatted>")
+
+
+def _model_id() -> str:
+    """The model every OASIS agent will use."""
+    return os.environ.get("RESEARCH_SIM_MODEL", "gpt-4o-mini")
+
+
+def _validate_model_id(model_type: str) -> bool | None:
+    """Ask the provider whether this model id exists, BEFORE the run.
+
+    WHY THIS EXISTS. CAMEL accepts any string as a model type. A typo does not
+    raise: `not-a-real-model-xyz` constructs fine, is wrapped in
+    `UnifiedModelType`, and reports `token_limit=999_999_999`. It then fails at
+    call time, once per agent, inside the swallow described on
+    `_AgentErrorCounter` — so a misspelled model is a silent zero-reaction run.
+
+    WHY NOT CHECK `token_limit`. Because it does not distinguish a typo from a
+    new model. Verified 2026-08-21: `gpt-5.6-luna` and `not-a-real-model-xyz`
+    BOTH construct as `UnifiedModelType` with `token_limit=999_999_999`, while
+    `gpt-4o-mini` reports 128000. Rejecting on the sentinel would reject every
+    model newer than CAMEL's enum, which is the opposite of the intent here.
+
+    So the provider is asked directly. `GET {base}/models/{id}` returns 200 for
+    a real model and 404 for a typo — verified against all three ids above.
+
+    A 404 is loud. Anything else is NOT treated as a failure: no API key, a
+    gateway that does not implement `/models`, or a network blip cannot tell us
+    the id is wrong, and failing the run on those would break every
+    self-hosted deployment. Those return None — "not checked" — which is a
+    different fact from "checked and fine", and is reported as such.
+    """
+    key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not key:
+        return None
+
+    base = os.environ.get("RESEARCH_SIM_BASE_URL", "").strip() or DEFAULT_BASE_URL
+    request = urllib.request.Request(
+        f"{base.rstrip('/')}/models/{model_type}",
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return 200 <= response.status < 300
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise SimulationUnavailable(
+                "unknown-simulation-model",
+                f"The provider does not have a model called {model_type!r} "
+                f"(RESEARCH_SIM_MODEL). Every agent in this run would have failed "
+                f"at call time, one at a time, and the run would have returned "
+                f"zero reactions with no stated reason.",
+            ) from error
+        # 401, 403, 429, 5xx: all say something about the request or the
+        # provider, and nothing about whether the model id is real.
+        return None
+    # An unreachable provider says nothing about whether the model id is real.
+    except Exception:
+        return None
 
 
 def _require_oasis():
@@ -86,12 +206,36 @@ def _build_model(oasis_module):
             f"OASIS is present but CAMEL is not importable: {error}",
         ) from error
 
-    model_type = os.environ.get("RESEARCH_SIM_MODEL", "gpt-4o-mini")
+    model_type = _model_id()
     base_url = os.environ.get("RESEARCH_SIM_BASE_URL", "").strip()
 
     kwargs = {"model_platform": ModelPlatformType.OPENAI, "model_type": model_type}
     if base_url:
         kwargs["url"] = base_url
+
+    # CONDITIONAL, AND IT MUST STAY CONDITIONAL.
+    #
+    # Reasoning models reject function tools on `chat/completions` unless
+    # reasoning effort is switched off, and CAMEL posts to `chat/completions`:
+    #
+    #   400 - "Function tools with reasoning_effort are not supported for
+    #          gpt-5.6-luna in /v1/chat/completions. To use function tools, use
+    #          /v1/responses or set reasoning_effort to 'none'."
+    #
+    # Every OASIS agent action IS a function tool call, so without this the
+    # whole run 400s per agent and returns nothing. With
+    # `reasoning_effort: "none"` the same model returns tool calls in 0.8s at
+    # `reasoning_tokens=0` (measured through CAMEL's own ModelFactory,
+    # 2026-08-21).
+    #
+    # It is conditional because the default model does NOT accept the key at
+    # all: sending `reasoning_effort` to `gpt-4o-mini` is itself a 400. An
+    # unconditional dict would fix the model nobody is using and break the one
+    # everybody is.
+    effort = os.environ.get("RESEARCH_SIM_REASONING_EFFORT", "").strip()
+    if effort:
+        kwargs["model_config_dict"] = {"reasoning_effort": effort}
+
     return ModelFactory.create(**kwargs)
 
 
@@ -262,7 +406,13 @@ def _read_reactions(
     return reactions
 
 
-async def _run(personas: list[dict], pitch: str, rounds: int, workdir: Path) -> list[Reaction]:
+async def _run(
+    personas: list[dict],
+    pitch: str,
+    rounds: int,
+    workdir: Path,
+    model_validated: bool | None = None,
+) -> SimulationResult:
     oasis = _require_oasis()
     model = _build_model(oasis)
 
@@ -302,6 +452,13 @@ async def _run(personas: list[dict], pitch: str, rounds: int, workdir: Path) -> 
     # (max post_id, max comment_id) after each step. Index 0 is the seed round.
     watermarks: list[tuple[int, int]] = []
 
+    # Attached before the first agent acts and removed in `finally`, so the
+    # count covers every round and nothing leaks into a later run. Handlers are
+    # additive: OASIS's own file handler keeps working alongside this one.
+    errors = _AgentErrorCounter()
+    agent_log = logging.getLogger("social.agent")
+    agent_log.addHandler(errors)
+
     try:
         await env.reset()
 
@@ -326,21 +483,32 @@ async def _run(personas: list[dict], pitch: str, rounds: int, workdir: Path) -> 
             watermarks.append(_watermarks(db_path))
     finally:
         await env.close()
+        agent_log.removeHandler(errors)
 
-    return _read_reactions(
-        db_path, [str(p["username"]) for p in personas], pitch, watermarks
+    return SimulationResult(
+        reactions=_read_reactions(
+            db_path, [str(p["username"]) for p in personas], pitch, watermarks
+        ),
+        agent_errors=errors.count,
+        agent_error_samples=list(errors.samples),
+        model_validated=model_validated,
     )
 
 
-def run_simulation(personas: list[dict], pitch: str, rounds: int = 2) -> list[Reaction]:
-    """THE SEAM. Validates, runs OASIS, returns reactions.
+def run_simulation(personas: list[dict], pitch: str, rounds: int = 2) -> SimulationResult:
+    """THE SEAM. Validates, runs OASIS, returns reactions AND what failed.
 
     Validation happens BEFORE the OASIS import, so a malformed persona costs a
-    millisecond rather than a torch load followed by a KeyError.
+    millisecond rather than a torch load followed by a KeyError. The model id is
+    checked in the same place and for the same reason: a typo that is only
+    discovered at call time costs a full torch load, every agent in the run, and
+    produces an empty result with no stated cause.
     """
     problems = validate_personas(personas)
     if problems:
         raise SimulationUnavailable("invalid-personas", "; ".join(problems))
 
+    model_validated = _validate_model_id(_model_id())
+
     with tempfile.TemporaryDirectory(prefix="oasis-run-") as tmp:
-        return asyncio.run(_run(personas, pitch, rounds, Path(tmp)))
+        return asyncio.run(_run(personas, pitch, rounds, Path(tmp), model_validated))

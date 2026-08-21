@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import {
   judgeSimulation,
   MIN_DIVERGENCE_SCORE,
@@ -245,6 +245,10 @@ describe("judgeSimulation", () => {
       reaction("a", same, 0.9),
       reaction("b", same, 0.9),
     ]);
+    // A collapse IS a judgement: two personas were reached and said the same
+    // thing. That is a finding about the audience, not a failed run.
+    expect(verdict.assessed).toBe(true);
+    assert(verdict.assessed);
     expect(verdict.usable).toBe(false);
     expect(verdict.reason).toContain("converged");
     expect(verdict.reason).toContain("not an audience");
@@ -260,6 +264,8 @@ describe("judgeSimulation", () => {
       reaction("b", "my group chat already handles this fine, no thanks", -0.8),
       reaction("c", "price matters more than features here honestly", 0.1),
     ]);
+    expect(verdict.assessed).toBe(true);
+    assert(verdict.assessed);
     expect(verdict.usable).toBe(true);
     expect(verdict.usableAsEvidence).toBe(false);
     expect(verdict.reason).toContain("not as demand evidence");
@@ -278,9 +284,79 @@ describe("judgeSimulation", () => {
     }
   });
 
-  it("REJECTS a run with fewer than two reactions", () => {
-    expect(judgeSimulation([reaction("a", "great", 1)]).usable).toBe(false);
-    expect(judgeSimulation([]).usable).toBe(false);
+  it("does NOT judge a run with zero reactions — in either direction", () => {
+    const judgement = judgeSimulation([]);
+    expect(judgement.assessed).toBe(false);
+    assert(!judgement.assessed);
+    expect(judgement.kind).toBe("no-reactions");
+    // The whole point: there is no `usable` to read, in either polarity. A
+    // `false` here is what rendered an all-400 run as COLLAPSED.
+    expect("usable" in judgement).toBe(false);
+    expect(judgement.reason).toContain("not a collapsed audience");
+  });
+
+  it("does NOT judge a single reaction either — divergence is undefined", () => {
+    const judgement = judgeSimulation([reaction("a", "great", 1)]);
+    expect(judgement.assessed).toBe(false);
+    assert(!judgement.assessed);
+    expect(judgement.kind).toBe("too-few-reactions");
+    expect("usable" in judgement).toBe(false);
+  });
+
+  it("surfaces the agent-error count so the app can say WHY nothing came back", () => {
+    const judgement = judgeSimulation([], 4);
+    assert(!judgement.assessed);
+    expect(judgement.agentErrors).toBe(4);
+    expect(judgement.reason).toContain("4 agent action(s) failed");
+  });
+
+  it("distinguishes 'nothing failed' from 'nobody counted'", () => {
+    // 0 errors and a null count are different facts and must read differently:
+    // one says the personas were reached and stayed silent, the other says this
+    // sidecar build cannot tell you anything about why.
+    const counted = judgeSimulation([], 0);
+    assert(!counted.assessed);
+    expect(counted.agentErrors).toBe(0);
+    expect(counted.reason).toContain("No agent action failed");
+
+    const uncounted = judgeSimulation([]);
+    assert(!uncounted.assessed);
+    expect(uncounted.agentErrors).toBeNull();
+    expect(uncounted.reason).not.toContain("No agent action failed");
+  });
+
+  it("says nothing about agent errors on a clean judged run", () => {
+    // Regression: the empty-run wording ("the personas were reached and simply
+    // said nothing") was being appended to successful runs, directly above the
+    // list of things the personas had just said. Caught in the browser, not by
+    // a test — which is why this one exists.
+    const judgement = judgeSimulation(
+      [
+        reaction("a", "the scheduling problem is real, I would pay", 0.9),
+        reaction("b", "my group chat handles this fine already", -0.8),
+      ],
+      0
+    );
+    assert(judgement.assessed);
+    expect(judgement.agentErrors).toBe(0);
+    expect(judgement.reason).not.toContain("said nothing");
+    expect(judgement.reason).not.toContain("agent action(s) failed");
+  });
+
+  it("carries the error count onto a PARTIAL run that was still judged", () => {
+    // Two of four agents answered. The run is judgeable, and it is also not
+    // the audience the founder chose — both facts have to survive.
+    const judgement = judgeSimulation(
+      [
+        reaction("a", "the scheduling problem is real, I would pay", 0.9),
+        reaction("b", "my group chat handles this fine already", -0.8),
+      ],
+      2
+    );
+    expect(judgement.assessed).toBe(true);
+    assert(judgement.assessed);
+    expect(judgement.agentErrors).toBe(2);
+    expect(judgement.reason).toContain("2 agent action(s) failed");
   });
 });
 

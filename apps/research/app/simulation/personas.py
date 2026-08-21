@@ -286,16 +286,40 @@ def judge(reactions: list[Reaction]) -> dict:
     hypothesis to go and test on a real human, never demand evidence — and the
     field exists explicitly rather than being omitted so that any future code
     reaching for "can the gate use this?" finds a hard False and a reason.
+
+    A RUN BELOW TWO REACTIONS HAS NO `usable` KEY AT ALL. It used to report
+    `usable: False`, which is the same value, the same field and the same badge
+    as "the personas all said the same thing" — so a run in which every model
+    call 400'd was indistinguishable from unanimous agreement. Divergence is
+    undefined below two; "undefined" is not a polarity of "defined", so it is
+    not a value of `usable`. Callers narrow on `assessed` first, and reading
+    `usable` off an unassessed run is a KeyError rather than a false negative.
+    This mirrors `judgeSimulation` in `apps/chat/lib/research/simulation.ts`,
+    and the two must stay mirrored.
     """
     divergence = measure_divergence(reactions)
+    divergence_payload = {
+        "score": divergence.score,
+        "sentiment_spread": divergence.sentiment_spread,
+        "duplicate_rate": divergence.duplicate_rate,
+        "distinct_reactions": divergence.distinct_reactions,
+        "total_reactions": divergence.total_reactions,
+    }
 
     if len(reactions) < 2:
-        usable = False
-        reason = (
-            f"The simulation produced {len(reactions)} reaction(s). Divergence is "
-            "undefined below two, so nothing can be concluded."
-        )
-    elif divergence.score < MIN_DIVERGENCE_SCORE:
+        return {
+            "assessed": False,
+            "kind": "no-reactions" if not reactions else "too-few-reactions",
+            "usable_as_evidence": False,
+            "reason": (
+                f"The simulation produced {len(reactions)} reaction(s). Divergence "
+                "is undefined below two, so this run was NOT assessed — that is a "
+                "different fact from the personas having converged."
+            ),
+            "divergence": divergence_payload,
+        }
+
+    if divergence.score < MIN_DIVERGENCE_SCORE:
         usable = False
         reason = (
             f"The personas converged: divergence {divergence.score} is below the "
@@ -313,14 +337,9 @@ def judge(reactions: list[Reaction]) -> dict:
         )
 
     return {
+        "assessed": True,
         "usable": usable,
         "usable_as_evidence": False,
         "reason": reason,
-        "divergence": {
-            "score": divergence.score,
-            "sentiment_spread": divergence.sentiment_spread,
-            "duplicate_rate": divergence.duplicate_rate,
-            "distinct_reactions": divergence.distinct_reactions,
-            "total_reactions": divergence.total_reactions,
-        },
+        "divergence": divergence_payload,
     }

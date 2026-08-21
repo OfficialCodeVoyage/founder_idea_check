@@ -89,8 +89,10 @@ erasure.
 | `GITHUB_TOKEN` | — | Required by the `github` source. |
 | `REDDIT_ENABLED_ACK` | — | Required by both Reddit sources, in addition to enabling the id. |
 | `RESEARCH_SEARXNG_URL` | — | Last rung of the keyless ladder. Stays a URL because the sidecar runs on the host in dev, where a compose service name would not resolve. |
-| `RESEARCH_SIM_MODEL` | `gpt-4o-mini` | CAMEL model type for the simulation. |
-| `RESEARCH_SIM_BASE_URL` | — | OpenAI-compatible gateway for the simulation. |
+| `OPENAI_API_KEY` | — | **Required by the simulation lane, in THIS process's own environment.** The Next.js app having it is irrelevant — `/v1/simulate` calls the model from here. Without it every agent fails at call time and the run returns zero reactions. Cost one failed run to discover, which is why it is now first in this table. In dev, start the sidecar through `bunx dotenv-cli -e <repo>/.env.local -- …` so it inherits the repo-root key. |
+| `RESEARCH_SIM_MODEL` | `gpt-4o-mini` | CAMEL model type for the simulation. Checked against `GET {base}/models/{id}` before a run starts: a typo is refused as `unknown-simulation-model` instead of failing per-agent at call time. CAMEL itself accepts any string, so this check is the only thing standing between a misspelling and a silent empty run. |
+| `RESEARCH_SIM_REASONING_EFFORT` | — | Sent as `model_config_dict={"reasoning_effort": …}` **only when set**. Reasoning models reject function tools on `chat/completions` unless this is `none`, and CAMEL posts to `chat/completions` — so `gpt-5.6-luna` needs `none` or every agent 400s. Leave it unset for `gpt-4o-mini`, which rejects the key outright. |
+| `RESEARCH_SIM_BASE_URL` | — | OpenAI-compatible gateway for the simulation. Also the base for the model-id check above. |
 | `RESEARCH_SIM_CONCURRENCY` | `8` | OASIS `semaphore=`. Its own default is 128, which will 429 a shared gateway. |
 
 ## Provenance

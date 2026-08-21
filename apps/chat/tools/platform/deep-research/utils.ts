@@ -2,6 +2,7 @@ import { experimental_createMCPClient } from "@ai-sdk/mcp";
 import type { ToolSet } from "ai";
 import type { ModelId } from "@/lib/ai/app-models";
 import { getAppModelDefinition } from "@/lib/ai/app-models";
+import { lookupContextWindow } from "@/lib/ai/model-capabilities";
 import type { StreamWriter } from "@/lib/ai/types";
 import { createModuleLogger } from "@/lib/logger";
 import { firecrawlWebSearch, tavilyWebSearch } from "../web-search";
@@ -160,13 +161,28 @@ const UNKNOWN_CONTEXT_WINDOW_FALLBACK = 128_000;
  * an unreported value must not be defaulted to it.
  */
 export async function getModelContextWindow(modelId: ModelId): Promise<number> {
+  // The static table first. It is the only source that actually knows: OpenAI's
+  // /v1/models carries no context window, and models.generated.ts is a snapshot
+  // OF that endpoint, so both report 0 for every model. Consulting the table
+  // here rather than relying on the gateway merge also means a stale snapshot
+  // cannot reintroduce the 0.
+  const known = lookupContextWindow(modelId);
+  if (known.known) {
+    return known.value;
+  }
+
   const model = await getAppModelDefinition(modelId);
   if (model.context_window > 0) {
     return model.context_window;
   }
+
+  // Reached only for a model the table does not cover. Still a fallback rather
+  // than a throw, because truncating deep research is recoverable and failing
+  // the whole run is not — but it is logged with the reason so the fix is
+  // obvious: add the model to lib/ai/model-capabilities.ts.
   log.warn(
-    { modelId, reported: model.context_window },
-    "Gateway reported no context window; using the documented fallback"
+    { modelId, reported: model.context_window, reason: known.reason },
+    "No context window for this model; using the documented fallback"
   );
   return UNKNOWN_CONTEXT_WINDOW_FALLBACK;
 }

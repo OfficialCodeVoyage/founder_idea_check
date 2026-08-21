@@ -882,12 +882,25 @@ async function finalizeMessageAndCredits({
       });
     }
 
-    // Get total cost from accumulator (includes all LLM calls + external API costs)
-    const totalCost = await costAccumulator.getTotalCost();
+    // Settle the accumulator (all LLM calls + external API costs)
+    const { cents: totalCost, unpriced } = await costAccumulator.settle();
     const entries = costAccumulator.getEntries();
 
     log.info({ entries }, "Cost accumulator entries");
     log.info({ totalCost }, "Cost accumulator total cost");
+
+    // AN UNPRICED CALL IS LOGGED LOUDLY, NOT SWALLOWED. The turn still
+    // completes — refusing to answer because a price is missing from a static
+    // table would be a worse failure than undercharging — but `totalCost` is
+    // then a known undercount, and this is the only place that says so. It
+    // firing at all means a model reached production without an entry in
+    // lib/ai/model-capabilities.ts.
+    if (unpriced.length > 0) {
+      log.error(
+        { unpriced, totalCost },
+        "Some LLM calls could not be priced; the deducted total is an undercount"
+      );
+    }
 
     // Deduct credits for authenticated users
     if (userId && !isAnonymous) {

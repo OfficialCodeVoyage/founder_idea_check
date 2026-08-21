@@ -3,6 +3,7 @@ import type { Experimental_VideoModelV3 } from "@ai-sdk/provider";
 import type { ImageModel, LanguageModel } from "ai";
 import { createModuleLogger } from "@/lib/logger";
 import type { AiGatewayModel } from "../ai-gateway-models-schemas";
+import { gatewayFieldsFor } from "../model-capabilities";
 import { getFallbackModels } from "./fallback-models";
 import type { GatewayProvider } from "./gateway-provider";
 import type {
@@ -27,7 +28,20 @@ interface OpenAIModelResponse {
   owned_by: string;
 }
 
+/**
+ * OpenAI's `/v1/models` carries an id, a timestamp and an owner. It carries no
+ * context window, no token limit and no price, so those three came back as `0`,
+ * `0` and `{}` for all 126 models — and a zero that means "not reported" broke
+ * deep research outright and silently zeroed every credit deduction.
+ *
+ * The static table in `../model-capabilities` supplies what the endpoint cannot.
+ * It is merged OVER the response rather than under it, but only for the models
+ * it actually covers: a model with no entry keeps the gateway's own values and
+ * is reported as unknown downstream, because inventing a number for an
+ * unrecognised model is how this went wrong the first time.
+ */
 function toAiGatewayModel(model: OpenAIModelResponse): AiGatewayModel {
+  const known = gatewayFieldsFor(model.id);
   return {
     id: model.id,
     object: "model",
@@ -36,10 +50,14 @@ function toAiGatewayModel(model: OpenAIModelResponse): AiGatewayModel {
       (model.owned_by === "system" ? "openai" : model.owned_by) ?? "openai",
     name: model.id,
     description: "",
+    // Still 0 when the table does not cover this model. That 0 is not a
+    // budget and must not be treated as one — `lookupContextWindow` is the
+    // supported way to ask, and it answers "unknown" rather than zero.
     context_window: 0,
     max_tokens: 0,
     type: "language",
     pricing: {},
+    ...known,
   };
 }
 

@@ -425,7 +425,7 @@ class TestReasoningEffortIsConditional:
     """
 
     @staticmethod
-    def _built(monkeypatch, effort: str | None):
+    def _built(monkeypatch, effort: str | None, model: str | None = None):
         import app.simulation.oasis_runner as runner
 
         captured: dict = {}
@@ -452,22 +452,57 @@ class TestReasoningEffortIsConditional:
         else:
             monkeypatch.setenv("RESEARCH_SIM_REASONING_EFFORT", effort)
 
+        if model is None:
+            monkeypatch.delenv("RESEARCH_SIM_MODEL", raising=False)
+        else:
+            monkeypatch.setenv("RESEARCH_SIM_MODEL", model)
+
         runner._build_model(None)
         return captured
 
-    def test_absent_when_the_env_var_is_unset(self, monkeypatch):
-        captured = self._built(monkeypatch, None)
+    def test_absent_for_a_model_that_rejects_the_key(self, monkeypatch):
+        # gpt-4o-mini 400s on `reasoning_effort` outright. Unset must mean
+        # "omit it" here, or selecting the old model breaks every run.
+        captured = self._built(monkeypatch, None, model="gpt-4o-mini")
         assert "model_config_dict" not in captured
 
-    def test_absent_when_the_env_var_is_blank_or_whitespace(self, monkeypatch):
-        # A blank var is how a deployment "turns it off"; it must not send `""`,
-        # which is not a valid reasoning effort and would 400 every call.
-        assert "model_config_dict" not in self._built(monkeypatch, "")
-        assert "model_config_dict" not in self._built(monkeypatch, "   ")
-
-    def test_present_when_the_env_var_is_set(self, monkeypatch):
-        captured = self._built(monkeypatch, "none")
+    def test_present_by_DEFAULT_for_a_model_that_requires_it(self, monkeypatch):
+        # The other half of moving the default to luna. Every OASIS action is a
+        # function tool call and this family refuses those on chat/completions
+        # at any effort above "none" — so shipping the model swap without this
+        # would have made "every agent 400s" the out-of-the-box behaviour.
+        captured = self._built(monkeypatch, None, model="gpt-5.6-luna")
         assert captured["model_config_dict"] == {"reasoning_effort": "none"}
+
+    def test_the_shipped_default_model_is_self_consistent(self, monkeypatch):
+        # With NOTHING set at all, the default model and the default effort have
+        # to agree. This is the test that fails if someone changes DEFAULT_MODEL
+        # on its own.
+        import app.simulation.oasis_runner as runner
+
+        captured = self._built(monkeypatch, None, model=None)
+        needs_none = runner.DEFAULT_MODEL.startswith(
+            runner.REASONING_TOOL_MODEL_PREFIXES
+        )
+        if needs_none:
+            assert captured["model_config_dict"] == {"reasoning_effort": "none"}
+        else:
+            assert "model_config_dict" not in captured
+
+    def test_an_explicitly_blank_var_turns_it_off_even_for_luna(self, monkeypatch):
+        # UNSET and SET-TO-EMPTY are different instructions. Empty is an
+        # operator saying "do not send this", and it must win over the
+        # model-derived default rather than being treated as absent.
+        assert "model_config_dict" not in self._built(
+            monkeypatch, "", model="gpt-5.6-luna"
+        )
+        assert "model_config_dict" not in self._built(
+            monkeypatch, "   ", model="gpt-5.6-luna"
+        )
+
+    def test_an_explicit_value_overrides_the_derived_default(self, monkeypatch):
+        captured = self._built(monkeypatch, "low", model="gpt-5.6-luna")
+        assert captured["model_config_dict"] == {"reasoning_effort": "low"}
 
 
 class TestModelIdIsValidatedBeforeTheRun:

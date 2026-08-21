@@ -110,9 +110,45 @@ class _AgentErrorCounter(logging.Handler):
                 self.samples.append("<log record could not be formatted>")
 
 
+#: The model every OASIS agent uses unless RESEARCH_SIM_MODEL says otherwise.
+#:
+#: Moved off gpt-4o-mini on 2026-08-21. TAU-Bench measures agentic tool use in
+#: multi-turn conversation, which is precisely what an OASIS agent does, and
+#: gpt-4o-mini scores 26.7% against luna's 70.7%. The cost of the change is a
+#: rounding error: a 2-agent, 2-round run goes from about $0.0022 to $0.0031,
+#: and even 10 agents over 5 rounds stays under four cents.
+#:
+#: READ THIS BEFORE CHANGING IT. luna cannot be selected on its own. Every OASIS
+#: action is a function tool call, CAMEL posts to chat/completions, and this
+#: family rejects function tools there unless reasoning effort is off — so a
+#: bare model swap would have made "every agent 400s" the DEFAULT behaviour.
+#: `_default_reasoning_effort` below is the other half of this change and the
+#: two must move together.
+DEFAULT_MODEL = "gpt-5.6-luna"
+
+#: Model prefixes that reject function tools on chat/completions at any
+#: reasoning effort above "none". MEASURED, not documented: the docs say this
+#: family supports chat/completions, and it does — until you attach a tool.
+REASONING_TOOL_MODEL_PREFIXES = ("gpt-5.6-",)
+
+
 def _model_id() -> str:
     """The model every OASIS agent will use."""
-    return os.environ.get("RESEARCH_SIM_MODEL", "gpt-4o-mini")
+    return os.environ.get("RESEARCH_SIM_MODEL", DEFAULT_MODEL)
+
+
+def _default_reasoning_effort(model_type: str) -> str:
+    """The effort to send when nobody has said, derived from the model.
+
+    A FIXED DEFAULT WOULD BE WRONG IN BOTH DIRECTIONS. Always sending
+    `reasoning_effort` breaks gpt-4o-mini, which rejects the key outright.
+    Never sending it breaks every 5.6 model, which rejects the tool call. So
+    the default follows the model, and an explicit environment value still
+    wins over it.
+    """
+    return (
+        "none" if model_type.startswith(REASONING_TOOL_MODEL_PREFIXES) else ""
+    )
 
 
 def _validate_model_id(model_type: str) -> bool | None:
@@ -232,7 +268,16 @@ def _build_model(oasis_module):
     # all: sending `reasoning_effort` to `gpt-4o-mini` is itself a 400. An
     # unconditional dict would fix the model nobody is using and break the one
     # everybody is.
-    effort = os.environ.get("RESEARCH_SIM_REASONING_EFFORT", "").strip()
+    # UNSET and SET-TO-EMPTY are different instructions, so `.get(name, "")`
+    # would be wrong here. Unset means "you decide", and the answer depends on
+    # the model. Set to "" means an operator deliberately turned it off, and
+    # that must be honoured even for a model this code thinks needs it.
+    configured = os.environ.get("RESEARCH_SIM_REASONING_EFFORT")
+    effort = (
+        configured.strip()
+        if configured is not None
+        else _default_reasoning_effort(model_type)
+    )
     if effort:
         kwargs["model_config_dict"] = {"reasoning_effort": effort}
 

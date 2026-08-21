@@ -137,15 +137,18 @@ describe("toCanvasPersonaInput", () => {
   });
 });
 
-describe("the two canvas reads agree", () => {
-  // Both mappers are module-private, so agreement is enforced structurally:
-  // each read must DELEGATE to the shared mapper and must not carry a private
-  // definition. This is the test that fails if either one grows its own copy
-  // again, which is exactly how the two numbers diverged the first time.
-  const CALL_SITES = [
-    "lib/project/canvas-data.ts",
-    "trpc/routers/canvas.router.ts",
-  ];
+describe("the canvas read delegates to the shared mapper", () => {
+  // This used to assert that TWO reads agreed. The second one,
+  // `trpc/routers/canvas.router.ts`, was a mounted tRPC procedure with no
+  // caller anywhere in the app and was deleted on 2026-08-21 — so the drift
+  // this test was written to catch is now structurally impossible rather than
+  // merely detected. The remaining assertion is the one that still has teeth:
+  // the surviving read must DELEGATE and must not grow a private copy of
+  // either derived field, which is exactly how the two numbers diverged the
+  // first time.
+  //
+  // If a second canvas read is ever added, put it back in this list.
+  const CALL_SITES = ["lib/project/canvas-data.ts"];
 
   it.each(CALL_SITES)("%s delegates to the shared mapper", async (relative) => {
     const { readFileSync } = await import("node:fs");

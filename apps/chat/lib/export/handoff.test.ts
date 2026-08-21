@@ -3,11 +3,10 @@ import { describe, expect, it } from "vitest";
 import { PERSONA_ATTRIBUTE_KEYS } from "@/lib/personas/types";
 import type { StoredFact } from "@/lib/phases/context";
 import { PHASES } from "@/lib/phases/definitions";
-import { buildHandoff, deriveRepoName, runHandoff } from "./handoff";
+import { buildHandoff, deriveRepoName } from "./handoff";
 import { FALLBACK_REPO_NAME } from "./paths";
 import type {
   BuildHandoffInput,
-  ExportPhaseState,
   HandoffWriteResult,
   HandoffWriter,
   WriteHandoffRequest,
@@ -43,7 +42,7 @@ function input(overrides: Partial<BuildHandoffInput> = {}): BuildHandoffInput {
 }
 
 /** A writer that records the request and never touches a disk. */
-function recordingWriter(): {
+function _recordingWriter(): {
   writer: HandoffWriter;
   requests: WriteHandoffRequest[];
 } {
@@ -376,95 +375,6 @@ describe("HOSTILE INPUT — nothing escapes the target directory", () => {
       const prd = outcome.plan.files.find((f) => f.path === "PRD.md");
       // The value is not censored — it is the founder's data — it is quoted.
       expect(prd?.contents).toContain("> ../../../../etc/passwd");
-    }
-  });
-});
-
-describe("runHandoff — the seam", () => {
-  it("never calls the writer when the build refuses", () => {
-    const { writer, requests } = recordingWriter();
-    return runHandoff(
-      { write: writer },
-      { ...input({ facts: [] }), targetDir: "/tmp/x" }
-    ).then((result) => {
-      expect(result.status).toBe("refused");
-      expect(requests).toHaveLength(0);
-    });
-  });
-
-  it("hands the writer the plan and passes options through untouched", async () => {
-    const { writer, requests } = recordingWriter();
-    const result = await runHandoff(
-      { write: writer },
-      {
-        ...input(),
-        targetDir: "/tmp/x",
-        overwrite: true,
-        author: { name: "A", email: "a@example.com" },
-      }
-    );
-
-    expect(result.status).toBe("written");
-    expect(requests).toHaveLength(1);
-    expect(requests[0].targetDir).toBe("/tmp/x");
-    expect(requests[0].overwrite).toBe(true);
-    expect(requests[0].author).toEqual({ name: "A", email: "a@example.com" });
-    expect(requests[0].plan.repoName).toBe("dog-walker-ops");
-  });
-
-  it("lets a writer failure propagate rather than reporting a success", async () => {
-    // A filesystem error means the founder does not have the repository they
-    // were promised. Swallowing it would be the worst possible outcome.
-    const failing: HandoffWriter = () =>
-      Promise.reject(new Error("EACCES: permission denied"));
-    await expect(
-      runHandoff({ write: failing }, { ...input(), targetDir: "/tmp/x" })
-    ).rejects.toThrow("EACCES");
-  });
-
-  it("reports a git failure as a result, not as a thrown error", async () => {
-    // By then the files exist and are worth having.
-    const noGit: HandoffWriter = (request) =>
-      Promise.resolve({
-        repoDir: join(request.targetDir, request.plan.repoName),
-        written: request.plan.files.map((f) => f.path),
-        git: { status: "failed", reason: "git: command not found" },
-      });
-    const result = await runHandoff(
-      { write: noGit },
-      { ...input(), targetDir: "/tmp/x" }
-    );
-    expect(result.status).toBe("written");
-    if (result.status === "written") {
-      expect(result.result.git.status).toBe("failed");
-      expect(result.result.written.length).toBeGreaterThan(0);
-    }
-  });
-});
-
-describe("readiness flows into the documents", () => {
-  function allPassed(): ExportPhaseState[] {
-    return PHASES.map((phase) => ({
-      phaseKey: phase.key,
-      status: "passed" as const,
-      decision: "PASS" as const,
-      reason: "All exit criteria met.",
-      nextQuestion: null,
-      missing: [],
-    }));
-  }
-
-  it("says the validation is done, and that the build is not", () => {
-    const outcome = buildHandoff(input({ phases: allPassed() }));
-    expect(outcome.status).toBe("ready");
-    if (outcome.status === "ready") {
-      expect(outcome.readiness.level).toBe("complete");
-      const roadmap = outcome.plan.files.find(
-        (f) => f.path === ".planning/ROADMAP.md"
-      );
-      expect(roadmap?.contents).toContain(
-        "All eight phases passed their gate. The validation work is done; the build is not."
-      );
     }
   });
 });

@@ -1,16 +1,12 @@
 import { TRPCError } from "@trpc/server";
-import { generateText } from "ai";
 import { z } from "zod";
-import { getLanguageModel } from "@/lib/ai/providers";
 import type { ChatMessage } from "@/lib/ai/types";
 import {
   cloneAttachmentsInMessages,
   cloneMessagesWithDocuments,
 } from "@/lib/clone-messages";
-import { config } from "@/lib/config";
 import {
   deleteChatById,
-  deleteMessagesByChatIdAfterMessageId,
   getAllMessagesByChatId,
   getChatById,
   getChatsByUserId,
@@ -24,7 +20,6 @@ import {
   updateChatVisiblityById,
   updateMessageCanceledAt,
 } from "@/lib/db/queries";
-import { MAX_MESSAGE_CHARS } from "@/lib/limits/tokens";
 import { dbChatToUIChat } from "@/lib/message-conversion";
 import { generateUUID } from "@/lib/utils";
 import {
@@ -153,38 +148,6 @@ export const chatRouter = createTRPCRouter({
       return;
     }),
 
-  deleteTrailingMessages: protectedProcedure
-    .input(
-      z.object({
-        messageId: z.string().uuid(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Get the message to verify it exists and get its chat
-      const [message] = await getMessageById({ id: input.messageId });
-
-      if (!message) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Message not found",
-        });
-      }
-
-      // Verify the chat belongs to the user
-      const chat = await getChatById({ id: message.chatId });
-      if (!chat || chat.userId !== ctx.user.id) {
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "Access denied" });
-      }
-
-      // Delete all messages after the specified message (by position, not timestamp)
-      await deleteMessagesByChatIdAfterMessageId({
-        chatId: message.chatId,
-        messageId: input.messageId,
-      });
-
-      return;
-    }),
-
   stopStream: protectedProcedure
     .input(
       z.object({
@@ -285,27 +248,6 @@ export const chatRouter = createTRPCRouter({
 
       await deleteChatById({ id: input.chatId });
       return { success: true };
-    }),
-
-  generateTitle: publicProcedure
-    .input(
-      z.object({
-        message: z.string().min(1).max(MAX_MESSAGE_CHARS),
-      })
-    )
-    .mutation(async ({ input }) => {
-      const { text: title } = await generateText({
-        model: await getLanguageModel(config.ai.workflows.title),
-        system: `\n
-        - you will generate a short title based on the first message a user begins a conversation with
-        - ensure it is not more than 80 characters long
-        - the title should be a summary of the user's message
-        - do not use quotes or colons`,
-        prompt: input.message,
-        experimental_telemetry: { isEnabled: true },
-      });
-
-      return { title };
     }),
 
   getPublicChat: publicProcedure

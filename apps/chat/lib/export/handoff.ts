@@ -13,11 +13,8 @@ import { scaffoldFiles } from "./scaffold";
 import type {
   BuildHandoffInput,
   ExportFile,
-  HandoffDeps,
   HandoffOutcome,
   HandoffPlan,
-  HandoffWriteResult,
-  WriteHandoffRequest,
 } from "./types";
 
 /**
@@ -168,56 +165,16 @@ export function buildHandoff(input: BuildHandoffInput): HandoffOutcome {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// (b) THE IMPURE PART. One async function, one seam.
+// (b) THE IMPURE PART IS GONE.
+//
+// `runHandoff` and its `HandoffDeps` seam were removed on 2026-08-21. The only
+// implementation of that seam was `lib/export/node-writer.ts`, which nothing
+// imported either — so the whole write path was finished, tested and
+// unreachable. The live export is `app/actions/build-handoff.ts`, which calls
+// the pure `buildHandoff` above and streams the plan to the browser rather than
+// writing a git repository on the server.
+//
+// If server-side writing comes back, both halves are recoverable from git. Do
+// not reintroduce the seam without a caller: that is how this became dead the
+// first time.
 // ─────────────────────────────────────────────────────────────────────────────
-
-export type RunHandoffInput = BuildHandoffInput & {
-  targetDir: string;
-  overwrite?: boolean;
-  author?: { name: string; email: string };
-};
-
-export type RunHandoffResult =
-  | {
-      status: "refused";
-      reason: string;
-      readiness: HandoffOutcome["readiness"];
-    }
-  | { status: "written"; plan: HandoffPlan; result: HandoffWriteResult };
-
-/**
- * Build, then write through the injected seam.
- *
- * DOES NOT CATCH WRITER FAILURES. A filesystem error means the founder does not
- * have the repository they were promised, and the only useful response is for
- * the caller to see the real error. The one failure that IS caught and reported
- * rather than thrown is git — see HandoffGitOutcome: by then the files exist
- * and are worth having, so "your repo is at X but git init failed because Y" is
- * strictly better than losing the path in a stack trace.
- */
-export async function runHandoff(
-  deps: HandoffDeps,
-  input: RunHandoffInput
-): Promise<RunHandoffResult> {
-  const outcome = buildHandoff(input);
-  if (outcome.status === "refused") {
-    return {
-      status: "refused",
-      reason: outcome.reason,
-      readiness: outcome.readiness,
-    };
-  }
-
-  const request: WriteHandoffRequest = {
-    targetDir: input.targetDir,
-    plan: outcome.plan,
-    overwrite: input.overwrite,
-    author: input.author,
-  };
-
-  return {
-    status: "written",
-    plan: outcome.plan,
-    result: await deps.write(request),
-  };
-}

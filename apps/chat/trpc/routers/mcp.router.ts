@@ -195,42 +195,6 @@ export const mcpRouter = createTRPCRouter({
       });
     }),
 
-  update: protectedProcedure
-    .input(
-      z.object({
-        id: z.string().uuid(),
-        updates: z.object({
-          name: z.string().min(1).max(MCP_NAME_MAX_LENGTH).optional(),
-          url: z.string().url().optional(),
-          type: z.enum(["http", "sse"]).optional(),
-          oauthClientId: z.string().nullable().optional(),
-          oauthClientSecret: z.string().nullable().optional(),
-          enabled: z.boolean().optional(),
-        }),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      assertMcpEnabled();
-      const connector = await getConnectorWithPermission({
-        id: input.id,
-        userId: ctx.user.id,
-        permission: "own",
-      });
-
-      const updates = { ...input.updates };
-      if (updates.name) {
-        const nameId = await validateAndGenerateNameId({
-          name: updates.name,
-          userId: connector.userId,
-          excludeId: input.id,
-        });
-        (updates as typeof updates & { nameId: string }).nameId = nameId;
-      }
-
-      await updateMcpConnector({ id: input.id, updates });
-      return { success: true };
-    }),
-
   delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -552,31 +516,4 @@ export const mcpRouter = createTRPCRouter({
   /**
    * Refresh/reconnect an MCP client after OAuth completion.
    */
-  refreshClient: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      assertMcpEnabled();
-      const connector = await getConnectorWithPermission({
-        id: input.id,
-        userId: ctx.user.id,
-        permission: "own-or-global",
-      });
-
-      await removeMcpClient(connector.id);
-      invalidateAllMcpCaches(connector.id);
-
-      const mcpClient = getOrCreateMcpClient({
-        id: connector.id,
-        name: connector.name,
-        url: connector.url,
-        type: connector.type,
-      });
-
-      await mcpClient.connect();
-
-      return {
-        status: mcpClient.status,
-        needsAuth: mcpClient.status === "authorizing",
-      };
-    }),
 });

@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_RESEARCH_ROLES } from "./roles";
 import {
   createSemaphore,
   decideOverflow,
@@ -13,6 +12,27 @@ import type { ResearchLearning, ResearchResult, ResearchRole } from "./types";
 // Hoisted because biome bars regex literals inside frequently-called scopes.
 const POSITIVE_INTEGER = /positive integer/;
 const ZERO_ROLES = /zero research roles/;
+
+/**
+ * FOUR ROLES, AS A TEST FIXTURE. This used to be `FOUR_ROLES` from
+ * `lib/research/roles.ts`, which was deleted as unreachable — nothing outside
+ * this file's own tests ever imported it. What these tests actually need is
+ * "four distinct roles", not four particular prompts, so the fixture lives here
+ * now. The real prompts are recoverable from git if the parallel research
+ * fan-out is ever wired up.
+ */
+const FOUR_ROLES: readonly ResearchRole[] = [
+  "demand",
+  "competitor",
+  "feasibility",
+  "willingness",
+].map((id) => ({
+  id,
+  label: id,
+  sourceIds: ["hackernews"],
+  systemPrompt: `research ${id}`,
+}));
+
 const DUPLICATE = /Duplicate/;
 
 function role(id: string): ResearchRole {
@@ -198,7 +218,7 @@ describe("runFanOut — the replacement for the sequential supervisor queue", ()
       },
       {
         brief: "does anyone want this",
-        roles: DEFAULT_RESEARCH_ROLES,
+        roles: FOUR_ROLES,
         maxConcurrent: 4,
       }
     );
@@ -228,7 +248,7 @@ describe("runFanOut — the replacement for the sequential supervisor queue", ()
       },
       {
         brief: "b",
-        roles: DEFAULT_RESEARCH_ROLES,
+        roles: FOUR_ROLES,
         maxConcurrent: 2,
       }
     );
@@ -260,7 +280,7 @@ describe("runFanOut — the replacement for the sequential supervisor queue", ()
       },
       {
         brief: "b",
-        roles: DEFAULT_RESEARCH_ROLES,
+        roles: FOUR_ROLES,
         maxConcurrent: 4,
       }
     );
@@ -282,7 +302,7 @@ describe("runFanOut — the replacement for the sequential supervisor queue", ()
       { runResearcher: (r) => Promise.resolve(result(r.id)) },
       {
         brief: "b",
-        roles: DEFAULT_RESEARCH_ROLES,
+        roles: FOUR_ROLES,
         maxConcurrent: 4,
         abortSignal: controller.signal,
       }
@@ -302,25 +322,11 @@ describe("runFanOut — the replacement for the sequential supervisor queue", ()
       },
       {
         brief: "b",
-        roles: DEFAULT_RESEARCH_ROLES,
+        roles: FOUR_ROLES,
         maxConcurrent: 1,
       }
     );
     // Four results, not a hang: the `finally` released each slot.
     expect(settled.results).toHaveLength(4);
-  });
-});
-
-describe("DEFAULT_RESEARCH_ROLES", () => {
-  it("ships four distinct roles — four identical ones would cost 4x for nothing", () => {
-    expect(DEFAULT_RESEARCH_ROLES).toHaveLength(4);
-    const prompts = new Set(DEFAULT_RESEARCH_ROLES.map((r) => r.systemPrompt));
-    expect(prompts.size).toBe(4);
-  });
-
-  it("makes every role hunt for disconfirming evidence", () => {
-    for (const r of DEFAULT_RESEARCH_ROLES) {
-      expect(r.systemPrompt).toContain("DISCONFIRMING EVIDENCE");
-    }
   });
 });

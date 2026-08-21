@@ -1,6 +1,11 @@
 "use client";
 
-import { FlaskConical, MoreHorizontal, Network } from "lucide-react";
+import {
+  FlaskConical,
+  ListChecks,
+  MoreHorizontal,
+  Network,
+} from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { DeleteProjectDialog } from "@/components/delete-project-dialog";
@@ -109,6 +114,21 @@ export function SidebarProjectItem({
 
       {isWithinProject ? (
         <SidebarMenuSub>
+          <SidebarMenuSubItem>
+            <SidebarMenuSubButton
+              asChild
+              isActive={pathname === `${projectHref}/phases`}
+            >
+              <InternalLink
+                href={`${projectHref}/phases`}
+                onNavigate={() => setOpenMobile(false)}
+                prefetch={false}
+              >
+                <ListChecks size={14} />
+                <span>Phases</span>
+              </InternalLink>
+            </SidebarMenuSubButton>
+          </SidebarMenuSubItem>
           <SidebarMenuSubItem>
             <SidebarMenuSubButton
               asChild

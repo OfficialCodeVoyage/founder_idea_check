@@ -70,9 +70,17 @@ export function PhaseRail({
         className
       )}
     >
-      <span className="shrink-0 font-medium text-foreground">
+      {/*
+        "Phase 3 of 8" is the one string a founder already reads, so it is the
+        door to the screen that says what the eight phases ARE. Before that
+        screen existed, this number was the whole of what the app told them.
+      */}
+      <Link
+        className="shrink-0 font-medium text-foreground hover:underline"
+        href={`/project/${projectId}/phases`}
+      >
         Phase {data.order} of {data.total}
-      </span>
+      </Link>
       <Progress
         className="hidden h-1 w-24 shrink-0 sm:block"
         value={(data.order / data.total) * PERCENT}

@@ -1,13 +1,62 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getProjectPhases } from "@/lib/db/phase-queries";
+import {
+  getProjectPhaseAttempts,
+  getProjectPhases,
+} from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
 import { resolveCurrentPhase } from "@/lib/phases/advance";
+import { describeAttemptSeries } from "@/lib/phases/attempt-history";
 import { toPhaseGateState } from "@/lib/phases/directive";
 import { PHASE_COUNT } from "@/lib/phases/types";
 import { createTRPCRouter, protectedProcedure } from "@/trpc/init";
 
 export const phaseRouter = createTRPCRouter({
+  /**
+   * THE REFUSAL LEDGER, which until now nothing read.
+   *
+   * `getProjectPhaseAttempts` has existed and been correct since the ledger was
+   * built; it simply had no caller, so every gate verdict was appended forever
+   * and no founder could see any of it. In the dev database that is 11 recorded
+   * attempts — including a phase that took four — all invisible.
+   *
+   * A drill-down rather than part of the roster's first paint: loading all
+   * eight phases' ledgers up front costs eight queries for history a founder
+   * mostly will not open.
+   */
+  attempts: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        phaseKey: z.string().min(1),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById({ id: input.projectId });
+      // "No such project" and "not yours" are deliberately the same answer,
+      // copied from getState below rather than reinvented.
+      if (!project || project.userId !== ctx.user.id) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
+      const rows = await getProjectPhaseAttempts({
+        projectId: input.projectId,
+        phaseKey: input.phaseKey,
+      });
+      return describeAttemptSeries(
+        rows.map((row) => ({
+          attemptNo: row.attemptNo,
+          decision: row.decision,
+          reason: row.reason,
+          nextQuestion: row.nextQuestion,
+          evaluatedAt: row.evaluatedAt,
+          verdict: row.verdict,
+        }))
+      );
+    }),
+
   getState: protectedProcedure
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {

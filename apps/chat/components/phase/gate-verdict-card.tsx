@@ -181,6 +181,12 @@ export function GateVerdictCard({
         <div className="mt-2 flex gap-3 text-xs">
           <Link
             className="underline underline-offset-2 opacity-70 hover:opacity-100"
+            href={`/project/${projectId}/phases`}
+          >
+            All phases and past verdicts
+          </Link>
+          <Link
+            className="underline underline-offset-2 opacity-70 hover:opacity-100"
             href={`/project/${projectId}/canvas`}
           >
             Canvas

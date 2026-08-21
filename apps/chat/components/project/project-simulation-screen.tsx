@@ -2,10 +2,17 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { SimulationPanel } from "@/components/simulation/simulation-panel";
+import { SimulationProfileForm } from "@/components/simulation/simulation-profile-form";
 import { auth } from "@/lib/auth";
 import { getProjectFacts } from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
-import { getSimulationRuns } from "@/lib/db/simulation-queries";
+import {
+  getProjectPersonas,
+  getSimulationProfiles,
+  getSimulationRuns,
+} from "@/lib/db/simulation-queries";
+import { describeSeedGap } from "@/lib/personas/simulation-gaps";
+import { toSimulationPersonas } from "@/lib/personas/simulation-input";
 
 /**
  * The project simulation screen: run a pitch past the seeded personas, and read
@@ -85,10 +92,17 @@ async function ProjectSimulationContent({
     notFound();
   }
 
-  const [facts, history] = await Promise.all([
+  const [facts, history, versions, profiles] = await Promise.all([
     getProjectFacts({ projectId }),
     getSimulationRuns({ projectId }),
+    getProjectPersonas({ projectId }),
+    getSimulationProfiles({ projectId }),
   ]);
+
+  // THE SAME PURE FUNCTION THE RUN USES, so the pre-flight banner and the
+  // refusal-on-click can never disagree. Rendered before the pitch box, so the
+  // founder sees what is missing as a prerequisite rather than as a failure.
+  const seeded = toSimulationPersonas({ profiles, versions });
 
   return (
     <>
@@ -96,7 +110,34 @@ async function ProjectSimulationContent({
         <h1 className="font-medium text-base">{project.name}</h1>
         <span className="text-muted-foreground text-xs">Simulation</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <SimulationProfileForm
+          personas={versions.map((version) => ({
+            // The stored title is the only honest name left for a row that will
+            // not parse — toCanvasPersonaInput's existing rule.
+            label: version.artifact?.persona.label ?? null,
+            personaDocumentId: version.documentId,
+            title: version.title,
+          }))}
+          profiles={profiles}
+          projectId={projectId}
+        />
+        {seeded.ok ? null : (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            <p className="font-medium">
+              A simulation cannot run yet. What is missing:
+            </p>
+            <ul className="mt-2 space-y-1 text-muted-foreground">
+              {seeded.gaps.map((gap) => (
+                <li
+                  key={`${gap.kind}:${gap.kind === "orphan-profile" ? gap.profileId : gap.personaDocumentId}`}
+                >
+                  {describeSeedGap(gap)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <SimulationPanel
           history={history}
           initialPitch={defaultPitch(facts, project.instructions)}

@@ -8,8 +8,11 @@ import { getProjectFacts } from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
 import {
   getProjectPersonas,
+  getSimulationProfiles,
   insertSimulationRun,
 } from "@/lib/db/simulation-queries";
+import type { SimulationSeedGap } from "@/lib/personas/simulation-gaps";
+import { toSimulationPersonas } from "@/lib/personas/simulation-input";
 import { createSidecarSimulationRunner } from "@/lib/research/sidecar-simulation";
 import type { SimulationOutcome } from "@/lib/research/simulation";
 import { runSimulation } from "@/lib/research/simulation";
@@ -30,10 +33,18 @@ import { runSimulation } from "@/lib/research/simulation";
 
 const DEFAULT_ROUNDS = 2;
 
+/**
+ * "You have no persona" (go do phase 3), "you have a persona with no simulation
+ * profile" (fill in the form) and "you have one agent" (add a seat) are three
+ * different next actions, so they get three distinct results. Collapsing them
+ * into one string is the same class of error as `context_window: 0` standing in
+ * for "the gateway did not report one".
+ */
 export type RunSimulationResult =
   | { status: "unauthorized" }
   | { status: "not-found" }
   | { status: "no-personas"; detail: string }
+  | { status: "profile-incomplete"; gaps: SimulationSeedGap[] }
   | { status: "ran"; outcome: SimulationOutcome };
 
 export async function runProjectSimulation({
@@ -55,19 +66,26 @@ export async function runProjectSimulation({
     return { status: "not-found" };
   }
 
-  const [personas, facts] = await Promise.all([
+  const [versions, profiles, facts] = await Promise.all([
     getProjectPersonas({ projectId }),
+    getSimulationProfiles({ projectId }),
     getProjectFacts({ projectId }),
   ]);
 
-  if (personas.length < 2) {
-    // Divergence is undefined over fewer than two agents, so the run cannot
-    // answer the question it exists to answer. Refused before the sidecar is
-    // touched, and named rather than returned as an empty result.
+  if (versions.length === 0) {
+    // This status now means ONLY "there is nothing to simulate", never "the
+    // profile is missing".
     return {
+      detail:
+        "This project has no persona yet. Generate one in phase 3 — a simulation needs a persona to put in the room.",
       status: "no-personas",
-      detail: `This project has ${personas.length} simulation persona${personas.length === 1 ? "" : "s"}. A simulation needs at least two, because divergence between one opinion and itself is not a finding.`,
     };
+  }
+
+  const seeded = toSimulationPersonas({ profiles, versions });
+  if (!seeded.ok) {
+    // Before the sidecar is touched and before anything is written.
+    return { gaps: seeded.gaps, status: "profile-incomplete" };
   }
 
   const outcome = await runSimulation(
@@ -77,16 +95,12 @@ export async function runProjectSimulation({
       }),
     },
     {
-      personas: personas.map((row) => ({
-        id: row.id,
-        name: row.name,
-        description: row.description,
-        headline: row.headline,
-        age: row.age,
-        gender: row.gender,
-        country: row.country,
-        mbti: row.mbti ?? undefined,
-      })),
+      // THE TWO-AGENT FLOOR IS NOT RE-CHECKED HERE. `runSimulation` calls
+      // `toOasisPersonas` before `deps.run`, so a one-seat project already gets
+      // a named refusal ("only one persona — divergence is undefined over a
+      // single agent") with no sidecar call and no row written. Two guards for
+      // one rule is how they drift.
+      personas: seeded.personas,
       facts: facts.map((fact) => ({ key: fact.key, value: fact.value })),
       pitch,
       rounds: DEFAULT_ROUNDS,

@@ -1,0 +1,1 @@
+DROP TABLE "ProjectPersona" CASCADE;

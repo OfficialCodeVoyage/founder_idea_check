@@ -1,10 +1,15 @@
 import "server-only";
-import { desc, eq } from "drizzle-orm";
-import { db } from "./client";
+import { and, desc, eq } from "drizzle-orm";
 import {
-  type ProjectPersona,
-  projectPersona,
+  latestPersonaPerDocument,
+  type PersonaVersion,
+} from "@/lib/personas/artifact";
+import { db } from "./client";
+import { getPersonaDocumentsByProjectId } from "./queries";
+import {
+  type SimulationProfile,
   type SimulationRun,
+  simulationProfile,
   simulationRun,
 } from "./schema";
 
@@ -15,20 +20,145 @@ import {
  * task-queries precedent: the research subsystem's storage stays together.
  */
 
-/** The population a run is seeded with. Oldest first, so ordering is stable. */
+/**
+ * The project's personas — the newest version of each persona Document.
+ *
+ * IT USED TO READ `ProjectPersona`, WHICH NOTHING HAS EVER WRITTEN. That table
+ * had one reader and no INSERT anywhere in the repo's history, so this function
+ * returned [] every time and `runProjectSimulation` told a founder "this project
+ * has 0 simulation personas" while they were looking at a finished persona
+ * artifact. Personas live in `Document` where kind = 'persona'
+ * (PERSONA_DOCUMENT_KIND), scoped by `Document.projectId` and served by
+ * `Document_project_kind_idx`.
+ */
 export async function getProjectPersonas({
   projectId,
 }: {
   projectId: string;
-}): Promise<ProjectPersona[]> {
+}): Promise<PersonaVersion[]> {
+  return latestPersonaPerDocument(
+    await getPersonaDocumentsByProjectId({ projectId })
+  );
+}
+
+/**
+ * The population, oldest first. OASIS keys agents by list index, so a stable
+ * order keeps a trace row attributable to a seat.
+ */
+export async function getSimulationProfiles({
+  projectId,
+}: {
+  projectId: string;
+}): Promise<SimulationProfile[]> {
   try {
     return await db
       .select()
-      .from(projectPersona)
-      .where(eq(projectPersona.projectId, projectId))
-      .orderBy(projectPersona.createdAt);
+      .from(simulationProfile)
+      .where(eq(simulationProfile.projectId, projectId))
+      .orderBy(simulationProfile.createdAt);
   } catch (error) {
-    console.error("Failed to get project personas from database", error);
+    console.error("Failed to get simulation profiles from database", error);
+    throw error;
+  }
+}
+
+export type UpsertSimulationProfileInput = {
+  /** Omitted for a new seat. */
+  id?: string;
+  projectId: string;
+  personaDocumentId: string;
+  handle: string;
+  age: number;
+  gender: string;
+  country: string;
+  mbti: string | null;
+};
+
+/**
+ * A seat is an editable ASSUMPTION, so unlike `insertSimulationRun` above —
+ * which records something that happened and is never rewritten — update is
+ * correct here. Do not read the INSERT-only rule as applying to both.
+ */
+export type UpsertSimulationProfileResult =
+  | { status: "saved"; profile: SimulationProfile }
+  | { status: "not-found" };
+
+export async function upsertSimulationProfile(
+  input: UpsertSimulationProfileInput
+): Promise<UpsertSimulationProfileResult> {
+  // `""` is not "unspecified", and the CHECK constraint rejects it. Normalise at
+  // the boundary so a blank input box means NULL rather than a constraint error.
+  const mbti = input.mbti?.trim() || null;
+
+  try {
+    if (input.id) {
+      const [row] = await db
+        .update(simulationProfile)
+        .set({
+          age: input.age,
+          country: input.country,
+          gender: input.gender,
+          handle: input.handle,
+          mbti,
+          personaDocumentId: input.personaDocumentId,
+        })
+        // `projectId` IS IN THE PREDICATE, never merely in the values. Without
+        // it, a caller supplying another project's row id with their own
+        // projectId would rewrite that seat AND re-parent it into their project.
+        // The callers validate the project and the persona document; neither can
+        // validate that a row id belongs to the project without this.
+        .where(
+          and(
+            eq(simulationProfile.id, input.id),
+            eq(simulationProfile.projectId, input.projectId)
+          )
+        )
+        .returning();
+
+      // NO FALLBACK TO INSERT. Zero rows means the id is not this project's, and
+      // inserting would silently create a duplicate seat while hiding the failed
+      // update — the founder would see two agents and no error.
+      return row ? { profile: row, status: "saved" } : { status: "not-found" };
+    }
+
+    const [row] = await db
+      .insert(simulationProfile)
+      .values({
+        age: input.age,
+        country: input.country,
+        gender: input.gender,
+        handle: input.handle,
+        mbti,
+        personaDocumentId: input.personaDocumentId,
+        projectId: input.projectId,
+      })
+      .returning();
+    return { profile: row, status: "saved" };
+  } catch (error) {
+    console.error("Failed to upsert simulation profile in database", error);
+    throw error;
+  }
+}
+
+/** Deletes one seat. `projectId` in the predicate, never trusted from the row. */
+export async function deleteSimulationProfile({
+  id,
+  projectId,
+}: {
+  id: string;
+  projectId: string;
+}): Promise<void> {
+  try {
+    await db
+      .delete(simulationProfile)
+      .where(
+        and(
+          eq(simulationProfile.id, id),
+          eq(simulationProfile.projectId, projectId)
+        )
+      );
+  } catch (error) {
+    console.error("Failed to delete simulation profile in database", error);
     throw error;
   }
 }

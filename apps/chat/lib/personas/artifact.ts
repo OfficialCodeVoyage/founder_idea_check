@@ -282,6 +282,44 @@ export function latestPersonaVersion(
 }
 
 /**
+ * PURE. The newest version of EACH document in a mixed row set, in first-seen
+ * document order.
+ *
+ * GROUPING FIRST IS THE POINT. `orderPersonaVersions` numbers versions by
+ * position in the rows it is handed, so handing it rows from two documents
+ * numbers them 1..n ACROSS both and a project's second persona reports itself as
+ * "v4". Grouping keeps a version number the founder's version number. Same
+ * grouping `groupDocumentVersions` does in trpc/routers/canvas.router.ts.
+ *
+ * `latestPersonaVersion`, not `latestReadablePersona`: an unreadable newest
+ * version must surface as a refusal, not be quietly replaced by an older
+ * readable one. Simulating or exporting v2 while the founder is looking at v3 is
+ * a lie about which persona was used.
+ */
+export function latestPersonaPerDocument(
+  rows: readonly PersonaDocumentRowLike[]
+): PersonaVersion[] {
+  const groups = new Map<string, PersonaDocumentRowLike[]>();
+  for (const row of rows) {
+    const existing = groups.get(row.id);
+    if (existing) {
+      existing.push(row);
+    } else {
+      groups.set(row.id, [row]);
+    }
+  }
+
+  const out: PersonaVersion[] = [];
+  for (const versions of groups.values()) {
+    const latest = latestPersonaVersion(versions);
+    if (latest) {
+      out.push(latest);
+    }
+  }
+  return out;
+}
+
+/**
  * PURE. The newest version that can actually be READ.
  *
  * Separate from `latestPersonaVersion` on purpose. Regeneration needs a persona

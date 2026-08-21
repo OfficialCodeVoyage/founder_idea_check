@@ -726,39 +726,101 @@ export const projectTask = pgTable(
 export type ProjectTask = InferSelectModel<typeof projectTask>;
 
 /**
- * A simulation persona (Step 8). DISTINCT from the Document-backed persona
- * artifact of Step 6: that one is the founder's single evidenced customer
- * profile and is versioned through Document's composite key; these are the
- * population an OASIS run is seeded with, and they are disposable per run.
+ * THE FOUNDER'S SIMULATION PROFILE — the four demographic fields OASIS demands
+ * and `PersonaSchema` deliberately refuses to model.
+ *
+ * IT REPLACES `ProjectPersona`, which this commit DROPS. That table had exactly
+ * one reader and, in the whole history of the repo, no writer at all — grep for
+ * an INSERT and there has never been one — so `getProjectPersonas` returned []
+ * every time and the simulation told founders "this project has 0 simulation
+ * personas" while they were looking at a finished persona artifact. A
+ * plausible-looking empty table shadowing the real store is what caused the bug;
+ * deleting it is the only change that stops it recurring.
+ *
+ * SEPARATE TABLE, not a column on the persona artifact, because the artifact is
+ * evidence-only and versioned: age/gender/country/mbti are the FOUNDER'S stated
+ * assumptions, they are not evidenced, and they must not gain a version history
+ * that reads like established fact. Keeping them here is what lets
+ * `PersonaSchema` stay a thing in which an unevidenced claim is unrepresentable.
+ *
+ * ONE ROW IS ONE AGENT (a "seat"). A project has exactly one evidenced persona —
+ * phase 3's `single-beachhead` criterion demands it — and `toOasisPersonas`
+ * refuses to run over fewer than two agents, so the population cannot come from
+ * a second ICP. It comes from the founder naming several people INSIDE the one
+ * ICP: their demographics differ, their evidenced profile does not.
  */
-export const projectPersona = pgTable(
-  "ProjectPersona",
+export const simulationProfile = pgTable(
+  "SimulationProfile",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     createdAt: timestamp("createdAt").notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
     projectId: uuid("projectId")
       .notNull()
       .references(() => project.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    headline: text("headline").notNull(),
-    description: text("description").notNull(),
+    /**
+     * The persona Document this seat sits in. NOT a foreign key, and it cannot
+     * be one: `Document`'s primary key is (id, createdAt), so `id` alone is not
+     * unique. `Suggestion` references (id, createdAt) — that pins ONE VERSION,
+     * which is wrong here: a seat belongs to the whole version history, not to
+     * the version that happened to be current when it was typed. The cost is
+     * that a deleted persona leaves orphan seats, which `toSimulationPersonas`
+     * names as `orphan-profile` rather than skipping.
+     */
+    personaDocumentId: uuid("personaDocumentId").notNull(),
+    /** Founder-typed. Slugged into OASIS's `username` by toOasisPersonas. */
+    handle: varchar("handle", { length: 64 }).notNull(),
+    /** OASIS validates 13..120 and has no representation for "unknown". */
     age: integer("age").notNull(),
     gender: text("gender").notNull(),
     country: text("country").notNull(),
-    mbti: text("mbti"),
-    /** MANDATORY. A persona with no evidence is a character, not a finding. */
-    evidence: jsonb("evidence")
-      .$type<{ url: string; quote: string }[]>()
-      .notNull(),
+    /**
+     * THE ONE FIELD THAT MAY BE ABSENT. `UNSPECIFIED_MBTI` ("XXXX") is a named
+     * non-answer, not an invented trait, and toOasisPersonas already supplies
+     * it. age/gender/country have no such marker, so they are NOT NULL: there
+     * is no honest placeholder for a person's age.
+     */
+    mbti: varchar("mbti", { length: 8 }),
   },
   (t) => ({
-    ProjectPersona_project_id_idx: index("ProjectPersona_project_id_idx").on(
+    SimulationProfile_project_idx: index("SimulationProfile_project_idx").on(
       t.projectId
+    ),
+    SimulationProfile_persona_idx: index("SimulationProfile_persona_idx").on(
+      t.personaDocumentId
+    ),
+    /**
+     * Cheap half of the collision guard. It does NOT subsume toOasisPersonas's
+     * refusal: "Ana R" and "ana-r" are distinct here and both slug to "ana_r",
+     * which is the collision that actually breaks the OASIS trace table. Both
+     * checks are needed.
+     */
+    SimulationProfile_project_handle_unique: uniqueIndex(
+      "SimulationProfile_project_handle_unique"
+    ).on(t.projectId, t.handle),
+    age_chk: check(
+      "SimulationProfile_age_range",
+      sql`${t.age} BETWEEN 13 AND 120`
+    ),
+    /**
+     * An empty string is the trap here, not NULL. `mbti: ""` is not null, so
+     * `?? UNSPECIFIED_MBTI` does not catch it, and it reaches
+     * OasisPersonaSchema as a min(1) failure the founder cannot explain.
+     */
+    present_chk: check(
+      "SimulationProfile_text_present",
+      sql`char_length(btrim(${t.handle})) > 0
+          AND char_length(btrim(${t.gender})) > 0
+          AND char_length(btrim(${t.country})) > 0
+          AND (${t.mbti} IS NULL OR char_length(btrim(${t.mbti})) > 0)`
     ),
   })
 );
 
-export type ProjectPersona = InferSelectModel<typeof projectPersona>;
+export type SimulationProfile = InferSelectModel<typeof simulationProfile>;
 
 /**
  * One OASIS simulation run.

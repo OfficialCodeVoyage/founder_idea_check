@@ -1,5 +1,5 @@
 import {
-  latestPersonaVersion,
+  latestPersonaPerDocument,
   type PersonaDocumentRowLike,
 } from "@/lib/personas/artifact";
 import { personaAttributeEntries } from "@/lib/personas/normalize";
@@ -49,55 +49,31 @@ import type { ExportFile, ExportPersona } from "./types";
 export const PERSONA_PATH = `${PLANNING_DIR}/PERSONA.md`;
 
 /**
- * PURE. Newest version of EACH persona document, in first-seen document order.
+ * PURE. One `ExportPersona` per persona document, newest version of each.
  *
- * GROUPED FIRST, deliberately. `orderPersonaVersions` numbers versions by
- * position in the rows it is handed, so handing it rows from two documents would
- * number them 1..n ACROSS both and a project's second persona would report
- * itself as "v4". Grouping keeps a version number the founder's version number.
- *
- * `latestPersonaVersion`, not `latestReadablePersona`: an unreadable newest
- * version must surface as "could not be read", not be quietly replaced by an
- * older readable one. Exporting v2 while the founder is looking at v3 is a lie
- * about which persona this repository describes.
+ * The grouping and the "an unreadable newest version is NOT replaced by an older
+ * readable one" rule both live in `latestPersonaPerDocument`; this is only the
+ * projection into the export's own union.
  */
 export function toExportPersonas(
   rows: readonly PersonaDocumentRowLike[]
 ): ExportPersona[] {
-  const groups = new Map<string, PersonaDocumentRowLike[]>();
-  for (const row of rows) {
-    const existing = groups.get(row.id);
-    if (existing) {
-      existing.push(row);
-    } else {
-      groups.set(row.id, [row]);
-    }
-  }
-
-  const out: ExportPersona[] = [];
-  for (const versions of groups.values()) {
-    const latest = latestPersonaVersion(versions);
-    if (!latest) {
-      continue;
-    }
-    out.push(
-      latest.artifact
-        ? {
-            artifact: latest.artifact,
-            documentId: latest.documentId,
-            status: "readable",
-            title: latest.title,
-            version: latest.version,
-          }
-        : {
-            documentId: latest.documentId,
-            status: "unreadable",
-            title: latest.title,
-            version: latest.version,
-          }
-    );
-  }
-  return out;
+  return latestPersonaPerDocument(rows).map((latest) =>
+    latest.artifact
+      ? {
+          artifact: latest.artifact,
+          documentId: latest.documentId,
+          status: "readable",
+          title: latest.title,
+          version: latest.version,
+        }
+      : {
+          documentId: latest.documentId,
+          status: "unreadable",
+          title: latest.title,
+          version: latest.version,
+        }
+  );
 }
 
 function renderEvidence(evidence: readonly PersonaEvidence[]): string {

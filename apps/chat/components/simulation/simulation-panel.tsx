@@ -10,6 +10,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { SimulationRun } from "@/lib/db/schema";
+import {
+  describeSeedGap,
+  type SimulationSeedGap,
+} from "@/lib/personas/simulation-gaps";
 import type {
   DivergenceReport,
   PersonaReaction,
@@ -25,6 +29,11 @@ import type {
  * divergence score without that sentence would invite exactly the reading the
  * verdict refuses.
  */
+
+/** One gap per persona or per seat, so the identifier is the stable half. */
+function gapKey(gap: SimulationSeedGap): string {
+  return gap.kind === "orphan-profile" ? gap.profileId : gap.personaDocumentId;
+}
 
 function scorePercent(value: number): string {
   return `${Math.round(value * 100)}%`;
@@ -88,6 +97,24 @@ function OutcomePanel({ result }: { result: RunSimulationResult }) {
     return (
       <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
         {result.detail}
+      </div>
+    );
+  }
+  if (result.status === "profile-incomplete") {
+    // The Run button stays enabled. The refusal NAMES the gap, which is the
+    // posture everywhere else in this product; a disabled button with no
+    // explanation is the silent version of the same answer.
+    return (
+      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+        <p className="font-medium">
+          The simulation did not run — nothing was recorded, because nothing
+          happened.
+        </p>
+        <ul className="mt-2 space-y-1 text-muted-foreground">
+          {result.gaps.map((gap) => (
+            <li key={`${gap.kind}:${gapKey(gap)}`}>{describeSeedGap(gap)}</li>
+          ))}
+        </ul>
       </div>
     );
   }

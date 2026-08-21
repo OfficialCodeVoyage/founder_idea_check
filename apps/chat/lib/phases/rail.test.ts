@@ -223,6 +223,88 @@ function verdict(
   });
 }
 
+/**
+ * THE HEADLINE USED TO BE A CONSTANT.
+ *
+ * Live, on attempts 2, 3, 4 and 7 of the problem-validation deadlock, the card
+ * read "WHAT IS MISSING" over text that said "could not be assessed". Two
+ * opposite situations under one heading, and the founder had no way to tell
+ * which remedy applied.
+ */
+describe("describeGateVerdict — which state the founder is actually in", () => {
+  it("heads a fieldwork block with what cannot be known, not what is missing", () => {
+    const view = verdict({
+      decision: "BLOCK",
+      missing: ["willingness to pay has no evidence behind it"],
+      criteriaAssessed: 8,
+      obstacle: {
+        kind: "fieldwork-required",
+        criterionIds: ["willingness-to-pay"],
+      },
+    });
+
+    expect(view.assessed).toBe(true);
+    if (!view.assessed) {
+      return;
+    }
+    expect(view.obstacle?.kind).toBe("fieldwork-required");
+    expect(view.obstacle?.heading).toBe("What cannot be known yet");
+    expect(view.obstacle?.heading).not.toContain("missing");
+    // And the note has to tell them NOT to answer it — the opposite of the
+    // instruction every other arm carries.
+    expect(view.obstacle?.note).toContain("instrument");
+    expect(view.obstacle?.note).toContain("threshold");
+  });
+
+  it("does not call a not-evaluable criterion missing", () => {
+    const view = verdict({
+      decision: "BLOCK",
+      missing: ["the transcript does not say either way"],
+      criteriaAssessed: 8,
+      obstacle: { kind: "not-evaluable", criterionIds: ["evidence-quality"] },
+    });
+
+    expect(view.assessed).toBe(true);
+    if (!view.assessed) {
+      return;
+    }
+    expect(view.obstacle?.heading).toBe("What could not be assessed");
+    expect(view.obstacle?.note).toContain("NOT the same");
+  });
+
+  it("still says 'missing' when something really is just missing", () => {
+    const view = verdict({
+      decision: "BLOCK",
+      missing: ["no buyer is named"],
+      criteriaAssessed: 8,
+      obstacle: { kind: "evidence-missing", criterionIds: ["target-user"] },
+    });
+
+    expect(view.assessed).toBe(true);
+    if (!view.assessed) {
+      return;
+    }
+    expect(view.obstacle?.heading).toBe("What is missing");
+  });
+
+  it("leaves an older verdict with no arm alone", () => {
+    // Every verdict in ProjectPhaseAttempt predates this field. They must keep
+    // rendering under the heading they were written under, not acquire a reason
+    // the gate never gave.
+    const view = verdict({
+      decision: "BLOCK",
+      missing: ["no buyer is named"],
+      criteriaAssessed: 8,
+    });
+
+    expect(view.assessed).toBe(true);
+    if (!view.assessed) {
+      return;
+    }
+    expect(view.obstacle).toBeNull();
+  });
+});
+
 describe("describeGateVerdict — the card shows the WHOLE refusal", () => {
   it("names every gap, not just the first", () => {
     // The rail shows `missing.at(0)` because it has 36px. That is why a founder

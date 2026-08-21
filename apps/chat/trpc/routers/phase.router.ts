@@ -109,6 +109,13 @@ export const phaseRouter = createTRPCRouter({
         criteriaAssessed: state?.criteriaAssessed ?? 0,
         verdictReadable: state?.verdictReadable ?? true,
         /**
+         * Which rule the gate broke on. NULL for a verdict stored before the
+         * arm existed, and the card renders those under its generic heading —
+         * the one they were written under. A default of any KIND here would
+         * label old refusals with a reason the gate never gave.
+         */
+        obstacle: state?.obstacle ?? null,
+        /**
          * The rail's only client-visible signal that a post-turn pass has
          * LANDED. `after()` has none, so the rail polls until this number
          * CHANGES rather than guessing a delay.

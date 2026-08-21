@@ -610,7 +610,11 @@ async function writeFailClosed({
       workflowComplete,
       verdict: failClosedVerdict(
         `the phase pass could not complete (${message})`,
-        phase.exitCriteria.map((c) => ({ id: c.id, severity: c.severity }))
+        phase.exitCriteria.map((c) => ({
+          id: c.id,
+          severity: c.severity,
+          closure: c.closure,
+        }))
       ),
     });
   } catch (error) {

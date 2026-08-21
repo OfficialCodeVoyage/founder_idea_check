@@ -29,6 +29,7 @@ const PHASE_FIVE_CRITERIA: ExitCriterion[] = [
     id: "positioning-statement",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "positioning_statement",
     description:
       "One sentence naming the phase 3 persona, the trigger, the category the buyer will file this under, the benefit, and the alternative it is chosen instead of.",
@@ -37,6 +38,7 @@ const PHASE_FIVE_CRITERIA: ExitCriterion[] = [
     id: "competitive-set",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "competitive_set",
     description:
       "At least three named alternatives the persona could pick instead, one of which must be doing nothing or the manual workaround from phase 1. 'There is no competition' does not satisfy this.",
@@ -45,6 +47,7 @@ const PHASE_FIVE_CRITERIA: ExitCriterion[] = [
     id: "primary-alternative",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "primary_alternative",
     description:
       "Which one of those alternatives the persona would actually choose today, singular. This is the thing the product has to beat.",
@@ -53,6 +56,7 @@ const PHASE_FIVE_CRITERIA: ExitCriterion[] = [
     id: "differentiation-claim",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "differentiation_claim",
     description:
       "The single reason this persona switches from that alternative, stated as a claim that could be false. A claim no competitor would dispute is not a differentiator.",
@@ -61,6 +65,7 @@ const PHASE_FIVE_CRITERIA: ExitCriterion[] = [
     id: "differentiation-ships-today",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "in-conversation",
     requirementId: "positioning.ships-today",
     description:
       "The differentiator is something the product will do in the MVP about to be planned. A roadmap item, a funding round or a future integration does not satisfy this.",
@@ -69,6 +74,7 @@ const PHASE_FIVE_CRITERIA: ExitCriterion[] = [
     id: "proof-of-claim",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "proof_of_claim",
     description:
       "Something a sceptical prospect can check for themselves — a demo, a benchmark with its method, a named reference customer, or a guarantee with terms. Adjectives are not proof.",
@@ -77,6 +83,7 @@ const PHASE_FIVE_CRITERIA: ExitCriterion[] = [
     id: "incumbent-strength",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "in-conversation",
     requirementId: "positioning.incumbent-strength",
     description:
       "States what the leading alternative does WELL and why its customers chose it. An answer that only lists the incumbent's failings does not satisfy this.",
@@ -85,6 +92,7 @@ const PHASE_FIVE_CRITERIA: ExitCriterion[] = [
     id: "top-objection",
     type: "artifact-exists",
     severity: "advisory",
+    closure: "offline-only",
     factKey: "objection_and_answer",
     description:
       "The objection this persona raises first, and the answer, in the words a prospect would actually use.",
@@ -93,6 +101,7 @@ const PHASE_FIVE_CRITERIA: ExitCriterion[] = [
     id: "category-frame",
     type: "artifact-exists",
     severity: "advisory",
+    closure: "in-conversation",
     factKey: "category_frame",
     description:
       "The existing budget line or tool category the buyer files this under. Inventing a new category is allowed, but then say who pays for it out of which budget.",
@@ -133,6 +142,7 @@ const PHASE_SIX_CRITERIA: ExitCriterion[] = [
     id: "core-flow",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "mvp_core_flow",
     description:
       "One end-to-end flow, step by step, from the trigger event to the moment the user gets the value. A feature list is not a flow.",
@@ -141,6 +151,7 @@ const PHASE_SIX_CRITERIA: ExitCriterion[] = [
     id: "included-features",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "mvp_included_features",
     description:
       "The list of what is being built, every item of which appears in that core flow. An item that serves no step of the flow belongs on the cut list.",
@@ -149,6 +160,7 @@ const PHASE_SIX_CRITERIA: ExitCriterion[] = [
     id: "cut-list",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "mvp_excluded_features",
     description:
       "An explicit not-in-v1 list that includes at least one thing the founder wants to build. A cut list with nothing painful on it has not been cut.",
@@ -157,6 +169,7 @@ const PHASE_SIX_CRITERIA: ExitCriterion[] = [
     id: "tests-riskiest-assumption",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "in-conversation",
     requirementId: "mvp.tests-riskiest-assumption",
     description:
       "The build is aimed at the riskiest assumption recorded in phase 2, and the plan says which observed result would count as that assumption being false.",
@@ -165,6 +178,7 @@ const PHASE_SIX_CRITERIA: ExitCriterion[] = [
     id: "success-metric",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "mvp_success_metric",
     description:
       "One behavioural metric — a repeated action by a real user, or revenue. Signups, downloads, waitlist size and page views do not satisfy this.",
@@ -173,6 +187,7 @@ const PHASE_SIX_CRITERIA: ExitCriterion[] = [
     id: "success-threshold",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "mvp_success_threshold",
     description:
       "A number and a date for that metric, committed to before the build starts.",
@@ -181,6 +196,7 @@ const PHASE_SIX_CRITERIA: ExitCriterion[] = [
     id: "build-window",
     type: "metric-threshold",
     severity: "blocking",
+    closure: "in-conversation",
     metric: "mvp_build_weeks",
     operator: "≤",
     threshold: 8,
@@ -191,6 +207,7 @@ const PHASE_SIX_CRITERIA: ExitCriterion[] = [
     id: "first-users-named",
     type: "metric-threshold",
     severity: "blocking",
+    closure: "offline-only",
     metric: "mvp_named_first_users",
     operator: "≥",
     threshold: 3,
@@ -201,6 +218,7 @@ const PHASE_SIX_CRITERIA: ExitCriterion[] = [
     id: "manual-before-automated",
     type: "artifact-exists",
     severity: "advisory",
+    closure: "in-conversation",
     factKey: "mvp_manual_parts",
     description:
       "The parts that will be done by hand at first instead of built, and the point at which each stops scaling.",
@@ -249,6 +267,7 @@ const PHASE_SEVEN_CRITERIA: ExitCriterion[] = [
     id: "value-metric",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "pricing_value_metric",
     description:
       "What the price scales with — seats, runs, documents, transaction value — and why that unit tracks the value the persona receives.",
@@ -257,6 +276,7 @@ const PHASE_SEVEN_CRITERIA: ExitCriterion[] = [
     id: "price-point",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "price_point",
     description:
       "An actual number, a currency and a billing period. 'Freemium', 'usage-based' or 'we will figure it out after launch' do not satisfy this.",
@@ -265,6 +285,7 @@ const PHASE_SEVEN_CRITERIA: ExitCriterion[] = [
     id: "payer-named",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "payer_role",
     description:
       "The budget holder from the phase 3 buying process, and the budget line the money comes out of. Where the user and the payer differ, both are named.",
@@ -273,6 +294,7 @@ const PHASE_SEVEN_CRITERIA: ExitCriterion[] = [
     id: "price-evidence",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "in-conversation",
     requirementId: "pricing.anchored-not-guessed",
     description:
       "The price is anchored to money already moving: what the persona pays for the workaround today, a competitor's published price, or a figure a real prospect named. A price derived only from desired revenue does not satisfy this.",
@@ -281,6 +303,7 @@ const PHASE_SEVEN_CRITERIA: ExitCriterion[] = [
     id: "unit-economics",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "in-conversation",
     requirementId: "pricing.unit-economics-stated",
     description:
       "Cost to acquire a customer, gross margin and expected lifetime value are each given as a number with its assumptions labelled [Estimate]. An unlabelled figure fails this.",
@@ -289,6 +312,7 @@ const PHASE_SEVEN_CRITERIA: ExitCriterion[] = [
     id: "payback-window",
     type: "metric-threshold",
     severity: "blocking",
+    closure: "in-conversation",
     metric: "cac_payback_months",
     operator: "≤",
     threshold: 12,
@@ -299,6 +323,7 @@ const PHASE_SEVEN_CRITERIA: ExitCriterion[] = [
     id: "breakeven-math",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "breakeven_customers",
     description:
       "How many customers at this price cover the founder's stated monthly costs, counted bottom-up. A percentage of a market size does not satisfy this.",
@@ -307,6 +332,7 @@ const PHASE_SEVEN_CRITERIA: ExitCriterion[] = [
     id: "pessimistic-case",
     type: "requirement-satisfied",
     severity: "advisory",
+    closure: "in-conversation",
     requirementId: "pricing.survives-pessimistic-case",
     description:
       "The same arithmetic re-run with conversion halved and acquisition cost doubled, with the resulting verdict stated out loud.",
@@ -352,6 +378,7 @@ const PHASE_EIGHT_CRITERIA: ExitCriterion[] = [
     id: "single-channel",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "primary_channel",
     description:
       "ONE primary channel, named, reaching the phase 3 persona where they already are. A list of four channels to try does not satisfy this.",
@@ -360,6 +387,7 @@ const PHASE_EIGHT_CRITERIA: ExitCriterion[] = [
     id: "channel-rationale",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "channel_rationale",
     description:
       "Why that channel and not the others, argued from where the persona was found in phase 3 and where the phase 4 respondents came from.",
@@ -368,6 +396,7 @@ const PHASE_EIGHT_CRITERIA: ExitCriterion[] = [
     id: "repeatable-motion",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "gtm_motion",
     description:
       "The steps from stranger to paying customer, with who performs each step and how many times a week the team that exists can repeat it.",
@@ -376,6 +405,7 @@ const PHASE_EIGHT_CRITERIA: ExitCriterion[] = [
     id: "first-ten-plan",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "first_ten_plan",
     description:
       "A deliberately unscalable plan for the first ten customers — specific people, accounts or communities by name — kept separate from the scalable channel.",
@@ -384,6 +414,7 @@ const PHASE_EIGHT_CRITERIA: ExitCriterion[] = [
     id: "channel-math-closes",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "in-conversation",
     requirementId: "gtm.channel-math-closes",
     description:
       "Audience reachable per month, times the conversion evidenced in phase 4, times the phase 7 price, produces a customer and a revenue number; every assumption is labelled [Estimate] and the implied acquisition cost clears the phase 7 payback window.",
@@ -392,6 +423,7 @@ const PHASE_EIGHT_CRITERIA: ExitCriterion[] = [
     id: "launch-target",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "launch_target",
     description:
       "A number and a date, set before launch: paying customers or revenue by a given day.",
@@ -400,6 +432,7 @@ const PHASE_EIGHT_CRITERIA: ExitCriterion[] = [
     id: "launch-kill-rule",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "gtm_kill_rule",
     description:
       "What result at that date means stop, and what result means change channel, written down now rather than decided afterwards.",
@@ -408,6 +441,7 @@ const PHASE_EIGHT_CRITERIA: ExitCriterion[] = [
     id: "channel-already-tested",
     type: "metric-threshold",
     severity: "advisory",
+    closure: "offline-only",
     metric: "gtm_channel_test_count",
     operator: "≥",
     threshold: 1,
@@ -418,6 +452,7 @@ const PHASE_EIGHT_CRITERIA: ExitCriterion[] = [
     id: "no-vanity-target",
     type: "requirement-satisfied",
     severity: "advisory",
+    closure: "in-conversation",
     requirementId: "gtm.no-vanity-metrics",
     description:
       "The launch target is revenue, paying customers or repeat usage. Signups, downloads, waitlist size, impressions and press mentions are not targets.",

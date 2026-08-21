@@ -1,4 +1,76 @@
-import type { GateDecisionValue } from "./types";
+import type {
+  GateDecisionValue,
+  GateObstacle,
+  GateObstacleKind,
+} from "./types";
+
+/**
+ * WHAT THE GATE RAN INTO, said in the founder's language.
+ *
+ * The card used to print ONE headline — "WHAT IS MISSING" — over whatever
+ * `missing` happened to contain. On attempts 2, 3, 4 and 7 of the live
+ * problem-validation deadlock the text underneath said "could not be assessed",
+ * so the founder read "WHAT IS MISSING: this could not be assessed" and had no
+ * way to tell which of two opposite situations they were in:
+ *
+ *   the gate could not judge this   → say more, or say it differently
+ *   you have not done this          → do it
+ *   this cannot be known yet        → build the instrument that will know it
+ *
+ * Three states, three remedies, one headline. So the heading is per-arm and each
+ * arm carries its own sentence.
+ */
+export type GateObstacleView = {
+  kind: GateObstacleKind;
+  /** The list heading. Never the generic one. */
+  heading: string;
+  /** What this state IS and what closes it. Never blank. */
+  note: string;
+};
+
+const OBSTACLE_VIEW: Record<
+  GateObstacleKind,
+  Omit<GateObstacleView, "kind">
+> = {
+  "phase-misconfigured": {
+    heading: "What is wrong here",
+    note: "This phase has no exit criteria, so it cannot be certified either way. That is a bug in the app, not something you did — nothing below tells you what to change.",
+  },
+  "judge-incomplete": {
+    heading: "What went wrong",
+    note: "The gate did not return a usable judgement, so this is not a finding about your work. Send another message and it will try again.",
+  },
+  "no-facts-yet": {
+    heading: "Where to start",
+    note: "Nothing has been established about this project yet, so there is nothing to judge against.",
+  },
+  "not-evaluable": {
+    heading: "What could not be assessed",
+    note: "The gate could not tell either way on these — which is NOT the same as you not having done them. Usually it means the transcript does not say clearly enough for a judgement to be made. Restating it plainly is often all this needs.",
+  },
+  "evidence-missing": {
+    heading: "What is missing",
+    note: "These are gaps you can close by answering — the evidence exists, it just has not been stated here yet.",
+  },
+  "fieldwork-required": {
+    heading: "What cannot be known yet",
+    note: "Everything still open needs data from outside this conversation, so there is no answer you could type that would honestly close it — and you should not be asked to invent one. The phase stays closed. The next real step is the instrument: who you will talk to, how many, what you will ask, and the pass/fail threshold you fix BEFORE you see any of it.",
+  },
+  "advisory-only": {
+    heading: "What is thin",
+    note: "Every blocking criterion is met. What is listed here weakens the finding without stopping it.",
+  },
+};
+
+/** PURE. Null in, null out — an older stored verdict simply has no arm. */
+export function describeObstacle(
+  obstacle: GateObstacle | null | undefined
+): GateObstacleView | null {
+  if (!obstacle) {
+    return null;
+  }
+  return { kind: obstacle.kind, ...OBSTACLE_VIEW[obstacle.kind] };
+}
 
 /**
  * WHAT THE PHASE RAIL SAYS, decided in one pure place.
@@ -105,6 +177,13 @@ export type DescribeRailInput = {
    */
   criteriaAssessed?: number;
   verdictReadable?: boolean;
+  /**
+   * Which rule fired. Optional and nullable for the same reason
+   * `GateVerdictSchema.obstacle` is defaulted: every verdict written before this
+   * field existed has none, and those must keep rendering as they did rather
+   * than as a new kind of failure.
+   */
+  obstacle?: GateObstacle | null;
 };
 
 function resolveStatus({
@@ -238,6 +317,12 @@ export type GateVerdictView =
       reason: string | null;
       nextQuestion: string | null;
       pending: RailPending | null;
+      /**
+       * Which rule fired, ready to render. NULL for a verdict stored before the
+       * arm existed — the card then falls back to its generic heading, which is
+       * exactly what those verdicts were written under.
+       */
+      obstacle: GateObstacleView | null;
     };
 
 /** PURE. The verdict card, from the state the router already returns. */
@@ -287,6 +372,7 @@ export function describeGateVerdict(input: DescribeRailInput): GateVerdictView {
     reason: input.reason ?? null,
     nextQuestion: input.nextQuestion ?? null,
     pending,
+    obstacle: describeObstacle(input.obstacle),
   };
 }
 

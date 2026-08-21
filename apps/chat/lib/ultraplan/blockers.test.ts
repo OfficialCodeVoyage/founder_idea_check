@@ -22,6 +22,7 @@ const CRITERIA: ExitCriterion[] = [
     id: "problem-statement",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     description: "A one-sentence problem statement naming who has the problem.",
     factKey: "problem_statement",
   },
@@ -29,6 +30,7 @@ const CRITERIA: ExitCriterion[] = [
     id: "validation-score",
     type: "metric-threshold",
     severity: "blocking",
+    closure: "offline-only",
     description: "The rubric score must reach the investigate-further band.",
     metric: "validation_score",
     operator: "≥",
@@ -38,6 +40,7 @@ const CRITERIA: ExitCriterion[] = [
     id: "people-interviewed",
     type: "metric-threshold",
     severity: "advisory",
+    closure: "offline-only",
     description: "Five or more people interviewed about the problem.",
     metric: "people_interviewed",
     operator: "≥",
@@ -77,6 +80,7 @@ function verdict(
     missing: extra.missing ?? perCriterion.map((e) => e.gap ?? ""),
     nextQuestion: extra.nextQuestion ?? null,
     reason: extra.reason ?? `decision ${decision}`,
+    obstacle: extra.obstacle ?? null,
   };
 }
 

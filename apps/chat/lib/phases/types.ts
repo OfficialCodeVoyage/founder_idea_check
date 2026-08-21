@@ -40,10 +40,35 @@ export const CRITERION_ID_PATTERN = /^[a-z][a-z0-9-]{2,63}$/;
 export const CRITERION_SEVERITIES = ["blocking", "advisory"] as const;
 export type CriterionSeverity = (typeof CRITERION_SEVERITIES)[number];
 
+/**
+ * HOW A CRITERION CAN BE CLOSED, which is a different question from whether it
+ * is closed.
+ *
+ * in-conversation — the founder already knows this and has not said it. Asking
+ *   for the value is the right move, and it is answerable this turn.
+ * offline-only    — closing it needs field data that does not exist yet. Asking
+ *   for the value is asking the founder to invent one.
+ *
+ * THIS EXISTS BECAUSE THE GATE DEADLOCKED ON IT. `problem-validation` demands
+ * four evidence-backed rubric scores; a pre-revenue founder with zero
+ * interviews got seven BLOCKs, and attempt 7's own nextQuestion asked them to
+ * supply the four numbers. Four typed integers would have passed the phase. A
+ * gate built to stop assumptions being laundered into evidence was asking for
+ * one, and the founder — correctly — refused twice.
+ *
+ * DEFAULT IS `in-conversation`, and that is the fail-closed direction. A
+ * criterion mislabelled in-conversation keeps today's behaviour: the gate asks
+ * for the value. One mislabelled offline-only stops the gate asking for a value
+ * it could legitimately have had. The stricter mistake is the default.
+ */
+export const CRITERION_CLOSURES = ["in-conversation", "offline-only"] as const;
+export type CriterionClosure = (typeof CRITERION_CLOSURES)[number];
+
 const criterionBase = {
   id: z.string().regex(CRITERION_ID_PATTERN),
   description: z.string().min(10),
   severity: z.enum(CRITERION_SEVERITIES).default("blocking"),
+  closure: z.enum(CRITERION_CLOSURES).default("in-conversation"),
 };
 
 export const ExitCriterionSchema = z.discriminatedUnion("type", [
@@ -169,6 +194,50 @@ export const GATE_DECISIONS = ["PASS", "WARN", "BLOCK"] as const;
 export type GateDecisionValue = (typeof GATE_DECISIONS)[number];
 
 /**
+ * WHAT STANDS IN THE WAY, as its own arm rather than as a headline over a list
+ * of strings.
+ *
+ * `missing` is a flat array of sentences, so every non-PASS verdict rendered
+ * identically: the card printed "WHAT IS MISSING" above text that said "could
+ * not be assessed". Those are different states with different remedies — *the
+ * gate could not judge this* versus *you have not done this* versus *this
+ * cannot be known yet* — and a founder could not tell which one they were
+ * looking at.
+ *
+ *  phase-misconfigured — the phase defines no criteria. A code bug, not a gap.
+ *  judge-incomplete    — the judge returned nothing, duplicates, or the wrong
+ *                        set. A plumbing failure wearing a refusal's clothes.
+ *  no-facts-yet        — nothing is established about the project at all.
+ *  not-evaluable       — the judge could not tell. NOT the same as unmet.
+ *  evidence-missing    — a real gap the founder can close by answering.
+ *  fieldwork-required  — every blocking gap needs data that does not exist yet.
+ *                        STILL BLOCKS. What changes is the question asked.
+ *  advisory-only       — blocking criteria are met; something soft is open.
+ */
+export const GATE_OBSTACLE_KINDS = [
+  "phase-misconfigured",
+  "judge-incomplete",
+  "no-facts-yet",
+  "not-evaluable",
+  "evidence-missing",
+  "fieldwork-required",
+  "advisory-only",
+] as const;
+export type GateObstacleKind = (typeof GATE_OBSTACLE_KINDS)[number];
+
+export const GateObstacleSchema = z.object({
+  kind: z.enum(GATE_OBSTACLE_KINDS),
+  /**
+   * The criteria this obstacle is about, by id. Empty for the arms that are
+   * about the gate rather than about the work (`phase-misconfigured`,
+   * `judge-incomplete`, `no-facts-yet`).
+   */
+  criterionIds: z.array(z.string()).default([]),
+});
+
+export type GateObstacle = z.infer<typeof GateObstacleSchema>;
+
+/**
  * Shape borrowed from QuintinBotes/warden's GateDecision (MIT, @2736c2b):
  * a three-valued verdict plus a REQUIRED human-readable reason naming the rule
  * that fired. Extended with the fields the UI and the next turn need.
@@ -181,6 +250,14 @@ export const GateVerdictSchema = z.object({
   /** NULL only when decision === "PASS". */
   nextQuestion: z.string().nullable(),
   reason: z.string().min(1),
+  /**
+   * Which rule fired, as data. NULL on PASS — and DEFAULTED to null so that
+   * every verdict already sitting in `ProjectPhaseAttempt.verdict` still
+   * parses. Without the default, adding this field would have made the entire
+   * refusal ledger read as `unreadable: true` — turning the product's own
+   * history of refusals into "this verdict can no longer be read".
+   */
+  obstacle: GateObstacleSchema.nullable().default(null),
 });
 
 export type GateVerdict = z.infer<typeof GateVerdictSchema>;

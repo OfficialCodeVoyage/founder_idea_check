@@ -120,6 +120,7 @@ const PHASE_ONE_CRITERIA: ExitCriterion[] = [
     id: "problem-statement",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "problem_statement",
     description:
       "A specific problem is stated as something a named person experiences, not as a product idea or a market category.",
@@ -128,6 +129,7 @@ const PHASE_ONE_CRITERIA: ExitCriterion[] = [
     id: "target-user",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "target_user",
     description:
       "A specific buyer or user segment is named — a role and a context, not 'small businesses' or 'everyone'.",
@@ -136,6 +138,7 @@ const PHASE_ONE_CRITERIA: ExitCriterion[] = [
     id: "frequency-and-intensity",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "offline-only",
     requirementId: "rubric.frequency-and-intensity",
     description:
       "How often the problem occurs and how much it costs when it does are both evidenced from past behaviour, each scoreable 1-5 on the rubric.",
@@ -144,6 +147,7 @@ const PHASE_ONE_CRITERIA: ExitCriterion[] = [
     id: "existing-workarounds",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "offline-only",
     requirementId: "rubric.workarounds",
     description:
       "At least one concrete workaround people already use is described. No workaround at all is an explicit kill: the problem is not painful enough to build for.",
@@ -152,6 +156,7 @@ const PHASE_ONE_CRITERIA: ExitCriterion[] = [
     id: "willingness-to-pay",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "offline-only",
     requirementId: "rubric.willingness-to-pay",
     description:
       "Willingness to pay is evidenced by money already spent or a number someone named. Purely hypothetical willingness ('they would probably pay') does not satisfy this.",
@@ -160,6 +165,7 @@ const PHASE_ONE_CRITERIA: ExitCriterion[] = [
     id: "evidence-quality",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "offline-only",
     requirementId: "rubric.evidence",
     description:
       "Every dimension cites evidence of a type the rubric accepts: observed behaviour, spending, time invested, or interview quotes. Surveys and 'a friend said' alone do not satisfy this.",
@@ -168,6 +174,7 @@ const PHASE_ONE_CRITERIA: ExitCriterion[] = [
     id: "validation-score",
     type: "metric-threshold",
     severity: "blocking",
+    closure: "offline-only",
     metric: "validation_score",
     operator: "≥",
     threshold: 100,
@@ -178,6 +185,7 @@ const PHASE_ONE_CRITERIA: ExitCriterion[] = [
     id: "people-interviewed",
     type: "metric-threshold",
     severity: "advisory",
+    closure: "offline-only",
     metric: "people_interviewed",
     operator: "≥",
     threshold: 5,

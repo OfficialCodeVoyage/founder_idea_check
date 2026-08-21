@@ -1,5 +1,6 @@
 import {
   type GateDecisionValue,
+  type GateObstacle,
   GateVerdictSchema,
   PHASE_COUNT,
   type PhaseDefinition,
@@ -67,6 +68,16 @@ export type PhaseGateState = {
    * what it said". Callers must keep the two apart.
    */
   verdictReadable: boolean;
+  /**
+   * WHICH RULE FIRED, as data rather than as a headline over a list of strings.
+   *
+   * NULL means the stored verdict predates the field, or the gate PASSed.
+   * Callers must not read a null as "an ordinary missing gap": the whole reason
+   * this exists is that `fieldwork-required` and `evidence-missing` demand
+   * opposite instructions, and folding them together is what produced a gate
+   * asking a founder to invent four rubric scores.
+   */
+  obstacle: GateObstacle | null;
 };
 
 /** Longest gap sentence that reaches the model. */
@@ -124,6 +135,7 @@ export function toPhaseGateState(
     attemptCount: row.attemptCount,
     criteriaAssessed: parsed.success ? parsed.data.perCriterion.length : 0,
     verdictReadable: parsed.success,
+    obstacle: parsed.success ? parsed.data.obstacle : null,
   };
 }
 
@@ -208,6 +220,24 @@ function askLine(nextQuestion: string | null): string {
   return `Unless the founder's latest message already answers it, ask exactly this, rephrased into your own voice if it reads awkwardly but not weakened and not swapped for an easier one:\n"${nextQuestion}"\nThen stop and wait for the answer. If their latest message DOES answer it, acknowledge that specifically, say what it establishes, and ask the next thing this phase actually needs.`;
 }
 
+/**
+ * WHAT TO SAY WHEN THE EVIDENCE CANNOT EXIST YET.
+ *
+ * The founder asked for this in as many words: "I am asking you to help me
+ * build the instrument that produces the scores, and to pre-register the
+ * thresholds before I run it." The gate had spent seven attempts asking for the
+ * scores instead.
+ *
+ * This does NOT soften the refusal — the phase is still closed, and the block
+ * above it still stands. It redirects the one question the interviewer is
+ * allowed to ask, from a value nobody has measured to the method that would
+ * measure it. Pre-registering the threshold is the load-bearing half: a
+ * threshold fixed after the data arrives can always be read backwards into a
+ * pass.
+ */
+const FIELDWORK_INSTRUCTION =
+  "WHAT IS LEFT CANNOT BE ANSWERED FROM MEMORY. Every criterion still open needs field data that does not exist yet, so do NOT ask the founder to score, estimate, guess or 'ballpark' any of it, and do not accept a number they produce on the spot — a figure invented to clear this gate is the exact fabrication this phase exists to prevent, and you would be the one who asked for it. Help them build the instrument instead: the recruiting plan, the sample size, the questions asked verbatim, and the pass/fail threshold committed to BEFORE any data arrives. Treat a defined protocol with a pre-registered threshold as real progress and say so — it is not a pass, and you must still not advance the phase, but it is the work that makes a pass possible.";
+
 function blockedDirective(
   state: PhaseGateState,
   phase: PhaseDefinition
@@ -230,6 +260,9 @@ function blockedDirective(
     "",
     "You must not move the founder on to the next phase, must not tell them this phase is complete, and must not write a summary that reads as though the work is done — the gate decides that, and it has not. If the gap above is still open, say plainly and without padding that the phase is not closed, name the gap that matters most, and say what would close it. If their latest message just closed it, say what it establishes instead of restating the gap."
   );
+  if (state.obstacle?.kind === "fieldwork-required") {
+    lines.push("", FIELDWORK_INSTRUCTION);
+  }
   if (state.attemptCount >= REPEAT_ATTEMPT_THRESHOLD) {
     lines.push(
       "",

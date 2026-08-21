@@ -1,7 +1,7 @@
 import { generateText, Output } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
-import { PHASE_ONE } from "./definitions";
+import { PHASE_ONE, PHASES } from "./definitions";
 import {
   buildGatePrompt,
   decideGate,
@@ -30,12 +30,15 @@ const RE_GATE_DISABLED = /disabled by configuration/;
 const RE_FAILED_CLOSED = /failed closed/;
 const RE_NO_API_KEY = /no api key/;
 const RE_BAD_SHAPE = /did not match the expected shape/;
+const RE_INSTRUMENT = /what is the protocol that will produce it/i;
+const RE_NEEDS_FIELD_DATA = /need field data that does not exist yet/;
 
 const gate = GateConfigSchema.parse({});
 
 const ALL_META: GateCriterionMeta[] = PHASE_ONE.exitCriteria.map((c) => ({
   id: c.id,
   severity: c.severity,
+  closure: c.closure,
 }));
 
 function ev(
@@ -439,15 +442,315 @@ describe("evaluateGate — the injected seam", () => {
     expect(verdict.missing).toEqual([
       "nobody has named a price they would pay",
     ]);
-    expect(verdict.nextQuestion).toBe(
+    // THE JUDGE'S QUESTION IS DISCARDED HERE, ON PURPOSE. `willingness-to-pay`
+    // is `offline-only`, and "Who has paid for a workaround, and how much?" is
+    // a question about the world that a pre-revenue founder cannot answer
+    // without fieldwork. The gate substitutes the instrument.
+    expect(verdict.nextQuestion).not.toBe(
       "Who has paid for a workaround, and how much?"
     );
+    expect(verdict.nextQuestion).toContain("willingness-to-pay");
+    expect(verdict.nextQuestion).toContain("threshold");
+    expect(verdict.obstacle).toEqual({
+      kind: "fieldwork-required",
+      criterionIds: ["willingness-to-pay"],
+    });
 
     // The judge was actually given the criteria, not a summary of them.
     expect(model.doGenerateCalls).toHaveLength(1);
     expect(JSON.stringify(model.doGenerateCalls[0].prompt)).toContain(
       "existing-workarounds"
     );
+  });
+});
+
+/**
+ * THE DEADLOCK, AND THE INVARIANT THAT ENDS IT.
+ *
+ * Live evidence, 2026-08-21: project 01a0279c sat on `problem-validation` for
+ * SEVEN attempts, BLOCK every time, and attempt 7's own nextQuestion asked the
+ * founder "what evidence-backed 1-5 scores do frequency, intensity, workarounds
+ * and willingness to pay receive?" — four typed integers away from PASS, on
+ * numbers nobody had measured. The founder refused twice, correctly:
+ *
+ *   "I am not going to hypothesize scores for interviews that have not
+ *    happened. Answering that question would fabricate the exact evidence this
+ *    phase exists to collect."
+ *
+ * The gate was asking for the laundering it exists to prevent.
+ */
+describe("decideGate — a gap that needs fieldwork", () => {
+  /** The four rubric dimensions, unmet, with the judge asking for the values. */
+  function attemptSeven(): CriterionEvaluation[] {
+    const asks: Record<string, string> = {
+      "frequency-and-intensity":
+        "What 1-5 scores do frequency and intensity receive?",
+      "existing-workarounds": "What 1-5 score do workarounds receive?",
+      "willingness-to-pay": "What 1-5 score does willingness to pay receive?",
+      "validation-score": "What is the product of the four scores?",
+    };
+    return allMet().map((e) =>
+      asks[e.criterionId]
+        ? ev(e.criterionId, "unmet", {
+            gap: `${e.criterionId} has no evidence behind it`,
+            nextQuestion: asks[e.criterionId],
+          })
+        : e
+    );
+  }
+
+  it("STILL BLOCKS — nothing about this advances a phase", () => {
+    const verdict = decideGate(attemptSeven(), {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+    expect(verdict.decision).toBe("BLOCK");
+  });
+
+  it("refuses to re-ask for the scores, and asks for the instrument instead", () => {
+    const verdict = decideGate(attemptSeven(), {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+
+    // Not one of the judge's four armchair-answerable questions survives.
+    for (const ask of [
+      "What 1-5 scores do frequency and intensity receive?",
+      "What 1-5 score do workarounds receive?",
+      "What 1-5 score does willingness to pay receive?",
+      "What is the product of the four scores?",
+    ]) {
+      expect(verdict.nextQuestion).not.toBe(ask);
+    }
+    // And what replaces them is about producing the evidence, not stating it.
+    expect(verdict.nextQuestion).toMatch(RE_INSTRUMENT);
+    expect(verdict.nextQuestion).toContain("threshold");
+  });
+
+  it("names the arm as fieldwork-required, not as a plain missing gap", () => {
+    const verdict = decideGate(attemptSeven(), {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+    expect(verdict.obstacle?.kind).toBe("fieldwork-required");
+    expect(verdict.obstacle?.criterionIds).toEqual([
+      "frequency-and-intensity",
+      "existing-workarounds",
+      "willingness-to-pay",
+      "validation-score",
+    ]);
+    // The gaps themselves are unchanged — the refusal is still named in full.
+    expect(verdict.missing).toHaveLength(4);
+  });
+
+  it("keeps the gate's own reason honest about why it refused", () => {
+    const verdict = decideGate(attemptSeven(), {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+    expect(verdict.reason).toMatch(RE_NEEDS_FIELD_DATA);
+  });
+
+  /**
+   * THE PRIORITY RULE. A criterion the founder could close by answering is
+   * always asked first, because it is genuinely closable this turn. Switching to
+   * the instrument while something answerable is still open would stall a
+   * founder who had an answer ready.
+   */
+  it("prefers a question the founder CAN answer when one is still open", () => {
+    const perCriterion = attemptSeven().map((e) =>
+      e.criterionId === "target-user"
+        ? ev(e.criterionId, "unmet", {
+            gap: "no buyer is named",
+            nextQuestion: "Who exactly, by role, feels this?",
+          })
+        : e
+    );
+    const verdict = decideGate(perCriterion, {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+
+    expect(verdict.decision).toBe("BLOCK");
+    expect(verdict.nextQuestion).toBe("Who exactly, by role, feels this?");
+    expect(verdict.obstacle?.kind).toBe("evidence-missing");
+  });
+
+  it("applies the invariant to a blocking PARTIAL too", () => {
+    const perCriterion = allMet().map((e) =>
+      e.criterionId === "frequency-and-intensity"
+        ? ev(e.criterionId, "partial", {
+            gap: "intensity is asserted, not evidenced",
+            nextQuestion: "What score does intensity get?",
+          })
+        : e
+    );
+    const verdict = decideGate(perCriterion, {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+
+    expect(verdict.decision).toBe("BLOCK");
+    expect(verdict.nextQuestion).not.toBe("What score does intensity get?");
+    expect(verdict.nextQuestion).toMatch(RE_INSTRUMENT);
+    expect(verdict.obstacle?.kind).toBe("fieldwork-required");
+  });
+
+  it("still asks for the value when the criterion is answerable in conversation", () => {
+    // `problem-statement` is in-conversation: the founder knows it and has not
+    // said it. Nothing about this change may make the gate stop asking for it.
+    const perCriterion = allMet().map((e) =>
+      e.criterionId === "problem-statement"
+        ? ev(e.criterionId, "unmet", {
+            gap: "the problem is stated as a product idea",
+            nextQuestion: "Whose day goes wrong, and what happens?",
+          })
+        : e
+    );
+    const verdict = decideGate(perCriterion, {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+
+    expect(verdict.nextQuestion).toBe(
+      "Whose day goes wrong, and what happens?"
+    );
+    expect(verdict.obstacle?.kind).toBe("evidence-missing");
+  });
+
+  /**
+   * The phase-4 case, which is the reason `pre-registered-threshold` is
+   * classified in-conversation while everything around it is offline-only:
+   * stating the threshold BEFORE the test is exactly the move the gate wants,
+   * so it must remain a question the gate is willing to ask.
+   */
+  it("asks phase 4 for its pre-registered threshold rather than for results", () => {
+    const phaseFour = PHASES[3];
+    const meta: GateCriterionMeta[] = phaseFour.exitCriteria.map((c) => ({
+      id: c.id,
+      severity: c.severity,
+      closure: c.closure,
+    }));
+    const perCriterion = meta.map((c) =>
+      ev(c.id, "unmet", {
+        gap: `${c.id} has nothing behind it`,
+        nextQuestion: `Tell me the result for ${c.id}.`,
+      })
+    );
+
+    const verdict = decideGate(perCriterion, {
+      criteria: meta,
+      gate,
+      factCount: 9,
+    });
+
+    expect(verdict.decision).toBe("BLOCK");
+    expect(verdict.nextQuestion).toBe(
+      "Tell me the result for pre-registered-threshold."
+    );
+    expect(verdict.obstacle?.kind).toBe("evidence-missing");
+  });
+
+  it("separates not-evaluable from unmet in the arm it reports", () => {
+    const perCriterion = allMet().map((e) =>
+      e.criterionId === "evidence-quality"
+        ? ev(e.criterionId, "not-evaluable", { gap: "no sources were named" })
+        : e
+    );
+    const verdict = decideGate(perCriterion, {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+
+    expect(verdict.decision).toBe("BLOCK");
+    expect(verdict.obstacle).toEqual({
+      kind: "not-evaluable",
+      criterionIds: ["evidence-quality"],
+    });
+  });
+
+  it("gives every non-criterion refusal its own arm", () => {
+    expect(
+      decideGate([], { criteria: [], gate, factCount: 9 }).obstacle?.kind
+    ).toBe("phase-misconfigured");
+    expect(
+      decideGate([], { criteria: ALL_META, gate, factCount: 9 }).obstacle?.kind
+    ).toBe("judge-incomplete");
+    expect(
+      decideGate(allMet(), { criteria: ALL_META, gate, factCount: 0 }).obstacle
+        ?.kind
+    ).toBe("no-facts-yet");
+    expect(
+      decideGate(allMet().slice(0, 6), {
+        criteria: ALL_META,
+        gate,
+        factCount: 9,
+      }).obstacle?.kind
+    ).toBe("judge-incomplete");
+  });
+
+  it("carries no obstacle on a PASS — there is nothing in the way", () => {
+    expect(
+      decideGate(allMet(), { criteria: ALL_META, gate, factCount: 9 }).obstacle
+    ).toBeNull();
+    expect(
+      decideGate(allMet(), {
+        criteria: ALL_META,
+        gate: GateConfigSchema.parse({ enabled: false }),
+        factCount: 9,
+      }).obstacle
+    ).toBeNull();
+  });
+
+  it("reports an advisory-only miss as advisory-only, not as a blocker", () => {
+    const perCriterion = allMet().map((e) =>
+      e.criterionId === "people-interviewed"
+        ? ev(e.criterionId, "unmet", { gap: "only 2 people spoken to" })
+        : e
+    );
+    const verdict = decideGate(perCriterion, {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+
+    expect(verdict.decision).toBe("WARN");
+    expect(verdict.obstacle?.kind).toBe("advisory-only");
+  });
+
+  /**
+   * THE ONE THING THIS CHANGE MAY NOT DO. `fieldwork-required` is a new arm on a
+   * BLOCK, never a new way through. Every combination of closures over an unmet
+   * blocking criterion must still refuse.
+   */
+  it("never lets a closure classification reach PASS", () => {
+    for (const closure of ["in-conversation", "offline-only"] as const) {
+      const meta: GateCriterionMeta[] = ALL_META.map((c) => ({
+        ...c,
+        closure,
+      }));
+      for (const status of ["unmet", "partial", "not-evaluable"] as const) {
+        const perCriterion = allMet().map((e) =>
+          e.criterionId === "problem-statement"
+            ? ev(e.criterionId, status, { gap: "nothing here" })
+            : e
+        );
+        const verdict = decideGate(perCriterion, {
+          criteria: meta,
+          gate,
+          factCount: 9,
+        });
+        expect(verdict.decision).toBe("BLOCK");
+      }
+    }
   });
 });
 

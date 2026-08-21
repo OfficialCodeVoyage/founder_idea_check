@@ -15,6 +15,7 @@ import {
   RAIL_POLL_INTERVAL_MS,
   type RailWait,
 } from "@/lib/phases/rail";
+import type { GateObstacle } from "@/lib/phases/types";
 import { useTRPC } from "@/trpc/react";
 
 /**
@@ -75,6 +76,11 @@ export type PhaseGateData = {
    */
   criteriaAssessed: number;
   verdictReadable: boolean;
+  /**
+   * Which rule the gate broke on, so the card can head its list with the right
+   * words. NULL for any verdict stored before the arm existed.
+   */
+  obstacle: GateObstacle | null;
 };
 
 const PhaseGateContext = createContext<PhaseGateState | null>(null);

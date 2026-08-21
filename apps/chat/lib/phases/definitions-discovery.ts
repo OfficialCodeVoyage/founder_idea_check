@@ -39,6 +39,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "solution-concept",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "solution_concept",
     description:
       "One sentence describing what the target user DOES differently once this exists. A feature list, a technology ('an AI agent that...') or a category name does not satisfy this.",
@@ -47,6 +48,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "solution-mechanism",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "solution_mechanism",
     description:
       "The mechanism by which the pain is removed, stated end to end: what goes in, what the product does, what comes out. 'It uses AI' names a technology, not a mechanism.",
@@ -55,6 +57,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "displaces-workaround",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "workaround_displaced",
     description:
       "Names the specific workaround established in phase 1 and states what the user STOPS doing. A solution that sits alongside the workaround instead of replacing it does not satisfy this.",
@@ -63,6 +66,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "measurable-advantage",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "solution_advantage",
     description:
       "The improvement over that workaround expressed as a number on a dimension the user already measures — minutes per week, error rate, currency. Adjectives ('faster', 'seamless') do not satisfy this.",
@@ -71,6 +75,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "switching-cost",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "switching_cost",
     description:
       "The concrete cost of moving off the current workaround — data to migrate, habits to retrain, a contract to exit — and why the stated gain is larger than it.",
@@ -79,6 +84,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "riskiest-assumption",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "riskiest_assumption",
     description:
       "The single assumption that, if false, makes this solution not work, labelled [Assumption]. Not a list — the one that would kill it.",
@@ -87,6 +93,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "assumption-test",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "assumption_test",
     description:
       "A test of that assumption that can be run without building the product, with its pass/fail result stated in advance.",
@@ -95,6 +102,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "traces-to-problem",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "in-conversation",
     requirementId: "solution.traces-to-validated-problem",
     description:
       "Every capability described traces back to the problem statement and target user established in phase 1. Anything that does not is named as out of scope rather than justified.",
@@ -103,6 +111,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "excluded-scope",
     type: "artifact-exists",
     severity: "advisory",
+    closure: "in-conversation",
     factKey: "excluded_scope",
     description:
       "At least one capability the founder wants but is deliberately not building, with the reason. A solution with nothing excluded has not been shaped yet.",
@@ -111,6 +120,7 @@ const PHASE_TWO_CRITERIA: ExitCriterion[] = [
     id: "alternatives-considered",
     type: "metric-threshold",
     severity: "advisory",
+    closure: "in-conversation",
     metric: "alternatives_considered",
     operator: "≥",
     threshold: 2,
@@ -156,6 +166,7 @@ const PHASE_THREE_CRITERIA: ExitCriterion[] = [
     id: "primary-persona",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "primary_persona",
     description:
       "One primary persona: a role, a context, and at least two OBSERVABLE attributes you could filter a list on (team size, tool already in use, job title). Psychographics like 'ambitious' do not satisfy this.",
@@ -164,6 +175,7 @@ const PHASE_THREE_CRITERIA: ExitCriterion[] = [
     id: "single-beachhead",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "in-conversation",
     requirementId: "persona.single-beachhead",
     description:
       "Exactly one persona is chosen to go first and every other candidate segment is explicitly deprioritised with a reason. Two co-equal 'primary' personas do not satisfy this.",
@@ -172,6 +184,7 @@ const PHASE_THREE_CRITERIA: ExitCriterion[] = [
     id: "trigger-event",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "offline-only",
     factKey: "persona_trigger_event",
     description:
       "The observable event that makes this persona start looking for a fix, stated as something that happened to a real person on a real day — not a state of mind.",
@@ -180,6 +193,7 @@ const PHASE_THREE_CRITERIA: ExitCriterion[] = [
     id: "buying-process",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "buying_process",
     description:
       "Who chooses, who pays and who can veto, named as roles. 'The founder decides' is acceptable only if the persona is the founder of a company that small.",
@@ -188,6 +202,7 @@ const PHASE_THREE_CRITERIA: ExitCriterion[] = [
     id: "budget-owner",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "budget_owner",
     description:
       "The role that controls the money, and whether the founder has ever spoken to someone in that role. No access to the budget owner is a yellow flag that must be stated, not omitted.",
@@ -196,6 +211,7 @@ const PHASE_THREE_CRITERIA: ExitCriterion[] = [
     id: "persona-evidence",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "in-conversation",
     requirementId: "persona.grounded-in-evidence",
     description:
       "Each persona attribute is backed by a direct quote or an observed behaviour, or is labelled [Assumption]. An unlabelled invented attribute fails this criterion for the whole persona.",
@@ -204,6 +220,7 @@ const PHASE_THREE_CRITERIA: ExitCriterion[] = [
     id: "persona-interview-count",
     type: "metric-threshold",
     severity: "blocking",
+    closure: "offline-only",
     metric: "persona_interviews_count",
     operator: "≥",
     threshold: 5,
@@ -214,6 +231,7 @@ const PHASE_THREE_CRITERIA: ExitCriterion[] = [
     id: "excluded-segments",
     type: "artifact-exists",
     severity: "advisory",
+    closure: "in-conversation",
     factKey: "excluded_segments",
     description:
       "At least one nearby segment that is explicitly NOT being served first, with the reason it was cut.",
@@ -222,6 +240,7 @@ const PHASE_THREE_CRITERIA: ExitCriterion[] = [
     id: "reachable-channel",
     type: "artifact-exists",
     severity: "advisory",
+    closure: "in-conversation",
     factKey: "persona_reachable_where",
     description:
       "A named place — community, list, event, publication, search term — where a hundred of these people can actually be reached. This is the input to phase 8.",
@@ -270,6 +289,7 @@ const PHASE_FOUR_CRITERIA: ExitCriterion[] = [
     id: "demand-test-design",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "offline-only",
     factKey: "demand_test_design",
     description:
       "A named test that has actually been run — pre-sale, paid pilot, concierge delivery, deposit waitlist, cold outreach with a calendar ask — including the exact wording of the ask.",
@@ -278,6 +298,7 @@ const PHASE_FOUR_CRITERIA: ExitCriterion[] = [
     id: "demand-test-channel",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "offline-only",
     factKey: "demand_test_channel",
     description:
       "Where the respondents came from, named specifically enough that the same source could be used again.",
@@ -286,6 +307,7 @@ const PHASE_FOUR_CRITERIA: ExitCriterion[] = [
     id: "costly-signal",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "offline-only",
     requirementId: "demand.costly-signal",
     description:
       "The signal counted cost the respondent something real: money, a scheduled meeting, an introduction, or their own data. Page views, likes, free email signups and 'I'd definitely use that' do not satisfy this.",
@@ -294,6 +316,7 @@ const PHASE_FOUR_CRITERIA: ExitCriterion[] = [
     id: "strangers-not-friends",
     type: "requirement-satisfied",
     severity: "blocking",
+    closure: "offline-only",
     requirementId: "demand.strangers-not-network",
     description:
       "Respondents came from outside the founder's personal network and match the phase 3 persona. Friends and colleagues are excluded from the count rather than explained away.",
@@ -302,6 +325,7 @@ const PHASE_FOUR_CRITERIA: ExitCriterion[] = [
     id: "pre-registered-threshold",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "in-conversation",
     factKey: "demand_pass_threshold",
     description:
       "The pass/fail number was stated BEFORE the test ran and appears in the transcript before the result does. A threshold produced after seeing the outcome does not satisfy this.",
@@ -310,6 +334,7 @@ const PHASE_FOUR_CRITERIA: ExitCriterion[] = [
     id: "demand-sample-size",
     type: "metric-threshold",
     severity: "blocking",
+    closure: "offline-only",
     metric: "demand_test_sample_size",
     operator: "≥",
     threshold: 20,
@@ -320,6 +345,7 @@ const PHASE_FOUR_CRITERIA: ExitCriterion[] = [
     id: "demand-commitments",
     type: "metric-threshold",
     severity: "blocking",
+    closure: "offline-only",
     metric: "demand_commitments_count",
     operator: "≥",
     threshold: 3,
@@ -330,6 +356,7 @@ const PHASE_FOUR_CRITERIA: ExitCriterion[] = [
     id: "demand-verdict",
     type: "artifact-exists",
     severity: "blocking",
+    closure: "offline-only",
     factKey: "demand_verdict",
     description:
       "An explicit go / pivot / kill call made by comparing the actual result to the pre-registered threshold, including the case where the threshold was missed.",
@@ -338,6 +365,7 @@ const PHASE_FOUR_CRITERIA: ExitCriterion[] = [
     id: "conversion-rate",
     type: "metric-threshold",
     severity: "advisory",
+    closure: "offline-only",
     metric: "demand_conversion_rate",
     operator: "≥",
     threshold: 5,

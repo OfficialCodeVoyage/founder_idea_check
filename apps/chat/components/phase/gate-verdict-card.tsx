@@ -61,6 +61,7 @@ export function GateVerdictCard({
     decision: gate.data.decision,
     missing: gate.data.missing,
     nextQuestion: gate.data.nextQuestion,
+    obstacle: gate.data.obstacle,
     reason: gate.data.reason,
     total: gate.data.total,
     verdictReadable: gate.data.verdictReadable,
@@ -140,10 +141,15 @@ export function GateVerdictCard({
 
         {view.coverage.kind === "scored" && view.gaps.length > 0 ? (
           <div className="mt-3">
+            {/*
+              THE HEADING IS PER-ARM. It used to be the literal string "What is
+              missing" over whatever `missing` held — so on four of the seven
+              live attempts it read "WHAT IS MISSING" above text that said "could
+              not be assessed". Those are opposite situations with opposite
+              remedies, and the founder could not tell which one they were in.
+            */}
             <p className="font-medium text-xs uppercase tracking-wide opacity-70">
-              {view.gaps.length === 1
-                ? `What is missing — 1 of ${view.coverage.criteria} criteria`
-                : `What is missing — ${view.gaps.length} of ${view.coverage.criteria} criteria`}
+              {`${view.obstacle?.heading ?? "What is missing"} — ${view.gaps.length} of ${view.coverage.criteria} criteria`}
             </p>
             <ul className="mt-1 space-y-1">
               {/*
@@ -165,6 +171,18 @@ export function GateVerdictCard({
               ))}
             </ul>
           </div>
+        ) : null}
+
+        {/*
+          WHAT THIS STATE IS, AND WHAT CLOSES IT. Without this the list above is
+          a set of sentences with no instruction attached — and for
+          `fieldwork-required` the correct instruction is the opposite of the
+          obvious one: do NOT try to answer these, build the instrument.
+        */}
+        {view.coverage.kind === "scored" && view.obstacle ? (
+          <p className="mt-2 text-muted-foreground text-sm">
+            {view.obstacle.note}
+          </p>
         ) : null}
 
         {view.coverage.kind === "scored" && view.noGapNote ? (

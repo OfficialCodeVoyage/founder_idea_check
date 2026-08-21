@@ -171,6 +171,69 @@ describe("describeAttemptSeries — a gate that failed closed is not progress", 
     }
   });
 
+  /**
+   * The ledger is what a founder reads to see what they actually fixed. Folding
+   * three different not-met states into one bucket is what let a card headline
+   * "WHAT IS MISSING" sit over the words "could not be assessed".
+   */
+  it("keeps unmet, partial and not-evaluable in separate buckets", () => {
+    const mixed = {
+      decision: "BLOCK",
+      perCriterion: [
+        { criterionId: "kept", status: "met", evidence: "yes" },
+        { criterionId: "absent", status: "unmet", gap: "nothing here" },
+        { criterionId: "thin", status: "partial", gap: "asserted, not shown" },
+        {
+          criterionId: "unclear",
+          status: "not-evaluable",
+          gap: "the transcript does not say",
+        },
+      ],
+      missing: [
+        "nothing here",
+        "asserted, not shown",
+        "the transcript does not say",
+      ],
+      nextQuestion: "What next?",
+      reason: "a reason",
+    };
+
+    const [step] = describeAttemptSeries([row({ verdict: mixed })]);
+    expect(step.detail.readable).toBe(true);
+    if (!step.detail.readable) {
+      return;
+    }
+    expect(step.detail.outright).toEqual(["absent"]);
+    expect(step.detail.partial).toEqual(["thin"]);
+    expect(step.detail.notEvaluable).toEqual(["unclear"]);
+    // The DIFF basis is unchanged: open-versus-closed is still the right
+    // question for a diff, and all three are open.
+    expect(step.detail.unmet).toEqual(["absent", "thin", "unclear"]);
+  });
+
+  it("reports all three as absent, not empty, when nothing was scored", () => {
+    // Same trap as `unmet`: an empty list here would read as "none of these",
+    // which is a claim about criteria that were never looked at.
+    const [step] = describeAttemptSeries([
+      row({
+        verdict: {
+          decision: "BLOCK",
+          perCriterion: [],
+          missing: ["the judge call failed"],
+          nextQuestion: null,
+          reason: "Gate failed closed",
+        },
+      }),
+    ]);
+    expect(step.detail.readable).toBe(true);
+    if (!step.detail.readable) {
+      return;
+    }
+    expect(step.detail.outright).toBeNull();
+    expect(step.detail.partial).toBeNull();
+    expect(step.detail.notEvaluable).toBeNull();
+  });
+
   it("resumes diffing across the gap once two real verdicts sit together", () => {
     const steps = describeAttemptSeries([
       row({ attemptNo: 1, verdict: verdict(["a", "b"]) }),

@@ -44,6 +44,25 @@ export type AttemptDetail =
        * reports criteria as CLOSED that the founder never touched.
        */
       unmet: readonly string[] | null;
+      /**
+       * THE THREE WAYS A CRITERION CAN BE NOT-MET, KEPT APART.
+       *
+       * `unmet` above is the DIFF basis and stays "everything not marked met",
+       * because open-versus-closed is the right question for a diff. These two
+       * are for DISPLAY, where folding them together is what let the card print
+       * "WHAT IS MISSING" over the words "could not be assessed".
+       *
+       * - `outright`     the judge looked and found nothing. Do the work.
+       * - `partial`      evidenced, but not enough of it. Strengthen it.
+       * - `notEvaluable` the judge could not tell. Say it more plainly.
+       *
+       * NULL alongside a null `unmet`, for the same reason: nothing was scored,
+       * so an empty list here would read as "none of these", which is a claim
+       * about criteria that were never looked at.
+       */
+      outright: readonly string[] | null;
+      partial: readonly string[] | null;
+      notEvaluable: readonly string[] | null;
       /** True when the gate failed closed: it reached a decision, scored none. */
       failedClosed: boolean;
     }
@@ -77,6 +96,15 @@ function unmetIds(perCriterion: readonly CriterionEvaluation[]): string[] {
     .map((evaluation) => evaluation.criterionId);
 }
 
+function idsWithStatus(
+  perCriterion: readonly CriterionEvaluation[],
+  status: CriterionEvaluation["status"]
+): string[] {
+  return perCriterion
+    .filter((evaluation) => evaluation.status === status)
+    .map((evaluation) => evaluation.criterionId);
+}
+
 function toDetail(verdict: unknown): AttemptDetail {
   const parsed = GateVerdictSchema.safeParse(verdict);
   if (!parsed.success) {
@@ -87,10 +115,16 @@ function toDetail(verdict: unknown): AttemptDetail {
   // unmet" made the next attempt's diff announce that the founder had closed
   // five criteria they never touched. Observed live on 2026-08-21.
   const failedClosed = parsed.data.perCriterion.length === 0;
+  const perCriterion = parsed.data.perCriterion;
   return {
     readable: true,
-    perCriterion: parsed.data.perCriterion,
-    unmet: failedClosed ? null : unmetIds(parsed.data.perCriterion),
+    perCriterion,
+    unmet: failedClosed ? null : unmetIds(perCriterion),
+    outright: failedClosed ? null : idsWithStatus(perCriterion, "unmet"),
+    partial: failedClosed ? null : idsWithStatus(perCriterion, "partial"),
+    notEvaluable: failedClosed
+      ? null
+      : idsWithStatus(perCriterion, "not-evaluable"),
     failedClosed,
   };
 }

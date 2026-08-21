@@ -22,6 +22,10 @@ function verdict(overrides: Partial<GateVerdict> = {}): GateVerdict {
     missing: ["No workaround has been named."],
     nextQuestion: "What do they do about it today?",
     reason: "1 blocking criterion is unmet.",
+    obstacle: {
+      kind: "evidence-missing",
+      criterionIds: ["existing-workarounds"],
+    },
     ...overrides,
   };
 }
@@ -47,6 +51,7 @@ function state(overrides: Partial<PhaseGateState> = {}): PhaseGateState {
     attemptCount: 1,
     criteriaAssessed: 3,
     verdictReadable: true,
+    obstacle: null,
     ...overrides,
   };
 }
@@ -252,6 +257,52 @@ describe("buildPhaseDirective — always", () => {
     expect(directive(s)).toBe(directive(s));
   });
 
+  /**
+   * THE INSTRUCTION THAT ENDS THE DEADLOCK.
+   *
+   * Attempt 7's directive told the interviewer to ask the gate's question, and
+   * the gate's question was "what 1-5 scores do frequency, intensity,
+   * workarounds and willingness to pay receive?". Four typed integers from a
+   * PASS on numbers nobody had measured.
+   */
+  it("forbids asking a founder to score what has not been measured", () => {
+    const text = directive({
+      decision: "BLOCK",
+      reason: "4 criteria need field data that does not exist yet.",
+      missing: ["willingness to pay has no evidence behind it"],
+      nextQuestion: "What is the protocol that will produce it?",
+      attemptCount: 7,
+      criteriaAssessed: 8,
+      verdictReadable: true,
+      obstacle: {
+        kind: "fieldwork-required",
+        criterionIds: ["willingness-to-pay"],
+      },
+    });
+
+    expect(text).toContain("CANNOT BE ANSWERED FROM MEMORY");
+    expect(text).toContain("do NOT ask the founder to score");
+    expect(text).toContain("pass/fail threshold");
+    // And it is still a refusal. This may not become a way through.
+    expect(text).toContain("must not tell them this phase is complete");
+  });
+
+  it("adds nothing of the sort when the gap is answerable", () => {
+    const text = directive({
+      decision: "BLOCK",
+      reason: "1 criterion unmet.",
+      missing: ["no buyer is named"],
+      nextQuestion: "Who exactly, by role, feels this?",
+      attemptCount: 1,
+      criteriaAssessed: 8,
+      verdictReadable: true,
+      obstacle: { kind: "evidence-missing", criterionIds: ["target-user"] },
+    });
+
+    expect(text).not.toContain("CANNOT BE ANSWERED FROM MEMORY");
+    expect(text).toContain("Who exactly, by role, feels this?");
+  });
+
   it("names the verdict's vintage on every verdict-bearing branch", () => {
     // The defect was not the one-turn lag — that is structural, since the gate
     // cannot judge a reply before it is written. It was presenting the stale
@@ -266,6 +317,7 @@ describe("buildPhaseDirective — always", () => {
         attemptCount: 1,
         criteriaAssessed: 3,
         verdictReadable: true,
+        obstacle: null,
       });
       expect(text).toContain("VINTAGE");
       expect(text).toContain("predates the message you are answering");
@@ -285,6 +337,7 @@ describe("buildPhaseDirective — always", () => {
       attemptCount: 1,
       criteriaAssessed: 3,
       verdictReadable: true,
+      obstacle: null,
     });
 
     // The refusal must still be there when the gap IS open ...
@@ -305,6 +358,7 @@ describe("buildPhaseDirective — always", () => {
       attemptCount: 1,
       criteriaAssessed: 3,
       verdictReadable: true,
+      obstacle: null,
     });
 
     expect(text).toContain(
@@ -324,6 +378,7 @@ describe("buildPhaseDirective — always", () => {
       attemptCount: 1,
       criteriaAssessed: 3,
       verdictReadable: true,
+      obstacle: null,
     });
     expect(text).toContain("must not tell them this phase is complete");
     expect(text).toContain("the gate decides that, and it has not");

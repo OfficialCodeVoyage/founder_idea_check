@@ -258,6 +258,40 @@ describe("lookup helpers", () => {
     expect(getPhaseByOrder(PHASE_COUNT + 1)).toBeUndefined();
   });
 
+  /**
+   * EVERY PHASE MUST HAVE SOMETHING THE INTERVIEW CAN ACTUALLY CLOSE.
+   *
+   * A phase whose blocking criteria ALL need fieldwork has no move available in
+   * conversation at all — the interviewer would have nothing to ask on the first
+   * turn, and the founder would be told to go and do fieldwork before the phase
+   * had established what the fieldwork was for. Phase 4 is the tight case and
+   * the reason `pre-registered-threshold` is classified in-conversation: stating
+   * the threshold BEFORE the test is the one thing a founder can do at a desk,
+   * and it is the thing that makes the eventual result mean anything.
+   */
+  it("gives every phase at least one blocking criterion closable in conversation", () => {
+    for (const phase of PHASES) {
+      const answerable = phase.exitCriteria.filter(
+        (c) => c.severity === "blocking" && c.closure === "in-conversation"
+      );
+      expect(
+        answerable.length,
+        `phase ${phase.order} (${phase.key}) has no blocking criterion a founder can close by answering`
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("classifies every criterion explicitly rather than by default", () => {
+    // The schema defaults `closure` to in-conversation, which is the fail-closed
+    // direction — but a phase that simply forgot to classify would then quietly
+    // re-acquire the deadlock. Every criterion states it.
+    for (const phase of PHASES) {
+      for (const c of phase.exitCriteria) {
+        expect(["in-conversation", "offline-only"]).toContain(c.closure);
+      }
+    }
+  });
+
   it("walks the whole workflow in order and stops at the end", () => {
     const walked: string[] = [];
     let current = getPhaseByKey(FIRST_PHASE_KEY);

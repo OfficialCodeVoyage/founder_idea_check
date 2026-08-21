@@ -1,8 +1,10 @@
 import {
+  type CriterionClosure,
   type CriterionEvaluation,
   type CriterionSeverity,
   type ExitCriterion,
   type GateConfig,
+  type GateObstacle,
   type GateVerdict,
   JudgeOutputSchema,
   type KnownFact,
@@ -19,6 +21,12 @@ import {
 export type GateCriterionMeta = {
   id: string;
   severity: CriterionSeverity;
+  /**
+   * How this criterion can be closed. REQUIRED, not defaulted here: the
+   * definition already defaults it (`CRITERION_CLOSURES`), and a second silent
+   * default in the gate would hide a phase that forgot to classify at all.
+   */
+  closure: CriterionClosure;
 };
 
 export type DecideGateInput = {
@@ -64,9 +72,17 @@ function verdict(
   reason: string,
   perCriterion: CriterionEvaluation[],
   missing: string[],
-  nextQuestion: string | null
+  nextQuestion: string | null,
+  obstacle: GateObstacle | null
 ): GateVerdict {
-  return { decision, perCriterion, missing, nextQuestion, reason };
+  return { decision, perCriterion, missing, nextQuestion, reason, obstacle };
+}
+
+function obstacleFor(
+  kind: GateObstacle["kind"],
+  evaluations: readonly CriterionEvaluation[] = []
+): GateObstacle {
+  return { kind, criterionIds: evaluations.map((e) => e.criterionId) };
 }
 
 function firstQuestion(
@@ -84,6 +100,97 @@ function firstQuestion(
     }
   }
   return fallback;
+}
+
+/**
+ * The question asked when the only thing left needs fieldwork.
+ *
+ * IT IS BUILT HERE, NOT TAKEN FROM THE JUDGE, and that is the entire point. The
+ * judge's own `nextQuestion` on attempt 7 was "what evidence-backed 1-5 scores
+ * do frequency, intensity, workarounds, and willingness to pay receive?" — four
+ * typed integers away from passing the phase on numbers nobody had measured.
+ * A question answerable from an armchair is a BUG in a gate like this one, not a
+ * prompt-quality problem, so the armchair-answerable question is discarded
+ * rather than improved.
+ *
+ * What replaces it tracks the INSTRUMENT: the protocol, the recruitment, the
+ * sample, and the threshold fixed BEFORE the data arrives. Pre-registering the
+ * threshold is what stops the eventual number being read backwards into a pass.
+ */
+function instrumentQuestion(blocking: CriterionEvaluation[]): string {
+  const ids = blocking.map((e) => e.criterionId).join(", ");
+  return `What is left open (${ids}) needs field data that does not exist yet, so do not estimate it and do not ask me to: what is the protocol that will produce it — who you will talk to, how you will reach them, how many, and the pass/fail threshold you are fixing in advance of seeing any of it?`;
+}
+
+/**
+ * The reason line and the arm for a BLOCKING SHORTFALL, in one place.
+ *
+ * Lives outside `decideGate` so that branch stays a flat early return. The only
+ * thing `fieldworkOnly` changes is the WORDING and the ARM — never the decision.
+ * A phase whose evidence is merely hard to get has still not got it.
+ */
+function shortfall(
+  what: "unmet" | "partial",
+  outstanding: CriterionEvaluation[],
+  defined: number,
+  fieldworkOnly: boolean
+): { reason: string; missing: string[]; obstacle: GateObstacle } {
+  const missing = outstanding.map((e) => e.gap as string);
+  const head = `${outstanding.length} of ${defined} exit criteria`;
+  const detail = missing.join("; ");
+  const phrase = SHORTFALL_PHRASE[fieldworkOnly ? "fieldwork" : "plain"][what];
+  return {
+    missing,
+    reason: `${head} ${phrase}: ${detail}.`,
+    obstacle: obstacleFor(
+      fieldworkOnly ? "fieldwork-required" : "evidence-missing",
+      outstanding
+    ),
+  };
+}
+
+const SHORTFALL_PHRASE = {
+  plain: {
+    unmet: "are unmet",
+    partial: "are only partly evidenced",
+  },
+  fieldwork: {
+    unmet: "need field data that does not exist yet",
+    partial:
+      "are only partly evidenced and the rest needs field data that does not exist yet",
+  },
+} as const;
+
+/**
+ * THE INVARIANT: the gate may never ask for a value the founder cannot yet
+ * have.
+ *
+ * A criterion the founder could close by answering is always preferred, because
+ * it is genuinely closable this turn. Only when EVERY outstanding criterion
+ * needs fieldwork does the question change shape — and then it changes to the
+ * instrument, never to a softer version of the same unanswerable ask.
+ */
+function questionFor(
+  outstanding: CriterionEvaluation[],
+  closureOf: (evaluation: CriterionEvaluation) => CriterionClosure,
+  fallback: string | null
+): { nextQuestion: string | null; fieldworkOnly: boolean } {
+  if (outstanding.length === 0) {
+    return { nextQuestion: fallback, fieldworkOnly: false };
+  }
+  const answerableNow = outstanding.filter(
+    (e) => closureOf(e) === "in-conversation"
+  );
+  if (answerableNow.length > 0) {
+    return {
+      nextQuestion: firstQuestion(answerableNow, fallback),
+      fieldworkOnly: false,
+    };
+  }
+  return {
+    nextQuestion: instrumentQuestion(outstanding),
+    fieldworkOnly: true,
+  };
 }
 
 /**
@@ -119,7 +226,8 @@ export function decideGate(
       "No exit criteria are defined for this phase, so advance cannot be certified.",
       perCriterion,
       ["this phase has no exit criteria to check against"],
-      "This phase is misconfigured — it has no exit criteria. Fix the phase definition before continuing."
+      "This phase is misconfigured — it has no exit criteria. Fix the phase definition before continuing.",
+      obstacleFor("phase-misconfigured")
     );
   }
 
@@ -131,6 +239,7 @@ export function decideGate(
       "Gate disabled by configuration (gate.enabled = false).",
       perCriterion,
       [],
+      null,
       null
     );
   }
@@ -142,7 +251,8 @@ export function decideGate(
       `No criteria were evaluated (0 of ${defined}); the judge returned nothing.`,
       perCriterion,
       [`none of the ${defined} exit criteria were evaluated`],
-      "I could not assess this phase. Restate where you are and I will re-check."
+      "I could not assess this phase. Restate where you are and I will re-check.",
+      obstacleFor("judge-incomplete")
     );
   }
 
@@ -155,7 +265,8 @@ export function decideGate(
         `The judge returned duplicate evaluations for criterion "${e.criterionId}".`,
         perCriterion,
         [`duplicate verdict for "${e.criterionId}"`],
-        "I could not assess this phase cleanly. Restate where you are and I will re-check."
+        "I could not assess this phase cleanly. Restate where you are and I will re-check.",
+        obstacleFor("judge-incomplete")
       );
     }
     seen.add(e.criterionId);
@@ -181,7 +292,8 @@ export function decideGate(
       `Judge coverage mismatch (${perCriterion.length} evaluations for ${defined} criteria) — ${parts.join("; ")}.`,
       perCriterion,
       parts,
-      "I could not assess every exit criterion. Restate where you are and I will re-check."
+      "I could not assess every exit criterion. Restate where you are and I will re-check.",
+      obstacleFor("judge-incomplete")
     );
   }
 
@@ -193,13 +305,22 @@ export function decideGate(
       `Nothing has been established about this project yet (${factCount} stored facts, ${gate.minFactsRequired} required).`,
       perCriterion,
       ["no facts have been established about the project yet"],
-      "Start at the beginning: what is the problem, and who has it?"
+      "Start at the beginning: what is the problem, and who has it?",
+      obstacleFor("no-facts-yet")
     );
   }
 
   const severityOf = new Map(criteria.map((c) => [c.id, c.severity]));
   const isBlocking = (e: CriterionEvaluation) =>
     (severityOf.get(e.criterionId) ?? "blocking") === "blocking";
+
+  // An id with no definition cannot reach here — guard 5 already refused the
+  // whole verdict for it — so this fallback is unreachable defence. It leans
+  // `in-conversation`, the direction that keeps asking rather than the one that
+  // stops asking.
+  const closureOf_ = new Map(criteria.map((c) => [c.id, c.closure]));
+  const closureOf = (e: CriterionEvaluation): CriterionClosure =>
+    closureOf_.get(e.criterionId) ?? "in-conversation";
 
   // 7. Anything the judge could not assess fails closed — but only where the
   //    criterion is BLOCKING. normalizeEvaluation() escalates any gapless miss
@@ -211,15 +332,21 @@ export function decideGate(
   );
   if (notEvaluable.length > 0) {
     const missing = notEvaluable.map((e) => e.gap ?? NO_GAP_NAMED);
+    // The invariant holds here too. "The judge could not tell" is still a
+    // refusal that ends in a question, and a question about a value nobody has
+    // measured is no better for being prefixed by uncertainty.
+    const { nextQuestion } = questionFor(
+      notEvaluable,
+      closureOf,
+      "I could not assess part of this phase. Give me more detail and I will re-check."
+    );
     return verdict(
       "BLOCK",
       `${notEvaluable.length} of ${defined} exit criteria could not be assessed: ${missing.join("; ")}.`,
       perCriterion,
       missing,
-      firstQuestion(
-        notEvaluable,
-        "I could not assess part of this phase. Give me more detail and I will re-check."
-      )
+      nextQuestion,
+      obstacleFor("not-evaluable", notEvaluable)
     );
   }
 
@@ -228,13 +355,22 @@ export function decideGate(
     (e) => e.status === "unmet" && isBlocking(e)
   );
   if (blockingUnmet.length > 0) {
-    const missing = blockingUnmet.map((e) => e.gap as string);
+    const { nextQuestion, fieldworkOnly } = questionFor(
+      blockingUnmet,
+      closureOf,
+      null
+    );
+    // STILL BLOCK. `fieldworkOnly` changes the QUESTION and the arm, never the
+    // decision — the refusal is the product, and a phase that advanced because
+    // its evidence was merely hard to get would advance on nothing.
+    const parts = shortfall("unmet", blockingUnmet, defined, fieldworkOnly);
     return verdict(
       "BLOCK",
-      `${blockingUnmet.length} of ${defined} exit criteria are unmet: ${missing.join("; ")}.`,
+      parts.reason,
       perCriterion,
-      missing,
-      firstQuestion(blockingUnmet, null)
+      parts.missing,
+      nextQuestion,
+      parts.obstacle
     );
   }
 
@@ -251,13 +387,19 @@ export function decideGate(
   //    tabs. So a blocking partial BLOCKS by default, and the only way to
   //    soften it is an explicit, per-phase `tolerateBlockingPartials`.
   if (blockingPartial.length > gate.tolerateBlockingPartials) {
-    const missing = blockingPartial.map((e) => e.gap as string);
+    const { nextQuestion, fieldworkOnly } = questionFor(
+      blockingPartial,
+      closureOf,
+      null
+    );
+    const parts = shortfall("partial", blockingPartial, defined, fieldworkOnly);
     return verdict(
       "BLOCK",
-      `${blockingPartial.length} of ${defined} exit criteria are only partly evidenced: ${missing.join("; ")}.`,
+      parts.reason,
       perCriterion,
-      missing,
-      firstQuestion(blockingPartial, null)
+      parts.missing,
+      nextQuestion,
+      parts.obstacle
     );
   }
 
@@ -274,12 +416,14 @@ export function decideGate(
   const soft = [...blockingPartial, ...advisorySoft];
   if (soft.length > 0) {
     const missing = soft.map((e) => e.gap as string);
+    const { nextQuestion } = questionFor(soft, closureOf, null);
     return verdict(
       "WARN",
       `All blocking exit criteria are met, but ${soft.length} of ${defined} are only partly evidenced: ${missing.join("; ")}.`,
       perCriterion,
       missing,
-      firstQuestion(soft, null)
+      nextQuestion,
+      obstacleFor("advisory-only", soft)
     );
   }
 
@@ -290,6 +434,7 @@ export function decideGate(
     `All exit criteria met: ${met}/${defined} passed.`,
     perCriterion,
     [],
+    null,
     null
   );
 }
@@ -306,6 +451,7 @@ export function failClosedVerdict(
     nextQuestion:
       "I could not assess this phase just now. Restate where you have got to and I will re-check.",
     reason: `Gate failed closed: ${reason} (${criteria.length} criteria were pending).`,
+    obstacle: { kind: "judge-incomplete", criterionIds: [] },
   };
 }
 
@@ -460,6 +606,7 @@ export async function evaluateGate(
   const meta: GateCriterionMeta[] = input.phase.exitCriteria.map((c) => ({
     id: c.id,
     severity: c.severity,
+    closure: c.closure,
   }));
 
   let raw: unknown;

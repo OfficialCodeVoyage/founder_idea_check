@@ -122,6 +122,27 @@ export const REPEAT_ATTEMPT_THRESHOLD = 3;
 export const DIRECTIVE_HEADING = "## Gate status";
 
 /**
+ * WHEN THIS VERDICT WAS TAKEN, stated in the prompt itself.
+ *
+ * The gate runs in `after()`, once the previous reply has flushed, so the
+ * verdict in this block describes the conversation as it stood BEFORE the
+ * message the model is now answering. That lag is structural and not a bug —
+ * the judge cannot judge a reply that has not been written.
+ *
+ * The BUG was presenting that snapshot as the present tense and ordering the
+ * model to act on it unconditionally. The founder who supplied the missing
+ * evidence was told "Phase 4 is not closed yet. The specific gap is still the
+ * same" on the very turn the gate wrote PASS, and on another turn the entire
+ * reply was the previous verdict's `nextQuestion` re-asked at a founder who had
+ * just answered it. The model was not confused; it obeyed.
+ *
+ * So the vintage is named, and every instruction below that acts on the verdict
+ * is conditioned on the founder's latest message first.
+ */
+const VERDICT_VINTAGE =
+  "VINTAGE: this verdict predates the message you are answering and has not seen it. Read that message first. If it supplies what the gap asks for, build on it — do not restate the gap as open, and do not re-ask what it answered.";
+
+/**
  * The base system prompt (lib/ai/prompts.ts) mandates answers that are
  * "informative, long and very detailed" with "markdown format and tables too".
  * The phase brief mandates one question at a time. Both are in the same prompt,
@@ -158,7 +179,11 @@ function askLine(nextQuestion: string | null): string {
   if (!nextQuestion) {
     return "Ask the single most useful question for closing the gap above, then stop and wait.";
   }
-  return `Ask exactly this, rephrased into your own voice if it reads awkwardly but not weakened and not swapped for an easier one:\n"${nextQuestion}"\nThen stop and wait for the answer.`;
+  // "Ask exactly this" WITHOUT the escape hatch is what produced a reply that
+  // was nothing but the previous turn's question re-asked at a founder who had
+  // just answered it. The question still may not be weakened or swapped for an
+  // easier one — that is the gate's leverage — but it must not be asked twice.
+  return `Unless the founder's latest message already answers it, ask exactly this, rephrased into your own voice if it reads awkwardly but not weakened and not swapped for an easier one:\n"${nextQuestion}"\nThen stop and wait for the answer. If their latest message DOES answer it, acknowledge that specifically, say what it establishes, and ask the next thing this phase actually needs.`;
 }
 
 function blockedDirective(
@@ -166,9 +191,11 @@ function blockedDirective(
   phase: PhaseDefinition
 ): string[] {
   const lines = [
-    `${DIRECTIVE_HEADING} — BLOCKED on ${phaseLabel(phase)}.`,
+    `${DIRECTIVE_HEADING} — as of last turn, BLOCKED on ${phaseLabel(phase)}.`,
     "",
-    "The gate has judged the conversation so far against this phase's exit criteria and refused to let the phase close.",
+    "The gate judged the conversation against this phase's exit criteria and refused to let the phase close.",
+    "",
+    VERDICT_VINTAGE,
   ];
   if (state.reason) {
     lines.push("", `Gate reason: ${state.reason}`);
@@ -179,7 +206,7 @@ function blockedDirective(
   }
   lines.push(
     "",
-    "You must not move the founder on to the next phase, must not tell them this phase is complete, and must not write a summary that reads as though the work is done. Say plainly and without padding that the phase is not closed, name the gap above that matters most, and say what would close it."
+    "You must not move the founder on to the next phase, must not tell them this phase is complete, and must not write a summary that reads as though the work is done — the gate decides that, and it has not. If the gap above is still open, say plainly and without padding that the phase is not closed, name the gap that matters most, and say what would close it. If their latest message just closed it, say what it establishes instead of restating the gap."
   );
   if (state.attemptCount >= REPEAT_ATTEMPT_THRESHOLD) {
     lines.push(
@@ -196,7 +223,9 @@ function warnedDirective(
   phase: PhaseDefinition
 ): string[] {
   const lines = [
-    `${DIRECTIVE_HEADING} — ${phaseLabel(phase)} clears its blocking criteria but the gate flagged a weakness.`,
+    `${DIRECTIVE_HEADING} — as of last turn, ${phaseLabel(phase)} clears its blocking criteria but the gate flagged a weakness.`,
+    "",
+    VERDICT_VINTAGE,
   ];
   if (state.reason) {
     lines.push("", `Gate reason: ${state.reason}`);

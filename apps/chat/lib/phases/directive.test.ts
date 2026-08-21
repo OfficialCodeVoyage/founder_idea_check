@@ -250,6 +250,75 @@ describe("buildPhaseDirective — always", () => {
     expect(directive(s)).toBe(directive(s));
   });
 
+  it("names the verdict's vintage on every verdict-bearing branch", () => {
+    // The defect was not the one-turn lag — that is structural, since the gate
+    // cannot judge a reply before it is written. It was presenting the stale
+    // snapshot as the present tense. A verdict the model is told to act on must
+    // say when it was taken.
+    for (const decision of ["BLOCK", "WARN"] as const) {
+      const text = directive({
+        decision,
+        reason: "1 criterion unmet.",
+        missing: ["a third named user"],
+        nextQuestion: "Who is the third user?",
+        attemptCount: 1,
+      });
+      expect(text).toContain("VINTAGE");
+      expect(text).toContain("predates the message you are answering");
+      expect(text).toContain("as of last turn");
+    }
+  });
+
+  it("does not order an unconditional re-assertion that the phase is short", () => {
+    // Verbatim symptom: on the turn the gate wrote PASS for phase 4, the reply
+    // was "Phase 4 is not closed yet. The specific gap is still the same".
+    // The model was obeying "Say plainly ... that the phase is not closed".
+    const text = directive({
+      decision: "BLOCK",
+      reason: "1 criterion unmet.",
+      missing: ["a third named user"],
+      nextQuestion: "Who is the third user?",
+      attemptCount: 1,
+    });
+
+    // The refusal must still be there when the gap IS open ...
+    expect(text).toContain("the phase is not closed");
+    // ... but conditioned, not unconditional.
+    expect(text).toContain("If the gap above is still open");
+    expect(text).toContain("If their latest message just closed it");
+  });
+
+  it("does not order the same question re-asked at someone who answered it", () => {
+    // Verbatim symptom: the whole reply on the turn that PASSED phase 6 was the
+    // previous turn's question, re-asked at a founder who had just answered it.
+    const text = directive({
+      decision: "BLOCK",
+      reason: "1 criterion unmet.",
+      missing: ["a third named user"],
+      nextQuestion: "What is the full name of the Houston controller?",
+      attemptCount: 1,
+    });
+
+    expect(text).toContain(
+      "Unless the founder's latest message already answers it"
+    );
+    // The gate's leverage is preserved: the question may not be softened.
+    expect(text).toContain("not weakened and not swapped for an easier one");
+  });
+
+  it("still refuses to let the model declare a phase complete", () => {
+    // The conditioning must not become an escape hatch from the gate.
+    const text = directive({
+      decision: "BLOCK",
+      reason: "1 criterion unmet.",
+      missing: ["a third named user"],
+      nextQuestion: null,
+      attemptCount: 1,
+    });
+    expect(text).toContain("must not tell them this phase is complete");
+    expect(text).toContain("the gate decides that, and it has not");
+  });
+
   it("stays well under the phase brief's own token budget", () => {
     // ~4 chars per token, the repo heuristic. The brief is ~800 tokens; the
     // directive is paid on every turn on top of it.

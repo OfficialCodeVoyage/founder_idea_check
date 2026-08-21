@@ -96,6 +96,7 @@ function PureMultimodalInput({
   className,
   autoFocus = false,
   isEditMode = false,
+  isActive = true,
   parentMessageId,
   onSendMessage,
 }: {
@@ -104,6 +105,20 @@ function PureMultimodalInput({
   className?: string;
   autoFocus?: boolean;
   isEditMode?: boolean;
+  /**
+   * FALSE FOR A COMPOSER THAT IS MOUNTED BUT NOT THE ONE THE FOUNDER IS USING.
+   *
+   * `ChatContent` keeps BOTH `ChatWelcome` and `MessagesPane` mounted on
+   * non-project routes and toggles them with a `hidden` class, so two composers
+   * exist at once. Both claimed `data-testid="multimodal-input"` and
+   * `data-testid="model-selector"` (2 of each, confirmed by
+   * `querySelectorAll`), and — worse than the duplicate ids — both bound the
+   * SINGLE shared `editorRef` from `ChatInputProvider`, so the last one
+   * committed owned it: `clearInput()` on the welcome screen cleared the HIDDEN
+   * editor. The inactive composer now claims no testid, does not take the ref,
+   * and does not autofocus.
+   */
+  isActive?: boolean;
   parentMessageId: string | null;
   onSendMessage?: (message: ChatMessage) => void | Promise<void>;
 }) {
@@ -653,6 +668,19 @@ function PureMultimodalInput({
     stopHelper?.();
   }, [lastMessageId, session?.user, stopHelper, stopStreamMutation]);
 
+  // `undefined` REMOVES the attribute rather than renaming it: the inactive
+  // composer must not be findable by a testid at all, or a scoped locator would
+  // still have two nodes to choose between. `MessageEditor` mounts a third
+  // composer with isEditMode, which keeps its own suffixed pair so a message
+  // being edited and the chat composer never collide.
+  const surfaceSuffix = isEditMode ? "-editor" : "";
+  const composerTestId = isActive
+    ? `multimodal-input${surfaceSuffix}`
+    : undefined;
+  const modelSelectorTestId = isActive
+    ? `model-selector${surfaceSuffix}`
+    : undefined;
+
   return (
     <div className="relative">
       {attachmentsEnabled && (
@@ -667,7 +695,7 @@ function PureMultimodalInput({
         />
       )}
 
-      <div className="relative">
+      <div aria-hidden={!isActive} className="relative" inert={!isActive}>
         <PromptInput
           className={cn(
             "@container relative transition-colors",
@@ -712,9 +740,9 @@ function PureMultimodalInput({
           />
 
           <LexicalChatInput
-            autoFocus={autoFocus}
+            autoFocus={autoFocus && isActive}
             className="max-h-[max(35svh,5rem)] min-h-[60px] overflow-y-scroll sm:min-h-[80px]"
-            data-testid="multimodal-input"
+            data-testid={composerTestId}
             initialValue={getInitialInput()}
             onEnterSubmit={(event) => {
               const shouldSubmit = isMobile ? event.ctrlKey : !event.shiftKey;
@@ -739,7 +767,7 @@ function PureMultimodalInput({
                 ? "Send a message... (Ctrl+Enter to send)"
                 : "Send a message..."
             }
-            ref={editorRef}
+            ref={isActive ? editorRef : undefined}
           />
 
           <ChatInputBottomControls
@@ -748,6 +776,7 @@ function PureMultimodalInput({
             acceptImages={acceptImages}
             attachmentsEnabled={attachmentsEnabled}
             fileInputRef={fileInputRef}
+            modelSelectorTestId={modelSelectorTestId}
             onModelSelectionChange={handleModelSelectionChange}
             onStop={handleStop}
             parentMessageId={parentMessageId}
@@ -913,6 +942,7 @@ function PureChatInputBottomControls({
   acceptImages,
   acceptFiles,
   attachmentsEnabled,
+  modelSelectorTestId,
   onStop,
 }: {
   selectedModelId: AppModelId;
@@ -929,6 +959,8 @@ function PureChatInputBottomControls({
   acceptImages: string;
   acceptFiles: string;
   attachmentsEnabled: boolean;
+  /** Undefined on the inactive composer, so only one selector carries the id. */
+  modelSelectorTestId?: string;
   onStop: () => void;
 }) {
   return (
@@ -948,6 +980,7 @@ function PureChatInputBottomControls({
           onModelSelectionChangeAction={onModelSelectionChange}
           selectedModelId={selectedModelId}
           selectedModelSelection={selectedModelSelection}
+          testId={modelSelectorTestId}
         />
         <ConnectorsDropdown />
         <ResponsiveTools
@@ -999,6 +1032,15 @@ export const MultimodalInput = memo(
       return false;
     }
     if (prevProps.isEditMode !== nextProps.isEditMode) {
+      return false;
+    }
+    // LOAD-BEARING. Without it the flag cannot cross this memo, and the pane
+    // that goes inactive on the first message keeps the testid AND keeps
+    // `editorRef` — except `useImperativeHandle(ref, create, [editor])` compiles
+    // to deps `[editor, ref]`, so the pane that DOES re-render detaches the ref
+    // and nothing reattaches it: `clearInput()` and `focus()` in
+    // `ChatInputProvider` become silent no-ops.
+    if (prevProps.isActive !== nextProps.isActive) {
       return false;
     }
     if (prevProps.chatId !== nextProps.chatId) {

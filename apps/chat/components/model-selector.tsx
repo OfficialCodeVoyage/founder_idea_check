@@ -243,11 +243,25 @@ function PureModelSelector({
   selectedModelSelection,
   className,
   onModelSelectionChangeAction,
+  testId,
 }: {
   selectedModelId: AppModelId;
   selectedModelSelection: SelectedModelValue;
   onModelSelectionChangeAction?: (selection: SelectedModelValue) => void;
   className?: string;
+  /**
+   * The trigger button is what e2e clicks, so the id has to be a prop rather
+   * than a literal: two composers are mounted at once on a non-project route
+   * and only the active one may claim it.
+   *
+   * NO DEFAULT, deliberately. `testId = "model-selector"` in the destructuring
+   * looks harmless and silently defeats the whole fix: a destructuring default
+   * fires on `undefined`, so the inactive composer's explicit "claim nothing"
+   * came back as a claim, and the duplicate survived. Caught by counting the
+   * nodes in a live browser after the "fix" was in. `MultimodalInput` is the
+   * only call site and always passes this.
+   */
+  testId: string | undefined;
 }) {
   const { data: session } = useSession();
   const isAnonymous = !session?.user;
@@ -499,7 +513,7 @@ function PureModelSelector({
         <Button
           aria-expanded={open}
           className={cn("flex w-fit justify-between gap-2 md:px-2", className)}
-          data-testid="model-selector"
+          data-testid={testId}
           role="combobox"
           variant="ghost"
         >
@@ -723,5 +737,8 @@ export const ModelSelector = memo(
     prev.selectedModelId === next.selectedModelId &&
     prev.selectedModelSelection === next.selectedModelSelection &&
     prev.className === next.className &&
+    // Omitting this line is the trap: the stale testid survives the
+    // welcome -> messages transition and the duplicate comes straight back.
+    prev.testId === next.testId &&
     prev.onModelSelectionChangeAction === next.onModelSelectionChangeAction
 );

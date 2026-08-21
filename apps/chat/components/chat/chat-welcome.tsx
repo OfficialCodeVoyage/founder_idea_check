@@ -23,10 +23,13 @@ function PureChatWelcome({
   chatId,
   status,
   className,
+  isActive,
 }: {
   chatId: string;
   status: UseChatHelpers<ChatMessage>["status"];
   className?: string;
+  /** False while this pane is mounted-but-hidden. See MultimodalInput. */
+  isActive: boolean;
 }) {
   const parentMessageId = useLastMessageId();
   const { selectedModelId } = useChatInput();
@@ -45,6 +48,7 @@ function PureChatWelcome({
         <MultimodalInput
           autoFocus
           chatId={chatId}
+          isActive={isActive}
           parentMessageId={parentMessageId}
           status={status}
         />

@@ -29,6 +29,7 @@ function PureChatContent({
       <MessagesPane
         chatId={chatId}
         className={cn("bg-background", className)}
+        isActive
         isReadonly={isReadonly}
         status={status}
       />
@@ -42,17 +43,24 @@ function PureChatContent({
     );
   }
 
-  // Non-project: keep both mounted, toggle visibility with CSS
+  // Non-project: keep both mounted, toggle visibility with CSS.
+  //
+  // `isActive` is computed from the SAME expression as the `hidden` class, on
+  // the same line, so the two cannot drift. Both composers stay mounted (the
+  // mount strategy is inherited from upstream and is deliberately not changed
+  // here), but only one of them claims the testids and the shared `editorRef`.
   return (
     <>
       <ChatWelcome
         chatId={chatId}
         className={cn(className, hasMessages && "hidden")}
+        isActive={!hasMessages}
         status={status}
       />
       <MessagesPane
         chatId={chatId}
         className={cn("bg-background", className, !hasMessages && "hidden")}
+        isActive={hasMessages}
         isReadonly={isReadonly}
         status={status}
       />

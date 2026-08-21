@@ -11,6 +11,8 @@ import { MultimodalInput } from "./multimodal-input";
 interface MessagesPaneProps {
   chatId: string;
   className?: string;
+  /** False while this pane is mounted-but-hidden. See MultimodalInput. */
+  isActive: boolean;
   isReadonly: boolean;
   status: UseChatHelpers<ChatMessage>["status"];
 }
@@ -20,6 +22,7 @@ function PureMessagesPane({
   status,
   isReadonly,
   className,
+  isActive,
 }: MessagesPaneProps) {
   const parentMessageId = useLastMessageId();
 
@@ -36,6 +39,7 @@ function PureMessagesPane({
           <div className="mx-auto w-full p-2 @[500px]:px-4 @[500px]:pb-4 md:max-w-3xl @[500px]:md:pb-6">
             <MultimodalInput
               chatId={chatId}
+              isActive={isActive}
               parentMessageId={parentMessageId}
               status={status}
             />

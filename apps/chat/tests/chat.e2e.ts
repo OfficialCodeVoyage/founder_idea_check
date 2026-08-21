@@ -42,3 +42,16 @@ test("the chat layout does not warn about its own panel sizes", async ({
     warnings.filter((text) => text.includes("Invalid layout total size"))
   ).toEqual([]);
 });
+
+test("only one composer claims each testid on the welcome screen", async ({
+  page,
+}) => {
+  // `ChatContent` mounts ChatWelcome AND MessagesPane on non-project routes and
+  // hides one with CSS, so both composers exist. Before the fix each testid
+  // resolved to 2 nodes and `getByTestId` was ambiguous. Role-based locators
+  // were never affected (display:none is excluded from the a11y tree), which is
+  // why the count, not the role, is what this asserts.
+  await page.goto("/");
+  await expect(page.getByTestId("multimodal-input")).toHaveCount(1);
+  await expect(page.getByTestId("model-selector")).toHaveCount(1);
+});

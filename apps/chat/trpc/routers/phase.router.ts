@@ -50,6 +50,22 @@ export const phaseRouter = createTRPCRouter({
         reason: state?.reason ?? null,
         nextQuestion: state?.nextQuestion ?? null,
         missing: state?.missing ?? [],
+        /**
+         * The rail's only client-visible signal that a post-turn pass has
+         * LANDED. `after()` has none, so the rail polls until this number
+         * CHANGES rather than guessing a delay.
+         *
+         * Summed across ALL phases, not the current row's `attemptCount`: a
+         * PASS moves the rail onto a freshly activated row whose count is 0,
+         * so a per-phase counter goes DOWN and change-detection against it
+         * would miss the very verdict that advanced the phase.
+         *
+         * Monotonic: `recordGateVerdict` writes 1 on insert and
+         * `attemptCount + 1` on conflict for every persisted verdict,
+         * including the fail-closed one; `activateProjectPhase` only ever
+         * INSERTs a row at 0 with onConflictDoNothing; nothing resets rows.
+         */
+        assessmentCount: rows.reduce((total, r) => total + r.attemptCount, 0),
       };
     }),
 });

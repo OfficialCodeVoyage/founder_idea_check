@@ -129,12 +129,12 @@ export type Blocker = {
  * The four states a phase can be in, and the reason this enum has four members
  * instead of reusing GateDecisionValue.
  *
- * `unassessed` is the state components/phase-rail.tsx currently collapses with
- * `data.decision ?? "BLOCK"`: a project on turn 1, whose gate has never run,
- * renders a red BLOCKED badge — contradicting the phase directive that tells
- * the founder to just start talking. "We have not looked yet" and "we looked
- * and you are blocked" are different facts about the world and must not share
- * a rendering. Every consumer in this directory switches on this enum, so the
+ * `unassessed` is the state that must never collapse into `blocked`: a project
+ * on turn 1, whose gate has never run, rendering a red BLOCKED badge would
+ * contradict the phase directive telling the founder to just start talking.
+ * "We have not looked yet" and "we looked and you are blocked" are different
+ * facts about the world and must not share a rendering. The rail keeps them
+ * apart in `describeRail` (lib/phases/rail.ts). Every consumer in this directory switches on this enum, so the
  * distinction cannot be lost downstream.
  */
 export const BLOCKER_ANALYSIS_STATES = [

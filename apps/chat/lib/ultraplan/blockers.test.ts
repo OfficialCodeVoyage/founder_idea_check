@@ -88,9 +88,9 @@ describe("analyzeBlockers — the never-assessed state", () => {
   it("reports 'unassessed', not 'blocked', when the gate has never run", () => {
     const analysis = analyze(null);
 
-    // This is the whole reason the module exists. phase-rail.tsx does
-    // `data.decision ?? "BLOCK"` and paints a turn-1 project red; the canvas
-    // must not repeat it.
+    // This is the whole reason the module exists: "we have not looked yet" and
+    // "we looked and you are blocked" must not share a rendering. The rail
+    // draws the same distinction in describeRail (lib/phases/rail.ts).
     expect(analysis.state).toBe("unassessed");
     expect(analysis.state).not.toBe("blocked");
     expect(analysis.decision).toBeNull();

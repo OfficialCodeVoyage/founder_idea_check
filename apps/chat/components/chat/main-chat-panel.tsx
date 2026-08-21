@@ -3,6 +3,7 @@
 import { ChatHeader } from "@/components/chat-header";
 import { PhaseRail } from "@/components/phase-rail";
 import type { ChatRouteSource } from "@/lib/chat-route";
+import { useChatStatus } from "@/lib/stores/base";
 import { useMessageIds } from "@/lib/stores/hooks-base";
 import type { UIChat } from "@/lib/types/ui-chat";
 import { useSession } from "@/providers/session-provider";
@@ -26,6 +27,9 @@ export function MainChatPanel({
   const { data: session } = useSession();
   const messageIds = useMessageIds() as string[];
   const hasMessages = messageIds.length > 0;
+  // The rail keys off the STREAM, not the message count: the gate runs after
+  // the answer finishes, so the message count changes far too early.
+  const status = useChatStatus();
 
   // The rail is h-9 (2.25rem). ChatContent's height is hardcoded against
   // --header-height, so the rail's height has to be subtracted explicitly
@@ -50,8 +54,8 @@ export function MainChatPanel({
       {projectId ? (
         <PhaseRail
           className="h-9"
+          isStreaming={status === "streaming" || status === "submitted"}
           projectId={projectId}
-          refreshKey={messageIds.length}
         />
       ) : null}
 

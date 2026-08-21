@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HandoffExportDialog } from "@/components/export/handoff-export-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -11,87 +11,126 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  advanceRailWait,
+  describeRail,
+  RAIL_POLL_CEILING_MS,
+  RAIL_POLL_INTERVAL_MS,
+  type RailStatus,
+  type RailWait,
+} from "@/lib/phases/rail";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/react";
 
 const PERCENT = 100;
 
-const DECISION_LABEL = {
-  UNASSESSED: "NOT ASSESSED",
-  PASS: "READY",
-  WARN: "THIN",
-  BLOCK: "BLOCKED",
-} as const;
+/** Slow recovery poll once the wait has already timed out. */
+const SLOW_POLL_MS = 15_000;
 
-const DECISION_VARIANT = {
-  /** Neutral outline: "we have not looked yet" is not a failure. */
-  UNASSESSED: "outline",
-  PASS: "default",
-  WARN: "secondary",
-  BLOCK: "destructive",
-} as const;
+/**
+ * Every judgement about WHAT the rail says lives in `describeRail`
+ * (lib/phases/rail.ts). This map is presentation only.
+ *
+ * Neutral outline for `unassessed`: "we have not looked yet" is not a failure.
+ */
+/**
+ * Poll only while a verdict is outstanding. Keep polling — slowly — after the
+ * ceiling, so recovering from a stale "no verdict" note does not depend on the
+ * window regaining focus.
+ */
+function pollInterval(kind: RailWait["kind"]): number | false {
+  if (kind === "waiting") {
+    return RAIL_POLL_INTERVAL_MS;
+  }
+  if (kind === "unreported") {
+    return SLOW_POLL_MS;
+  }
+  return false;
+}
+
+const STATUS_VARIANT: Record<
+  RailStatus,
+  "outline" | "default" | "secondary" | "destructive"
+> = {
+  unassessed: "outline",
+  blocked: "destructive",
+  thin: "secondary",
+  passed: "default",
+  complete: "default",
+};
 
 export function PhaseRail({
   className,
   projectId,
-  refreshKey,
+  isStreaming,
 }: {
   className?: string;
   projectId: string;
-  /** Message count. Changing it re-fetches — the gate runs after each turn. */
-  refreshKey: number;
+  /** True while the assistant is answering. The gate runs AFTER that. */
+  isStreaming: boolean;
 }) {
   const trpc = useTRPC();
-  const { data, refetch } = useQuery(
-    trpc.phase.getState.queryOptions({ projectId })
-  );
+  const [wait, setWait] = useState<RailWait>({ kind: "idle" });
+  const { data } = useQuery({
+    ...trpc.phase.getState.queryOptions({ projectId }),
+    // Poll only while a verdict is outstanding. Keep polling — slowly — after
+    // the ceiling, so recovery from a stale "no verdict" note does not depend
+    // on the window regaining focus.
+    refetchInterval: pollInterval(wait.kind),
+    refetchIntervalInBackground: true,
+  });
 
-  // refreshKey is the message count, which changes when the assistant
-  // PLACEHOLDER is created — i.e. at stream START. The gate verdict, however,
-  // is written in the route's after() hook, which runs once the response has
-  // already flushed. A single refetch here therefore always reads the PREVIOUS
-  // turn's verdict, and the rail sits one turn behind the answer on screen.
+  // The OLD trigger was the message count, which changes when the assistant
+  // placeholder is created — i.e. at stream START — while the verdict is
+  // written by runPostTurnPhasePass inside after(), 15-30s after the stream
+  // ENDS. The old 0/1.5/4/8s ladder therefore always expired first and the
+  // rail sat a whole turn behind the answer on screen.
   //
-  // after() has no client-visible completion signal, so poll a bounded ladder
-  // instead of guessing one delay: immediately (cheap, occasionally wins), then
-  // at 1.5s / 4s / 8s. Each tick is one indexed read keyed by projectId. The
-  // schedule is bounded and cleared on unmount, so it cannot leak or spin.
-  const lastRefreshKey = useRef(refreshKey);
+  // Now the wait is edge-triggered on the stream ending and cleared by
+  // `assessmentCount` actually CHANGING, so it tracks the event rather than
+  // guessing a delay.
+  // Held in a ref so the turn-ended effect can seed its baseline without
+  // taking `data` as a dependency — re-running it on every poll would restart
+  // the ceiling timer each tick and the wait would never expire.
+  const countRef = useRef<number | null>(null);
+  const wasStreaming = useRef(isStreaming);
   useEffect(() => {
-    if (lastRefreshKey.current === refreshKey) {
+    const ended = wasStreaming.current && !isStreaming;
+    wasStreaming.current = isStreaming;
+    if (isStreaming) {
+      setWait((w) => advanceRailWait(w, { type: "turn-started" }));
       return;
     }
-    lastRefreshKey.current = refreshKey;
-
-    refetch();
-    const timers = [1500, 4000, 8000].map((ms) =>
-      setTimeout(() => refetch(), ms)
+    if (!ended) {
+      return;
+    }
+    setWait((w) =>
+      advanceRailWait(w, { type: "turn-ended", count: countRef.current })
     );
-    return () => {
-      for (const t of timers) {
-        clearTimeout(t);
-      }
-    };
-  }, [refetch, refreshKey]);
+    const ceiling = setTimeout(
+      () => setWait((w) => advanceRailWait(w, { type: "ceiling-reached" })),
+      RAIL_POLL_CEILING_MS
+    );
+    return () => clearTimeout(ceiling);
+  }, [isStreaming]);
+
+  const observed = data?.assessmentCount ?? null;
+  useEffect(() => {
+    countRef.current = observed;
+    setWait((w) => advanceRailWait(w, { type: "state-read", count: observed }));
+  }, [observed]);
 
   if (!data) {
     return null;
   }
 
-  /**
-   * NULL means the gate has never run for this phase — a brand-new project on
-   * turn 1. That is its own state, not a BLOCK.
-   *
-   * Collapsing "not assessed" into "assessed and blocked" is not fail-closed,
-   * it is a lie in the safe direction: the rail opens on a red BLOCKED badge
-   * while prompts/phases/phase-01-problem.md is telling the founder to start by
-   * describing the problem. Two contradictory instructions on turn 1 teach the
-   * founder that the red badge means nothing, which is exactly the credibility
-   * the gate needs to keep. lib/ultraplan/blockers.ts keeps the same
-   * distinction (analyzeBlockers(null) -> "unassessed", zero blockers).
-   */
-  const decision = data.decision ?? "UNASSESSED";
-  const gap = data.missing.at(0) ?? "no assessment yet — keep going";
+  const rail = describeRail({
+    decision: data.decision,
+    missing: data.missing,
+    workflowComplete: data.workflowComplete,
+    total: data.total,
+    assessment: wait.kind,
+  });
 
   return (
     <div
@@ -107,12 +146,10 @@ export function PhaseRail({
         className="hidden h-1 w-24 shrink-0 sm:block"
         value={(data.order / data.total) * PERCENT}
       />
-      <Badge variant={DECISION_VARIANT[decision]}>
-        {DECISION_LABEL[decision]}
-      </Badge>
+      <Badge variant={STATUS_VARIANT[rail.status]}>{rail.label}</Badge>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="truncate">{gap}</span>
+          <span className="truncate">{rail.detail}</span>
         </TooltipTrigger>
         <TooltipContent className="max-w-sm">
           <p className="font-medium">
@@ -121,8 +158,21 @@ export function PhaseRail({
           {data.nextQuestion ? (
             <p className="mt-1 opacity-80">Next: {data.nextQuestion}</p>
           ) : null}
+          {rail.pending ? (
+            <p className="mt-1 opacity-80">{rail.pending.note}</p>
+          ) : null}
         </TooltipContent>
       </Tooltip>
+      {/*
+        Shown at EVERY breakpoint, deliberately. It is the only non-hover signal
+        that the badge may describe an earlier turn, and a touch device never
+        opens the tooltip that explains it.
+      */}
+      {rail.pending ? (
+        <span aria-live="polite" className="shrink-0 italic opacity-70">
+          {rail.pending.marker}
+        </span>
+      ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         <Link
           className="rounded px-2 py-1 hover:bg-accent hover:text-accent-foreground"

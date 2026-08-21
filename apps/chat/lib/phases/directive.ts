@@ -77,10 +77,11 @@ function sanitizeSentence(text: string | null): string | null {
  * the decision, reason and nextQuestion columns still carry the refusal.
  *
  * Returns null for a missing row and for a row the gate has never written, so
- * the caller can tell "not assessed yet" from "assessed and blocked". The rail
- * defaults a null decision to BLOCK (fail-closed UI); the SYSTEM PROMPT must
- * not copy that, or the first message of every project is refused with no gap
- * to name.
+ * the caller can tell "not assessed yet" from "assessed and blocked". Neither
+ * this nor the rail may collapse the two: the rail resolves a null decision to
+ * its own `unassessed` state in `describeRail` (lib/phases/rail.ts), whose
+ * branch order deliberately mirrors buildPhaseDirective's, and the SYSTEM
+ * PROMPT must not refuse the first message of a project with no gap to name.
  */
 export function toPhaseGateState(
   row: PhaseRowLike | null | undefined

@@ -38,9 +38,9 @@ import { cn } from "@/lib/utils";
  * These are different facts about the world — "we could not determine this" and
  * "we determined this is failing" — and they get different affordances: a
  * dashed, muted outline that reads as absence, versus a solid destructive fill
- * that reads as alarm. Collapsing them is precisely the bug in
- * components/phase-rail.tsx, where `data.decision ?? "BLOCK"` paints a project
- * whose gate has never run in the same red as one the gate actually refused.
+ * that reads as alarm. Collapsing them would paint a project whose gate has
+ * never run in the same red as one the gate actually refused. The rail keeps the
+ * same five states apart in `describeRail` (lib/phases/rail.ts).
  *
  * Note also what is NOT here: no status renders as a plain checkmark. Only
  * `confirmed` gets the affirmative variant, and nothing reaches `confirmed`

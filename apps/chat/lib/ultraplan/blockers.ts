@@ -28,9 +28,10 @@ import type {
  * `UnblockingTask.id` without the graph reshuffling on every re-render.
  *
  * THE FAILURE MODE THIS FILE EXISTS TO PREVENT, stated once:
- * components/phase-rail.tsx does `data.decision ?? "BLOCK"`, so a project whose
- * gate has NEVER RUN renders a red BLOCKED badge on turn 1 — while the phase
- * directive is telling the founder to just start talking. Fail-closed is right;
+ * resolving a null decision to BLOCK would make a project whose gate has NEVER
+ * RUN render a red BLOCKED badge on turn 1 — while the phase directive is
+ * telling the founder to just start talking. (The rail keeps them apart in
+ * `describeRail`, lib/phases/rail.ts.) Fail-closed is right;
  * collapsing "not assessed" into "assessed and blocked" is not fail-closed, it
  * is a lie in the safe direction. analyzeBlockers() keeps the two apart:
  * `verdict === null` yields state "unassessed" and ZERO blockers, because there

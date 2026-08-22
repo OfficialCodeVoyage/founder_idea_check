@@ -1,0 +1,420 @@
+import { describe, expect, it } from "vitest";
+import { validateToolPart } from "@/lib/utils/message-part-validators";
+import {
+  DEAD_INPUT_STREAM_MARKER,
+  describeInputStream,
+  partialDocumentBody,
+  partialDocumentTitle,
+  salvageTextDocumentInput,
+  sweepDeadInputStreams,
+} from "./salvage";
+
+/**
+ * The real incident, reproduced in shape and size.
+ *
+ * Part cd2238be-2f59-4c97-b487-fee0012d9fab holds 26,731 characters of
+ * `tool_input` JSON: a 26,305-character markdown protocol whose last line is a
+ * table row that stops mid-sentence, inside the INTENSITY rubric at score 3.
+ * `buildTruncatedInputJson` rebuilds a payload with those proportions so the
+ * prefix scanner is exercised against the thing that actually happened rather
+ * than against a toy `{"a":`.
+ */
+const REAL_TITLE =
+  "Phase 1 Problem Validation: Preregistered Evidence Instrument for Identifying Frequent, Painful, Already-Paid Parent Problems";
+
+const NO_CONTENT_ARRIVED = /before any document content arrived/i;
+const NEVER_FINISHED = /never finished/i;
+const PARTIAL_AT_START = /^\[PARTIAL/i;
+const UNTITLED = /untitled/i;
+
+const REAL_LAST_LINE =
+  "| 3 | Clear disruption: approximately 10–20 additional minutes, repeated";
+
+function buildTruncatedContent(): string {
+  const head =
+    "# Phase 1 Problem Validation\n\n" +
+    'Every claim must carry a label such as **MEASURED**, **ESTIMATED**, or "INSUFFICIENT EVIDENCE".\n' +
+    "A backslash \\\\ and a tab\tsurvive the round trip.\n\n";
+  // Filler shaped like the rubric tables that filled the real document, padded
+  // to the same order of magnitude as the 26,305 characters that arrived.
+  const rows: string[] = [];
+  while (head.length + rows.join("").length < 26_000) {
+    rows.push(
+      `| ${rows.length % 4} | Routine completed with minor delay; no meaningful trade-off. | Event sequence and approximate duration. |\n`
+    );
+  }
+  return `${head}${rows.join("")}## 7. INTENSITY\n\n${REAL_LAST_LINE}`;
+}
+
+function buildTruncatedInputJson(): string {
+  const content = buildTruncatedContent();
+  // A complete object would end `..."}`. The stream died before either.
+  return `{"title":${JSON.stringify(REAL_TITLE)},"content":${JSON.stringify(
+    content
+  ).slice(0, -1)}`;
+}
+
+describe("salvageTextDocumentInput", () => {
+  it("salvages the partially parsed object the SDK actually leaves behind", () => {
+    const content = buildTruncatedContent();
+    const result = salvageTextDocumentInput({ title: REAL_TITLE, content });
+
+    expect(result.salvaged).toBe(true);
+    if (!result.salvaged) {
+      return;
+    }
+    expect(result.title).toBe(REAL_TITLE);
+    expect(result.content).toBe(content);
+    expect(result.contentChars).toBe(content.length);
+    expect(result.stoppedAfter).toBe(REAL_LAST_LINE);
+    expect(result.recoveredFrom).toBe("partial-object");
+  });
+
+  it("salvages a raw JSON prefix that will never parse", () => {
+    const raw = buildTruncatedInputJson();
+    expect(raw.length).toBeGreaterThan(26_000);
+    expect(() => JSON.parse(raw)).toThrow();
+
+    const result = salvageTextDocumentInput(raw);
+
+    expect(result.salvaged).toBe(true);
+    if (!result.salvaged) {
+      return;
+    }
+    expect(result.title).toBe(REAL_TITLE);
+    expect(result.content).toBe(buildTruncatedContent());
+    expect(result.stoppedAfter).toBe(REAL_LAST_LINE);
+    expect(result.recoveredFrom).toBe("json-prefix");
+  });
+
+  it("decodes escapes and drops a half-arrived escape sequence", () => {
+    // The stream died in the middle of a \u escape. Four of the six characters
+    // arrived, so the codepoint is unknowable and the only honest thing to do
+    // is drop it rather than emit a replacement character.
+    const raw = '{"title":"T","content":"one \\"two\\" three \\u26';
+    const result = salvageTextDocumentInput(raw);
+
+    expect(result.salvaged).toBe(true);
+    if (!result.salvaged) {
+      return;
+    }
+    expect(result.content).toBe('one "two" three ');
+  });
+
+  it("drops a dangling backslash rather than failing the whole salvage", () => {
+    const result = salvageTextDocumentInput('{"title":"T","content":"a b\\');
+
+    expect(result.salvaged).toBe(true);
+    if (!result.salvaged) {
+      return;
+    }
+    expect(result.content).toBe("a b");
+  });
+
+  it("parses a prefix that happens to be complete JSON", () => {
+    const result = salvageTextDocumentInput('{"title":"T","content":"body"}');
+
+    expect(result.salvaged).toBe(true);
+    if (!result.salvaged) {
+      return;
+    }
+    expect(result.recoveredFrom).toBe("json-prefix");
+    expect(result.content).toBe("body");
+  });
+
+  it("reports a null title rather than inventing one", () => {
+    const result = salvageTextDocumentInput({ content: "orphan body" });
+
+    expect(result.salvaged).toBe(true);
+    if (!result.salvaged) {
+      return;
+    }
+    expect(result.title).toBeNull();
+  });
+
+  it("refuses to salvage when only the title arrived", () => {
+    const result = salvageTextDocumentInput({ title: REAL_TITLE });
+
+    expect(result.salvaged).toBe(false);
+    if (result.salvaged) {
+      return;
+    }
+    expect(result.why).toMatch(NO_CONTENT_ARRIVED);
+  });
+
+  it("refuses to salvage whitespace-only content", () => {
+    const result = salvageTextDocumentInput({ title: "T", content: "   \n\n" });
+    expect(result.salvaged).toBe(false);
+  });
+
+  it("refuses to salvage nothing at all", () => {
+    for (const input of [undefined, null, 42, [], ""]) {
+      const result = salvageTextDocumentInput(input);
+      expect(result.salvaged).toBe(false);
+      if (!result.salvaged) {
+        expect(result.why.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("the unsalvageable arm carries no content to read", () => {
+    const result = salvageTextDocumentInput(null);
+    expect(result).not.toHaveProperty("content");
+    expect(result).not.toHaveProperty("title");
+    expect(result).not.toHaveProperty("contentChars");
+  });
+});
+
+describe("describeInputStream", () => {
+  const content = buildTruncatedContent();
+
+  it("calls a live input-streaming part alive while the stream runs", () => {
+    const verdict = describeInputStream({
+      state: "input-streaming",
+      streamEnded: false,
+      input: { title: REAL_TITLE, content },
+      errorText: null,
+    });
+    expect(verdict.died).toBe(false);
+  });
+
+  it("calls an input-streaming part dead once the stream has ended", () => {
+    const verdict = describeInputStream({
+      state: "input-streaming",
+      streamEnded: true,
+      input: { title: REAL_TITLE, content },
+      errorText: null,
+    });
+
+    expect(verdict.died).toBe(true);
+    if (!verdict.died) {
+      return;
+    }
+    expect(verdict.headline).toMatch(NEVER_FINISHED);
+    expect(verdict.detail).toContain(content.length.toLocaleString("en-US"));
+    expect(verdict.detail).toContain(REAL_LAST_LINE);
+    expect(verdict.continueRequest).toContain(REAL_LAST_LINE);
+    expect(verdict.salvage.salvaged).toBe(true);
+  });
+
+  it("recognises the marker a finished turn wrote into errorText", () => {
+    const verdict = describeInputStream({
+      state: "output-error",
+      streamEnded: true,
+      input: { title: REAL_TITLE, content },
+      errorText: `${DEAD_INPUT_STREAM_MARKER} whatever the server wrote`,
+    });
+    expect(verdict.died).toBe(true);
+  });
+
+  it("leaves an ordinary tool error to the ordinary error renderer", () => {
+    const verdict = describeInputStream({
+      state: "output-error",
+      streamEnded: true,
+      input: { title: REAL_TITLE, content },
+      errorText: "the tool threw",
+    });
+    expect(verdict.died).toBe(false);
+  });
+
+  it("still reports the death when nothing could be salvaged", () => {
+    const verdict = describeInputStream({
+      state: "input-streaming",
+      streamEnded: true,
+      input: undefined,
+      errorText: null,
+    });
+
+    expect(verdict.died).toBe(true);
+    if (!verdict.died) {
+      return;
+    }
+    expect(verdict.salvage.salvaged).toBe(false);
+    expect(verdict.detail.length).toBeGreaterThan(0);
+  });
+
+  it("the surviving arm carries nothing a caller could render as a failure", () => {
+    const verdict = describeInputStream({
+      state: "output-available",
+      streamEnded: true,
+      input: { title: "T", content: "c" },
+      errorText: null,
+    });
+    expect(verdict).not.toHaveProperty("headline");
+    expect(verdict).not.toHaveProperty("salvage");
+  });
+});
+
+describe("partial document labelling", () => {
+  const salvage = salvageTextDocumentInput({
+    title: REAL_TITLE,
+    content: buildTruncatedContent(),
+  });
+
+  it("marks the title so no list of documents can show it as finished", () => {
+    const title = partialDocumentTitle(REAL_TITLE);
+    expect(title).toMatch(PARTIAL_AT_START);
+    expect(title).toContain(REAL_TITLE);
+  });
+
+  it("names the document even when its title never arrived", () => {
+    expect(partialDocumentTitle(null)).toMatch(PARTIAL_AT_START);
+    expect(partialDocumentTitle(null)).toMatch(UNTITLED);
+  });
+
+  it("opens and closes the body with an unmissable partial banner", () => {
+    if (!salvage.salvaged) {
+      throw new Error("fixture should salvage");
+    }
+    const body = partialDocumentBody(salvage);
+
+    expect(body.indexOf("PARTIAL DOCUMENT")).toBeLessThan(200);
+    expect(body).toContain("THE DOCUMENT STOPS HERE");
+    expect(body).toContain(salvage.content);
+    expect(body).toContain(salvage.contentChars.toLocaleString("en-US"));
+  });
+});
+
+describe("sweepDeadInputStreams", () => {
+  const dead = {
+    type: "tool-createTextDocument",
+    toolCallId: "call_1",
+    state: "input-streaming",
+    input: { title: REAL_TITLE, content: buildTruncatedContent() },
+  };
+
+  it("leaves a message with no dead parts completely alone", () => {
+    const parts = [
+      { type: "text", text: "hello" },
+      {
+        type: "tool-createTextDocument",
+        toolCallId: "call_ok",
+        state: "output-available",
+        input: { title: "T", content: "c" },
+      },
+    ];
+
+    const swept = sweepDeadInputStreams(parts);
+
+    expect(swept.deaths).toHaveLength(0);
+    expect(swept.announcement).toBeNull();
+    expect(swept.parts).toBe(parts);
+  });
+
+  it("rewrites a stranded call to output-error carrying the marker", () => {
+    const swept = sweepDeadInputStreams([{ type: "text", text: "ok" }, dead]);
+
+    expect(swept.deaths).toHaveLength(1);
+    expect(swept.deaths[0].toolCallId).toBe("call_1");
+    expect(swept.deaths[0].toolType).toBe("tool-createTextDocument");
+
+    const marked = swept.parts[1] as typeof dead & { errorText: string };
+    expect(marked.state).toBe("output-error");
+    expect(marked.errorText.startsWith(DEAD_INPUT_STREAM_MARKER)).toBe(true);
+    // The salvage must survive the rewrite: `input` is the only copy of the
+    // 26KB that arrived, and dropping it here would destroy it for good.
+    expect(marked.input).toEqual(dead.input);
+  });
+
+  it("keeps every other part in its original order", () => {
+    const before = { type: "text", text: "before" };
+    const after = { type: "reasoning", text: "after" };
+    const swept = sweepDeadInputStreams([before, dead, after]);
+
+    expect(swept.parts).toHaveLength(3);
+    expect(swept.parts[0]).toBe(before);
+    expect(swept.parts[2]).toBe(after);
+  });
+
+  it("writes an announcement that names the loss and how to resume", () => {
+    const swept = sweepDeadInputStreams([dead]);
+
+    expect(swept.announcement).not.toBeNull();
+    expect(swept.announcement).toContain("never finished");
+    expect(swept.announcement).toContain(REAL_LAST_LINE);
+  });
+
+  it("reports every dead call, not just the first", () => {
+    const swept = sweepDeadInputStreams([
+      dead,
+      { ...dead, toolCallId: "call_2" },
+    ]);
+
+    expect(swept.deaths).toHaveLength(2);
+    expect(swept.deaths.map((d) => d.toolCallId)).toEqual(["call_1", "call_2"]);
+  });
+
+  it("describes a dead non-document call as what it actually was", () => {
+    const swept = sweepDeadInputStreams([
+      {
+        type: "tool-deepResearch",
+        toolCallId: "call_r",
+        state: "input-streaming",
+        input: { topic: "tip credits" },
+      },
+    ]);
+
+    expect(swept.deaths).toHaveLength(1);
+    const { verdict } = swept.deaths[0];
+    expect(verdict.detail).toContain("deepResearch call");
+    // It must NOT claim a document was being written, and must not offer to
+    // resume one that never existed.
+    expect(verdict.detail).not.toContain("writing a document");
+    expect(verdict.continueRequest).toContain("deepResearch call");
+  });
+
+  it("marks a dead call whose input never arrived at all", () => {
+    const swept = sweepDeadInputStreams([
+      {
+        type: "tool-deepResearch",
+        toolCallId: "call_x",
+        state: "input-streaming",
+      },
+    ]);
+
+    expect(swept.deaths).toHaveLength(1);
+    expect(swept.deaths[0].verdict.salvage.salvaged).toBe(false);
+    expect(swept.announcement).not.toBeNull();
+  });
+
+  it("ignores non-tool parts that happen to carry a state field", () => {
+    const swept = sweepDeadInputStreams([
+      { type: "data-research", state: "input-streaming" },
+    ]);
+    expect(swept.deaths).toHaveLength(0);
+  });
+});
+
+describe("a marked part still persists", () => {
+  /**
+   * The rewrite is only worth anything if it reaches the database. Parts are
+   * validated on the way in (lib/utils/message-part-validators.ts) and a part
+   * that fails validation is silently DROPPED by `handleToolPartToDB`, which
+   * would turn "the failure is now recorded" into "the tool call vanished
+   * entirely" — a worse outcome than the bug being fixed.
+   */
+  it("passes the tool-part validator the route persists through", () => {
+    const swept = sweepDeadInputStreams([
+      {
+        type: "tool-createTextDocument",
+        toolCallId: "call_1",
+        state: "input-streaming",
+        input: { title: REAL_TITLE, content: buildTruncatedContent() },
+      },
+    ]);
+
+    const result = validateToolPart(swept.parts[0]);
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      return;
+    }
+    expect(result.data.state).toBe("output-error");
+    // `tool_input` is the column the 26KB actually lives in. If the validator
+    // dropped it, the salvage would be a one-time rescue rather than a record.
+    expect(result.data.input).toEqual({
+      title: REAL_TITLE,
+      content: buildTruncatedContent(),
+    });
+  });
+});

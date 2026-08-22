@@ -9,6 +9,7 @@ import { markdownJoinerTransform } from "@/lib/ai/markdown-joiner-transform";
 import { getLanguageModel, getModelProviderOptions } from "@/lib/ai/providers";
 import { countTextTokens } from "@/lib/ai/token-utils";
 import type { ChatMessage, StreamWriter, ToolName } from "@/lib/ai/types";
+import { config } from "@/lib/config";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
 import type { McpConnector } from "@/lib/db/schema";
 import { GATE_TRANSCRIPT_BUDGET_TOKENS } from "@/lib/phases/context";
@@ -177,6 +178,22 @@ export async function createCoreChatAgent({
     model,
     system,
     messages: contextForLLM,
+    /**
+     * THE READER FOR `config.ai.maxOutputTokens`. Before 2026-08-22 there was
+     * no output cap in this app at all, so how long a turn could run was a
+     * provider default nobody had chosen and nobody could see. A
+     * `createTextDocument` call died mid-table-row at 26,731 characters of
+     * input with no output, no error and no document, and the founder had to
+     * discover it (QA-BACKLOG #5).
+     *
+     * Clamped by the model's own ceiling: `max_tokens` comes from the model
+     * catalog and a request above it is a provider error, so the config value
+     * may lower the limit but never raise it past what the model accepts.
+     */
+    maxOutputTokens: Math.min(
+      config.ai.maxOutputTokens,
+      modelDefinition.max_tokens
+    ),
     stopWhen: [
       stepCountIs(5),
       ({ steps }) => {

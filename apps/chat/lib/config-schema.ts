@@ -109,6 +109,15 @@ const deepResearchToolConfigSchema = z.object({
     .describe("Base URL of the apps/research sidecar; empty disables it"),
 });
 
+/**
+ * The fallback ceiling on one turn's output, used when a config omits it.
+ *
+ * Named rather than inlined because it is needed twice: once as the field
+ * default and once inside `aiConfigSchema.default(...)`, which is typed on the
+ * schema's OUTPUT and therefore has to carry the value explicitly.
+ */
+const DEFAULT_MAX_OUTPUT_TOKENS = 32_000;
+
 function createAiSchema<G extends GatewayType>(g: G) {
   return z.object({
     gateway: z.literal(g),
@@ -118,6 +127,27 @@ function createAiSchema<G extends GatewayType>(g: G) {
     disabledModels: z
       .array(gatewayModelId<G>())
       .describe("Models to hide from all users"),
+    /**
+     * HARD CEILING ON ONE ASSISTANT TURN'S OUTPUT, IN TOKENS.
+     *
+     * There was no output cap anywhere in this app until 2026-08-22. Output
+     * length was entirely at the provider's default and nothing anywhere
+     * detected a cap being hit — which is how a `createTextDocument` call came
+     * to freeze mid-sentence with 26,731 characters of input and no error
+     * (QA-BACKLOG #5).
+     *
+     * Defaulted rather than required so every gateway default block stays
+     * valid; `chat.config.ts` sets it explicitly, and
+     * lib/ai/core-chat-agent.ts reads it on every `streamText` call. It is
+     * clamped there to the selected model's own `max_tokens`, so raising this
+     * above what a model accepts cannot turn into a provider error.
+     */
+    maxOutputTokens: z
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_MAX_OUTPUT_TOKENS)
+      .describe("Hard ceiling on one assistant turn's output tokens"),
     curatedDefaults: z
       .array(gatewayModelId<G>())
       .describe("Default models enabled for new users"),
@@ -243,6 +273,7 @@ export const aiConfigSchema = z
   ])
   .default({
     gateway: DEFAULT_GATEWAY,
+    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
     ...GATEWAY_MODEL_DEFAULTS[DEFAULT_GATEWAY],
   });
 

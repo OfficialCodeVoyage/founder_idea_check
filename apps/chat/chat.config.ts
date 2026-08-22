@@ -67,6 +67,29 @@ const config = defineConfig({
     gateway: "openai",
     providerOrder: ["anthropic"],
     disabledModels: [],
+
+    /**
+     * THE CEILING ON ONE TURN'S OUTPUT, SET DELIBERATELY.
+     *
+     * There was none before 2026-08-22 — output length was whatever the
+     * provider happened to default to, and nothing checked whether a cap had
+     * been hit. That is the config gap behind QA-BACKLOG #5: a
+     * `createTextDocument` whose input stopped mid-table-row at 26,731
+     * characters, with no output, no error, and no `Document` row.
+     *
+     * READ AT lib/ai/core-chat-agent.ts, in the `streamText` call — this is
+     * NOT another `maxInputTokensPerRun`. That knob has no reader at all, and
+     * a second dead one would be worse than none; if you change this number,
+     * that call site is where it lands.
+     *
+     * 32,000 is chosen against the incident, not plucked: the protocol that
+     * was lost had ~26,300 characters of content, roughly 7,000 tokens, so
+     * this leaves better than 4x headroom for the longest document this
+     * product actually asks for. It is clamped at the call site to the
+     * selected model's own `max_tokens` (terra allows 128,000), so it can only
+     * ever lower a limit, never claim one the model will not honour.
+     */
+    maxOutputTokens: 32_000,
     anonymousModels: ["gpt-5.6-luna"],
     workflows: {
       // THE GATE JUDGE, and it stays on terra by decision. +4.6pp TAU-Bench and

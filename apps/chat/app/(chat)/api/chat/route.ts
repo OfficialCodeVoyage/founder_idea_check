@@ -37,6 +37,12 @@ import {
   getAnonymousSession,
   setAnonymousSession,
 } from "@/lib/anonymous-session-server";
+import {
+  type DeadInputStreamRecord,
+  partialDocumentBody,
+  partialDocumentTitle,
+  sweepDeadInputStreams,
+} from "@/lib/artifacts/text/salvage";
 import { auth } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { createAnonymousSession } from "@/lib/create-anonymous-session";
@@ -50,6 +56,7 @@ import {
   getProjectById,
   getUserById,
   saveChatIfNotExists,
+  saveDocument,
   saveMessageIfNotExists,
   updateMessage,
   updateMessageActiveStreamId,
@@ -827,6 +834,150 @@ async function prepareRequestContext({
   return { previousMessages, error: null };
 }
 
+/**
+ * A DEAD TOOL-INPUT STREAM IS A FAILURE, AND FROM HERE ON IT SAYS SO.
+ *
+ * On 2026-08-21 a `createTextDocument` call was left frozen at
+ * `tool_state = 'input-streaming'` with 26,731 characters of input, no output,
+ * no `tool_errorText`, and no `Document` row. Nothing looked at it, so nothing
+ * reported it, so the turn that lost 26KB of the founder's protocol produced
+ * ZERO text characters and said nothing at all. The founder found it. The
+ * content had to be recovered by hand — it is committed as
+ * RECOVERED-phase1-protocol.md, and this function exists so that never has to
+ * happen again.
+ *
+ * `onFinish` is the one place that knows the stream is over. Anything still in
+ * `input-streaming` here will stay in `input-streaming` forever, so this is the
+ * moment the state stops being "still arriving" and becomes "never arrived".
+ *
+ * Three things happen to such a part, and all three matter:
+ *
+ *  1. SALVAGE. A truncated input that carries a title and 26KB of content is a
+ *     recoverable document. It is written as a `Document`, LABELLED PARTIAL in
+ *     its title and at the top and bottom of its body. An honestly-labelled
+ *     partial beats a clean discard; a partial passed off as finished would be
+ *     worse than either.
+ *  2. MARK. The part is rewritten to `output-error` carrying
+ *     DEAD_INPUT_STREAM_MARKER. That is what makes it distinguishable from a
+ *     call still in flight — the exact distinction whose absence hid this for a
+ *     whole session. It also un-hides the failure from the MODEL:
+ *     `convertToModelMessages` (ai@6.0.219, dist/index.mjs:8876) DROPS
+ *     `input-streaming` parts entirely, so on the next turn the assistant had
+ *     no idea it had ever tried; an `output-error` part reaches it as a real
+ *     tool error it can act on.
+ *  3. SPEAK. A text part is appended saying what was lost, how much survived,
+ *     the exact line it stopped after, and how to resume. A turn that ends
+ *     without finishing has to say so.
+ *
+ * Returns the message to persist. Salvage writes only text documents: the
+ * code and sheet document tools share the `{ title, content }` input shape but
+ * not the artifact kind, and guessing a kind is exactly the sort of quiet
+ * assumption this whole change is about. They are still MARKED and SPOKEN, so
+ * a dead one is visible even though nothing is written for it.
+ */
+async function rescueDeadToolInputStreams({
+  assistantMessage,
+  userId,
+  chatId,
+}: {
+  assistantMessage: ChatMessage;
+  userId: string | null;
+  chatId: string;
+}): Promise<ChatMessage> {
+  const log = createModuleLogger("api:chat:dead-input-stream");
+  const swept = sweepDeadInputStreams(assistantMessage.parts);
+
+  if (swept.announcement === null) {
+    return assistantMessage;
+  }
+
+  for (const death of swept.deaths) {
+    const documentId = await writePartialDocument({
+      verdict: death.verdict,
+      toolType: death.toolType,
+      userId,
+      messageId: assistantMessage.id,
+      log,
+    });
+
+    log.error(
+      {
+        chatId,
+        messageId: assistantMessage.id,
+        toolType: death.toolType,
+        toolCallId: death.toolCallId,
+        salvaged: death.verdict.salvage.salvaged,
+        contentChars: death.verdict.salvage.salvaged
+          ? death.verdict.salvage.contentChars
+          : null,
+        documentId,
+      },
+      "tool input stream ended while still streaming — marking the call failed"
+    );
+  }
+
+  return {
+    ...assistantMessage,
+    parts: [
+      ...(swept.parts as ChatMessage["parts"]),
+      { type: "text", text: swept.announcement },
+    ],
+  };
+}
+
+/**
+ * Write the salvaged prefix as a `Document`, or explain why it could not be.
+ *
+ * Returns the new document id, or null when nothing was written. NULL IS NOT
+ * "EMPTY DOCUMENT": the caller logs it beside `salvaged`, so "there was nothing
+ * to save" and "there was nobody to save it for" stay distinguishable from
+ * "a document was saved".
+ */
+async function writePartialDocument({
+  verdict,
+  toolType,
+  userId,
+  messageId,
+  log,
+}: {
+  verdict: DeadInputStreamRecord["verdict"];
+  toolType: string;
+  userId: string | null;
+  messageId: string;
+  log: ReturnType<typeof createModuleLogger>;
+}): Promise<string | null> {
+  const { salvage } = verdict;
+  if (!salvage.salvaged) {
+    return null;
+  }
+  // Anonymous turns have no owner column to write, and `saveDocument` requires
+  // one. The failure is still marked and still announced in the chat — losing
+  // the persistence is not a reason to also lose the report.
+  if (!(userId && toolType === "tool-createTextDocument")) {
+    return null;
+  }
+
+  const documentId = generateUUID();
+  try {
+    await saveDocument({
+      id: documentId,
+      title: partialDocumentTitle(salvage.title),
+      content: partialDocumentBody(salvage),
+      kind: "text",
+      userId,
+      messageId,
+    });
+    return documentId;
+  } catch (error) {
+    // The salvage is a best effort layered on top of a failure that has
+    // already happened. If it throws, the turn must still finish and the
+    // founder must still be told — swallowing the report as well would put us
+    // back exactly where 2026-08-21 started.
+    log.error({ error, messageId }, "failed to persist salvaged document");
+    return null;
+  }
+}
+
 async function finalizeMessageAndCredits({
   messages,
   userId,
@@ -851,11 +1002,22 @@ async function finalizeMessageAndCredits({
   const log = createModuleLogger("api:chat:finalize");
 
   try {
-    const assistantMessage = messages.at(-1);
+    const streamed = messages.at(-1);
 
-    if (!assistantMessage) {
+    if (!streamed) {
       throw new Error("No assistant message found!");
     }
+
+    // BEFORE ANYTHING IS PERSISTED. The stream is over, so any tool call still
+    // sitting in `input-streaming` is dead rather than pending, and this is the
+    // last moment at which that difference can be recorded. Persisting the
+    // message first and rescuing afterwards would recreate the exact row that
+    // sat silently in the database for a whole session.
+    const assistantMessage = await rescueDeadToolInputStreams({
+      assistantMessage: streamed,
+      userId,
+      chatId,
+    });
 
     if (!isAnonymous) {
       await updateMessage({

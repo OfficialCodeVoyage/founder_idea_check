@@ -754,6 +754,102 @@ describe("decideGate — a gap that needs fieldwork", () => {
   });
 });
 
+/**
+ * THE OSCILLATION, WHICH WAS NEVER AN OSCILLATION.
+ *
+ * QA-BACKLOG §3 records the verdicts moving 5 → 1 → 1 → 1 → 5 → 5 → 1 across
+ * seven attempts and reads it as the founder closing four criteria and watching
+ * them re-open twice. Replaying the seven stored rows out of ProjectPhaseAttempt
+ * shows nothing of the kind. FIVE criteria were `unmet` on every single attempt;
+ * the true count of not-met criteria was 8 → 8 → 8 → 7 → 7 → 6 → 7, monotone
+ * progress with one real regression.
+ *
+ * The whole reported series was `validation-score` alone flipping between
+ * "not-evaluable" and "unmet". decideGate returns on the first matching rule and
+ * the not-evaluable rule sits above the unmet rule, so that one label decided
+ * whether the founder was told about one gap or six. The gate was concealing its
+ * own findings and then reporting the concealment as movement.
+ */
+describe("decideGate — the headline may not move on one label", () => {
+  /** Attempt 4 as stored: 5 unmet, 1 not-evaluable, 1 partial, 1 met. */
+  function attemptFour(
+    status: "not-evaluable" | "unmet"
+  ): CriterionEvaluation[] {
+    const unmet = [
+      "frequency-and-intensity",
+      "existing-workarounds",
+      "willingness-to-pay",
+      "evidence-quality",
+      "people-interviewed",
+    ];
+    return allMet().map((e) => {
+      if (e.criterionId === "validation-score") {
+        return ev(e.criterionId, status, { gap: "four rubric scores" });
+      }
+      if (unmet.includes(e.criterionId)) {
+        return ev(e.criterionId, "unmet", {
+          gap: `${e.criterionId} has nothing`,
+        });
+      }
+      if (e.criterionId === "problem-statement") {
+        return ev(e.criterionId, "partial", { gap: "the statement is broad" });
+      }
+      return e;
+    });
+  }
+
+  const decide = (status: "not-evaluable" | "unmet") =>
+    decideGate(attemptFour(status), {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+
+  it("reports the SAME open set whichever label the judge picked", () => {
+    const asNotEvaluable = decide("not-evaluable");
+    const asUnmet = decide("unmet");
+
+    // This is the assertion that would have caught it. Before the fix these
+    // were 1 and 6.
+    expect(asNotEvaluable.missing).toEqual(asUnmet.missing);
+    expect(asNotEvaluable.missing).toHaveLength(6);
+    expect(asUnmet.missing).toHaveLength(6);
+  });
+
+  it("never hides an unmet criterion behind a not-evaluable one", () => {
+    const v = decide("not-evaluable");
+    // people-interviewed is ADVISORY, so it is not in the blocking open set;
+    // the other four unmet criteria and the partial all are.
+    for (const gap of [
+      "frequency-and-intensity has nothing",
+      "existing-workarounds has nothing",
+      "willingness-to-pay has nothing",
+      "evidence-quality has nothing",
+      "the statement is broad",
+    ]) {
+      expect(v.missing).toContain(gap);
+    }
+    expect(v.obstacle?.criterionIds).toHaveLength(6);
+  });
+
+  it("says in the reason how much is still open beyond what decided", () => {
+    const v = decide("not-evaluable");
+    expect(v.reason).toContain("1 of 8 exit criteria could not be assessed");
+    // The half that was missing, and the half that made "1 of 8" misleading.
+    expect(v.reason).toContain("5 more of the 8 are still open");
+  });
+
+  it("still asks the question the founder can actually answer", () => {
+    // problem-statement is `in-conversation` and sits at partial, so it is
+    // answerable now — and it must be asked even though a not-evaluable
+    // offline-only criterion is what decided the verdict.
+    const v = decide("not-evaluable");
+    expect(v.nextQuestion).toBe(
+      "Answer this before we move on: the statement is broad"
+    );
+  });
+});
+
 describe("renderFacts — the judge can tell who asserted what", () => {
   it("marks a founder-corrected fact so it cannot read as extracted evidence", () => {
     // The whole reason the provenance column exists. A judge that cannot tell

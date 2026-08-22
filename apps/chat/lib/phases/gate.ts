@@ -134,18 +134,10 @@ function shortfall(
   outstanding: CriterionEvaluation[],
   defined: number,
   fieldworkOnly: boolean
-): { reason: string; missing: string[]; obstacle: GateObstacle } {
-  const missing = outstanding.map((e) => e.gap as string);
-  const head = `${outstanding.length} of ${defined} exit criteria`;
-  const detail = missing.join("; ");
-  const phrase = SHORTFALL_PHRASE[fieldworkOnly ? "fieldwork" : "plain"][what];
+): { lead: string; kind: GateObstacle["kind"] } {
   return {
-    missing,
-    reason: `${head} ${phrase}: ${detail}.`,
-    obstacle: obstacleFor(
-      fieldworkOnly ? "fieldwork-required" : "evidence-missing",
-      outstanding
-    ),
+    lead: `${outstanding.length} of ${defined} exit criteria ${SHORTFALL_PHRASE[fieldworkOnly ? "fieldwork" : "plain"][what]}`,
+    kind: fieldworkOnly ? "fieldwork-required" : "evidence-missing",
   };
 }
 
@@ -322,41 +314,97 @@ export function decideGate(
   const closureOf = (e: CriterionEvaluation): CriterionClosure =>
     closureOf_.get(e.criterionId) ?? "in-conversation";
 
+  // ── THE OPEN SET ─────────────────────────────────────────────────────────
+  //
+  // Every blocking criterion that is NOT met, most-severe first. All three
+  // BLOCK branches below report THIS — not merely the group that happened to
+  // decide.
+  //
+  // THE BUG THIS FIXES. decideGate returns on the first matching rule, and the
+  // not-evaluable rule sits above the unmet rule. So a SINGLE criterion
+  // flipping between "not-evaluable" and "unmet" moved the headline between
+  // "1 of 8" and "5 of 8" while five other criteria sat unmet and unmentioned
+  // underneath it. Live, project 01a0279c, the founder saw 5→1→1→1→5→5→1 and
+  // read it as four criteria closing and re-opening twice. Nothing of the kind
+  // happened: that series is `validation-score` alone changing label. The true
+  // count of not-met criteria was 8→8→8→7→7→6→7 — slow monotone progress with
+  // ONE genuine regression. The gate was hiding its own findings and then
+  // reporting the concealment as movement.
+  const notEvaluable = perCriterion.filter(
+    (e) => e.status === "not-evaluable" && isBlocking(e)
+  );
+  const blockingUnmet = perCriterion.filter(
+    (e) => e.status === "unmet" && isBlocking(e)
+  );
+  const blockingPartial = perCriterion.filter(
+    (e) => e.status === "partial" && isBlocking(e)
+  );
+  //
+  // ORDERED BY THE PHASE DEFINITION, not by severity. Severity order would put
+  // a criterion first or fifth depending on which label the judge reached for,
+  // and `missing[0]` is the single line the rail has room to show — so the rail
+  // would still lurch on a label flip even with the full set reported. The
+  // definition order is stable, and it is the order the founder already sees
+  // the criteria listed in.
+  const definitionOrder = new Map(criteria.map((c, index) => [c.id, index]));
+  const openBlocking = [
+    ...notEvaluable,
+    ...blockingUnmet,
+    ...blockingPartial,
+  ].sort(
+    (a, b) =>
+      (definitionOrder.get(a.criterionId) ?? 0) -
+      (definitionOrder.get(b.criterionId) ?? 0)
+  );
+  const openGaps = openBlocking.map((e) => e.gap ?? NO_GAP_NAMED);
+
+  /**
+   * The reason line: what decided, plus how much else is still open.
+   *
+   * The trailing count is the half that was missing. "1 of 8 could not be
+   * assessed" was true and, standing alone, deeply misleading.
+   */
+  function openReason(lead: string, decidedBy: CriterionEvaluation[]): string {
+    const rest = openBlocking.length - decidedBy.length;
+    const tail =
+      rest > 0
+        ? `, and ${rest} more of the ${defined} ${rest === 1 ? "is" : "are"} still open`
+        : "";
+    return `${lead}${tail}: ${openGaps.join("; ")}.`;
+  }
+
   // 7. Anything the judge could not assess fails closed — but only where the
   //    criterion is BLOCKING. normalizeEvaluation() escalates any gapless miss
   //    to "not-evaluable", so without this severity check an advisory criterion
   //    (defined as "downgrades to WARN only") would hard-BLOCK instead. Advisory
   //    not-evaluables fall through to the soft-failure branch below.
-  const notEvaluable = perCriterion.filter(
-    (e) => e.status === "not-evaluable" && isBlocking(e)
-  );
+  //
+  //    The QUESTION is chosen over the whole open set, not over this group: if
+  //    anything still open is answerable in conversation, that is what to ask,
+  //    whichever group decided the verdict.
   if (notEvaluable.length > 0) {
-    const missing = notEvaluable.map((e) => e.gap ?? NO_GAP_NAMED);
-    // The invariant holds here too. "The judge could not tell" is still a
-    // refusal that ends in a question, and a question about a value nobody has
-    // measured is no better for being prefixed by uncertainty.
     const { nextQuestion } = questionFor(
-      notEvaluable,
+      openBlocking,
       closureOf,
       "I could not assess part of this phase. Give me more detail and I will re-check."
     );
     return verdict(
       "BLOCK",
-      `${notEvaluable.length} of ${defined} exit criteria could not be assessed: ${missing.join("; ")}.`,
+      openReason(
+        `${notEvaluable.length} of ${defined} exit criteria could not be assessed`,
+        notEvaluable
+      ),
       perCriterion,
-      missing,
+      openGaps,
       nextQuestion,
-      obstacleFor("not-evaluable", notEvaluable)
+      obstacleFor("not-evaluable", openBlocking)
     );
   }
 
   // 8. Blocking criteria that are outright unmet.
-  const blockingUnmet = perCriterion.filter(
-    (e) => e.status === "unmet" && isBlocking(e)
-  );
   if (blockingUnmet.length > 0) {
     const { nextQuestion, fieldworkOnly } = questionFor(
-      blockingUnmet,
+      openBlocking,
       closureOf,
       null
     );
@@ -366,17 +414,13 @@ export function decideGate(
     const parts = shortfall("unmet", blockingUnmet, defined, fieldworkOnly);
     return verdict(
       "BLOCK",
-      parts.reason,
+      openReason(parts.lead, blockingUnmet),
       perCriterion,
-      parts.missing,
+      openGaps,
       nextQuestion,
-      parts.obstacle
+      obstacleFor(parts.kind, openBlocking)
     );
   }
-
-  const blockingPartial = perCriterion.filter(
-    (e) => e.status === "partial" && isBlocking(e)
-  );
 
   // 9. Blocking criteria that are only PARTLY evidenced.
   //
@@ -388,18 +432,18 @@ export function decideGate(
   //    soften it is an explicit, per-phase `tolerateBlockingPartials`.
   if (blockingPartial.length > gate.tolerateBlockingPartials) {
     const { nextQuestion, fieldworkOnly } = questionFor(
-      blockingPartial,
+      openBlocking,
       closureOf,
       null
     );
     const parts = shortfall("partial", blockingPartial, defined, fieldworkOnly);
     return verdict(
       "BLOCK",
-      parts.reason,
+      openReason(parts.lead, blockingPartial),
       perCriterion,
-      parts.missing,
+      openGaps,
       nextQuestion,
-      parts.obstacle
+      obstacleFor(parts.kind, openBlocking)
     );
   }
 

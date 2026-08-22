@@ -5,6 +5,7 @@ import { getAppModelDefinition } from "@/lib/ai/app-models";
 import { lookupContextWindow } from "@/lib/ai/model-capabilities";
 import type { StreamWriter } from "@/lib/ai/types";
 import { createModuleLogger } from "@/lib/logger";
+import type { AudienceView } from "@/lib/signals/audience";
 import { firecrawlWebSearch, tavilyWebSearch } from "../web-search";
 import type { DeepResearchRuntimeConfig, SearchAPI } from "./configuration";
 import { sidecarWebSearch } from "./sidecar-search";
@@ -84,7 +85,13 @@ function getSearchTool(
   searchApi: SearchAPI,
   _config: DeepResearchRuntimeConfig,
   dataStream: StreamWriter,
-  parentToolCallId?: string
+  parentToolCallId?: string,
+  /**
+   * Only the sidecar arm uses this. Tavily and Firecrawl are single opaque
+   * lanes — one key, one endpoint — so there is no lane ordering to decide and
+   * nothing an audience could change.
+   */
+  audience?: AudienceView
 ): ToolSet {
   if (searchApi === "tavily") {
     return {
@@ -104,6 +111,7 @@ function getSearchTool(
         dataStream,
         writeTopLevelUpdates: false,
         toolCallIdOverride: parentToolCallId,
+        audience,
       }),
     };
   }
@@ -122,14 +130,27 @@ function getSearchTool(
 export async function getAllTools(
   config: DeepResearchRuntimeConfig,
   dataStream: StreamWriter,
-  id?: string
+  id?: string,
+  /**
+   * OPTIONAL, and an omitted audience is UNKNOWN — not "assume the default".
+   * `sidecarWebSearch` resolves that to the named neutral ordering rather than
+   * to the developer-audience one. Optional so the existing callers in the test
+   * suite keep describing the state they mean to describe.
+   */
+  audience?: AudienceView
 ): Promise<ToolSet> {
   if (config.search_api === "none") {
     const mcpTools = await loadMcpTools(config, new Set<string>());
     return mcpTools;
   }
 
-  const searchTools = getSearchTool(config.search_api, config, dataStream, id);
+  const searchTools = getSearchTool(
+    config.search_api,
+    config,
+    dataStream,
+    id,
+    audience
+  );
   const existingToolNames = new Set<string>(Object.keys(searchTools));
 
   const mcpTools = await loadMcpTools(config, existingToolNames);

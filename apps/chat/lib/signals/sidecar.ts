@@ -173,6 +173,30 @@ const DEFAULT_TIMEOUT_MS = 45_000;
 const TRAILING_SLASHES = /\/+$/;
 
 /**
+ * PURE. The `SignalRequest` body for one source.
+ *
+ * `options` IS ADDRESSED TO THIS SOURCE ONLY, and the key is omitted entirely
+ * when this source has none rather than sent as `{}`. `SignalRequest` declares
+ * `options` with a default factory, so both mean the same thing to the sidecar
+ * — but the absent key is the one that does not assert a choice nobody made,
+ * which matters for `arctic-shift`: an empty subreddit list would look like a
+ * decision to search no subreddits, and its refusal would name the wrong cause.
+ */
+function requestBody(
+  sourceId: SignalSourceId,
+  query: SignalQuery
+): Record<string, unknown> {
+  const options = query.sourceOptions?.[sourceId];
+  return {
+    query: query.query,
+    limit: query.limit,
+    date_from: query.from,
+    date_to: query.to,
+    ...(options ? { options } : {}),
+  };
+}
+
+/**
  * Builds the fetcher for one source. NEVER THROWS — every path returns a
  * `SignalFetchOutcome`, because `runSignalHarvest` runs these concurrently and
  * a throw would be the one bad source taking down the good ones.
@@ -197,12 +221,7 @@ export function createSidecarSignalFetcher(config: SidecarConfig) {
         response = await fetchImpl(`${base}/v1/signals/${descriptor.id}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            query: query.query,
-            limit: query.limit,
-            date_from: query.from,
-            date_to: query.to,
-          }),
+          body: JSON.stringify(requestBody(descriptor.id, query)),
           signal,
         });
       } catch (error) {

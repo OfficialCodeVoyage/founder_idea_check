@@ -81,6 +81,67 @@ its RSS does not, which is routing around an access control; and storing posts
 makes the operator a GDPR controller with no lawful basis and no way to honour
 erasure.
 
+## Ranking sources against the founder's buyer
+
+**The sidecar does not decide this, and the decision is deliberate rather than
+inherited.** On 2026-08-21 a founder validating personalised children's
+bedtime-routine apps for parents of 3-8 year olds asked *"why is Hacker News ranked first,
+when consumer forums and web search should
+lead?"* Nothing prioritised Hacker News; it was the last
+lane still answering. Once `RESEARCH_SEARXNG_URL` and `arctic-shift` were
+switched on, the real gap showed: every project got the same lanes in the same
+order, and that order was the order they happen to be written in a registry.
+
+The ranking now lives in **`apps/chat/lib/signals/audience.ts`**, on the app
+side, and the reasoning for that placement is in the file. The short version is
+that it could not live here: `POST /v1/signals/{source_id}` runs **exactly one
+source per request** and builds its plan with `source_weights={id: 1.0}`, so a
+per-source weight in `app/pipeline/fusion.py` multiplies every item in the one
+stream by the same number and reorders nothing. Cross-lane ordering only exists
+where several lanes meet, which is `runSignalHarvest`, on the other side of the
+wire. A weight added here would have looked like a ranking and changed nothing.
+
+What that module decides, given the project's `target_user` segment:
+
+| buyer | order |
+|---|---|
+| not a developer (parents, teachers, bookkeepers, dog walkers) | Reddit → general web → GitHub → **Hacker News last** |
+| a developer | Hacker News → GitHub → Reddit → general web |
+| **not established** | general web → Reddit → Hacker News, GitHub |
+
+The neutral row is a named, defended ordering and not a fall-through: the
+general web is the only lane that commits to no audience, and Hacker News and
+GitHub are narrow single-population corpora that must not lead when the buyer is
+unknown. "Unknown" is its own arm carrying no weight — never a `0`, never a
+silent default to the developer ordering.
+
+**A weight is a multiplier on the relevance this sidecar already computed, and
+it never reaches zero.** Every lane still runs, still appears in the per-lane
+report, and can still lead on merit: a Hacker News thread roughly four times more
+relevant than the Reddit alternative still comes first for a parent buyer.
+Deprioritised is not disabled.
+
+### `options`, and why the Arctic Shift lane used to refuse everything
+
+`SignalRequest.options` is a free-form dict passed straight to
+`SourceQuery.options`. Only `arctic-shift` reads it, and only
+`options["subreddits"]`.
+
+That adapter **refuses** a query with no subreddits, on purpose: Arctic Shift's
+`query` parameter is documented as working only alongside `subreddit` or
+`author`, so there is no global keyword search and an unscoped answer would read
+as "we searched and found little" when no search happened. The app never sent
+`options`, so the lane could be enabled, reachable and correct and still refuse
+every single request. `sourceOptionsFor` now chooses the subreddits from the
+same segment decision as the weights — r/Parenting, r/daddit, r/Mommit,
+r/kindergarten for the bedtime-app founder — because choosing subreddits for a
+project *is* the segment question.
+
+With no segment, no subreddits are sent and this lane answers with its own
+written refusal naming the parameter it needs. That is the intended outcome: it
+tells the founder that naming their buyer is what unlocks the Reddit lane.
+`tests/test_api.py` pins both halves of the `options` contract from this side.
+
 ## Configuration
 
 | Variable | Default | Meaning |

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HACKERNEWS, REDDIT_RSS, WEB_KEYLESS } from "./providers";
+import { ARCTIC_SHIFT, HACKERNEWS, REDDIT_RSS, WEB_KEYLESS } from "./providers";
 import {
   classifySidecarStatus,
   createSidecarSignalFetcher,
@@ -154,6 +154,56 @@ describe("createSidecarSignalFetcher", () => {
       date_from: "2026-07-01",
       date_to: "2026-08-01",
     });
+  });
+
+  it("passes a source's options through to the sidecar", async () => {
+    // THE ARCTIC SHIFT LANE COULD NOT RUN WITHOUT THIS. Its adapter refuses any
+    // query with no subreddits — Arctic Shift's `query` parameter is documented
+    // as working only alongside `subreddit` or `author` — so a lane that was
+    // enabled, correct and reachable refused every single request because this
+    // body never carried `options`.
+    let seenBody: Record<string, unknown> = {};
+    const fetcher = createSidecarSignalFetcher({
+      baseUrl: "http://sidecar:8099",
+      fetchImpl: (_input, init) => {
+        seenBody = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          jsonResponse({ ok: true, source_id: "arctic-shift", signals: [] })
+        );
+      },
+    });
+
+    await fetcher(ARCTIC_SHIFT)({
+      ...QUERY,
+      sourceOptions: {
+        "arctic-shift": { subreddits: ["Parenting", "daddit"] },
+      },
+    });
+
+    expect(seenBody.options).toEqual({ subreddits: ["Parenting", "daddit"] });
+  });
+
+  it("sends one source's options to that source only", async () => {
+    // Options are adapter-specific hints. Sending Arctic Shift's subreddits to
+    // Hacker News would be a request nobody made, and `SignalRequest.options`
+    // is a free-form dict, so nothing downstream would reject it.
+    let seenBody: Record<string, unknown> = {};
+    const fetcher = createSidecarSignalFetcher({
+      baseUrl: "http://sidecar:8099",
+      fetchImpl: (_input, init) => {
+        seenBody = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          jsonResponse({ ok: true, source_id: "hackernews", signals: [] })
+        );
+      },
+    });
+
+    await fetcher(HACKERNEWS)({
+      ...QUERY,
+      sourceOptions: { "arctic-shift": { subreddits: ["Parenting"] } },
+    });
+
+    expect("options" in seenBody).toBe(false);
   });
 
   it("returns unavailable rather than throwing when the sidecar is down", async () => {

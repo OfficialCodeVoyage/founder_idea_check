@@ -3,6 +3,7 @@ import type { z } from "zod";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { truncateMessages } from "@/lib/ai/token-utils";
+import { readAudience } from "@/lib/signals/audience";
 import { generateUUID, getTextContentFromModelMessage } from "@/lib/utils";
 import { createTextDocumentTool } from "../documents/create-text-document";
 import type { DocumentToolResult } from "../documents/types";
@@ -43,6 +44,35 @@ export async function runDeepResearchPipeline(
   });
 
   const ctx: AgentOptions = {
+    /*
+      WHO THE BUYER IS, DECIDED ONCE, HERE.
+
+      The founder asked "why is Hacker News ranked first"
+      about a product for parents of 3-8 year olds. Nothing prioritised Hacker
+      News — it just happens to be first in `ALL_PROVIDERS`, and no part of this
+      pipeline had any notion that a source can be the wrong room for a buyer.
+      `readAudience` is that notion, and this is the only place it is read, so
+      every search step in a run ranks its sources the same way.
+
+      THE PLUMBING GAP, STATED RATHER THAN PAPERED OVER. The authoritative
+      answer is the `target_user` project fact — a phase-1 fact key, stored on
+      `ProjectFact`, read by `getProjectFacts`. This tool cannot reach it:
+      `route.ts` knows the projectId but `createCoreChatAgent` -> `getTools` ->
+      `deepResearch` never carries it, and inventing a route through three files
+      two other agents are editing would be a worse trade than saying so. So
+      `targetUserFact` is null here and the segment is read from the
+      conversation the tool DOES have — which contains the founder describing
+      their buyer in their own words, and which is guarded by the
+      `conflicting-signals` arm so an assistant turn mentioning developers
+      cannot flip a parenting product onto the developer ordering.
+
+      Closing the gap is passing one string into `targetUserFact`. Nothing else
+      here changes.
+    */
+    audience: readAudience({
+      targetUserFact: null,
+      conversation: messagesToString(input.messages),
+    }),
     config,
     dataStream,
     requestId: input.requestId,

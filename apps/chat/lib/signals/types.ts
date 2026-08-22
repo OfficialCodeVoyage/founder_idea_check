@@ -47,6 +47,26 @@ export type SignalQuery = {
   /** ISO dates bounding the search window, inclusive. */
   from: string;
   to: string;
+  /**
+   * ADAPTER-SPECIFIC HINTS, ADDRESSED TO ONE SOURCE. Passed through verbatim as
+   * the sidecar's `SignalRequest.options`.
+   *
+   * KEYED BY SOURCE ID rather than flat, because these are not query terms —
+   * they are instructions to one adapter, and a flat bag would send Arctic
+   * Shift's subreddits to Hacker News, which would accept them silently
+   * (`options` is a free-form dict on the wire) and mean nothing.
+   *
+   * THE LANE THAT NEEDS THIS: `arctic-shift` REFUSES a query with no
+   * subreddits. Its `query` parameter is documented as working only alongside
+   * `subreddit` or `author`, so it cannot search all of Reddit for a phrase and
+   * an unscoped answer would read as "we searched and found little" when no
+   * search happened. Until this field existed the lane could be enabled,
+   * reachable and correct, and still refuse every request — which it did. See
+   * `sourceOptionsFor` in ./audience.ts for who fills it in.
+   */
+  sourceOptions?: Readonly<
+    Partial<Record<SignalSourceId, Record<string, unknown>>>
+  >;
 };
 
 /**

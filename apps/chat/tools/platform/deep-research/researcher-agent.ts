@@ -19,10 +19,13 @@ export async function runResearcher(
   topic: string,
   options: AgentOptions
 ): Promise<string> {
-  const { config, dataStream, toolCallId, abortSignal } = options;
+  const { audience, config, dataStream, toolCallId, abortSignal } = options;
 
   const model = await getLanguageModel(config.research_model as ModelId);
-  const tools = await getAllTools(config, dataStream, toolCallId);
+  // `audience` rides along so the sidecar arm can rank its lanes against the
+  // founder's buyer. The cloud arms ignore it: Tavily and Firecrawl are single
+  // opaque lanes, so there is nothing to rank.
+  const tools = await getAllTools(config, dataStream, toolCallId, audience);
 
   if (Object.keys(tools).length === 0) {
     throw new Error(

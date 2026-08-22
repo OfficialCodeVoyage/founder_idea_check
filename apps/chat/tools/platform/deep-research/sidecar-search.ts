@@ -3,6 +3,13 @@ import { z } from "zod";
 import type { StreamWriter } from "@/lib/ai/types";
 import { config } from "@/lib/config";
 import { createModuleLogger } from "@/lib/logger";
+import {
+  type AudienceView,
+  orderProviders,
+  rankSignals,
+  rankSourcesFor,
+  sourceOptionsFor,
+} from "@/lib/signals/audience";
 import { runSignalHarvest } from "@/lib/signals/provider";
 import { ALL_PROVIDERS } from "@/lib/signals/providers";
 import { createSidecarSignalFetcher } from "@/lib/signals/sidecar";
@@ -51,6 +58,20 @@ const MAX_SEARCH_QUERIES = 2;
 const LOOKBACK_DAYS = 365;
 
 const DAY_MS = 86_400_000;
+
+/**
+ * WHAT AN ABSENT AUDIENCE MEANS — and it does not mean "developers".
+ *
+ * A caller that passes no audience is in exactly the position a project with no
+ * `target_user` fact is in: nothing is known about the buyer. That resolves
+ * through `rankSourcesFor` to `NEUTRAL_RANKING`, which is a written, defended
+ * ordering — general web first, the narrow developer corpora last — rather than
+ * a fall-through to the registry order that put Hacker News first for everyone.
+ */
+const NO_AUDIENCE: AudienceView = {
+  known: false,
+  reason: "no-segment-stated",
+};
 
 function isoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
@@ -171,19 +192,25 @@ export const sidecarWebSearch = ({
   dataStream,
   writeTopLevelUpdates,
   toolCallIdOverride,
+  audience,
   fetchImpl,
   now,
 }: {
   dataStream: StreamWriter;
   writeTopLevelUpdates: boolean;
   toolCallIdOverride?: string;
+  /**
+   * Who the founder's buyer is, read once per research run in pipeline.ts.
+   * OMITTED MEANS UNKNOWN, never "assume the default" — see NO_AUDIENCE.
+   */
+  audience?: AudienceView;
   /** Injected so a test never opens a socket. */
   fetchImpl?: typeof fetch;
   /** Injected so the lookback window is deterministic under test. */
   now?: () => Date;
 }) =>
   tool({
-    description: `Multi-query web search over the local research sidecar (Hacker News and a keyless web ladder). Always cite sources inline.
+    description: `Multi-query web search over the local research sidecar. The lanes it can reach are whatever this deployment has enabled — Hacker News, a keyless general-web ladder, the Reddit archive, GitHub — and they are RANKED AGAINST THE FOUNDER'S BUYER before the results come back, so the first results are from the room that buyer is actually in. Do not assume which lane answered; the result carries a \`sourceRanking\` sentence saying why the order is what it is. Always cite sources inline.
 
 Use for:
 - General information gathering, and for finding evidence that real people discuss a problem
@@ -203,6 +230,31 @@ Avoid:
     ) => {
       const toolCallId = toolCallIdOverride ?? sdkToolCallId;
       const updateId = generateUUID();
+
+      /*
+        WHO THE BUYER IS DECIDES WHAT LEADS THE REPORT.
+
+        On 2026-08-21 a founder validating a bedtime-routine app for parents
+        asked "why is Hacker News ranked first." Nothing
+        did: `ALL_PROVIDERS` lists Hacker News first, `selectEnabledProviders`
+        preserves that order and `harvestSignals` concatenates in it, so a
+        registry's writing order was the ranking for every project alike.
+
+        `rankSourcesFor` replaces that with one explicit decision, made in
+        lib/signals/audience.ts and explained there. It reaches THREE places
+        below and nowhere else:
+          - the descriptor order, which is both the fan-out order and the order
+            of the per-lane report the founder reads;
+          - `sourceOptions`, which is what finally lets the Arctic Shift lane
+            run at all — it refuses any query with no subreddits, and choosing
+            subreddits for a project IS the segment question;
+          - `rankSignals`, a weighting on top of the sidecar's own relevance.
+
+        NOTHING IS FILTERED at any of the three. Every lane still runs, still
+        reports, and can still lead on merit.
+      */
+      const ranking = rankSourcesFor(audience ?? NO_AUDIENCE);
+      const descriptors = orderProviders(ALL_PROVIDERS, ranking);
       const baseUrl = config.ai.tools.deepResearch.researchSidecarUrl;
       const queries = search_queries.map((entry) => entry.query);
 
@@ -243,7 +295,7 @@ Avoid:
           dataStream,
           toolCallId,
           describeLanes({
-            descriptors: ALL_PROVIDERS,
+            descriptors,
             signals: [],
             failures: [],
             attempted: false,
@@ -272,13 +324,14 @@ Avoid:
           runSignalHarvest(
             { fetcherFor },
             {
-              descriptors: ALL_PROVIDERS,
+              descriptors,
               mode,
               query: {
                 query: entry.query,
                 limit: entry.maxResults ?? DEFAULT_MAX_RESULTS,
                 from: isoDate(from),
                 to: isoDate(to),
+                sourceOptions: sourceOptionsFor(ranking),
               },
             }
           )
@@ -290,7 +343,7 @@ Avoid:
           query: usable[index].query,
           maxResults: usable[index].maxResults ?? DEFAULT_MAX_RESULTS,
         },
-        results: toSearchResults(harvest.signals),
+        results: toSearchResults(rankSignals(harvest.signals, ranking)),
       }));
 
       const allResults = searches.flatMap((search) => search.results);
@@ -311,7 +364,7 @@ Avoid:
         dataStream,
         toolCallId,
         describeLanes({
-          descriptors: ALL_PROVIDERS,
+          descriptors,
           signals: harvests.flatMap((harvest) => harvest.signals),
           failures,
           attempted: true,
@@ -373,10 +426,15 @@ Avoid:
         );
       }
       log.debug(
-        { queries, resultCount: allResults.length },
+        { queries, resultCount: allResults.length, ranking: ranking.rationale },
         "sidecarWebSearch complete"
       );
 
-      return { searches };
+      // THE RATIONALE TRAVELS WITH THE RESULTS. The researcher model is about
+      // to write prose about this evidence, and "Reddit leads because the buyer
+      // is a parent" is the sentence the founder actually asked for. A ranking
+      // whose reason stays in a log line is the same failure the per-lane
+      // report was built to end.
+      return { searches, sourceRanking: ranking.rationale };
     },
   });

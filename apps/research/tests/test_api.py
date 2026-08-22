@@ -199,6 +199,67 @@ class TestSignalsContract:
         # And the author never reaches the wire.
         assert "realperson" not in str(payload)
 
+    def test_options_reach_the_adapter_verbatim(self, client, monkeypatch):
+        """THE HALF OF THE ARCTIC SHIFT LANE THAT WAS NEVER CONNECTED.
+
+        `arctic_shift.py` refuses any query with no subreddits — deliberately,
+        because Arctic Shift's `query` parameter is documented as working only
+        alongside `subreddit` or `author`, so it cannot search all of Reddit for
+        a phrase and an unscoped answer would read as "we searched and found
+        little" when no search happened.
+
+        The lane was enabled, correct and reachable, and refused EVERY request,
+        because `sidecarWebSearch` on the TypeScript side built its body as
+        `{query, limit, from, to}` and never sent `options`. That end now sends
+        them (see `sourceOptionsFor` in apps/chat/lib/signals/audience.ts); this
+        pins the receiving end, so the contract cannot rot from either side.
+        """
+        http, main = client
+        seen = {}
+
+        class Recording:
+            descriptor = main.find_descriptor("hackernews")
+
+            def fetch(self, query):
+                seen["options"] = query.options
+                return []
+
+        monkeypatch.setattr(main, "resolve_permitted_source", lambda *_: Recording())
+
+        payload = http.post(
+            "/v1/signals/hackernews",
+            json={
+                **body(),
+                "options": {"subreddits": ["Parenting", "daddit"]},
+            },
+        ).json()
+        assert payload["ok"] is True
+        assert seen["options"] == {"subreddits": ["Parenting", "daddit"]}
+
+    def test_an_omitted_options_key_is_an_empty_dict_not_a_missing_attribute(
+        self, client, monkeypatch
+    ):
+        """An adapter reads `query.options.get(...)`; it must never see None.
+
+        The TypeScript side omits the key entirely for a source with no options
+        rather than sending `{}`, which is the honest encoding of "nothing was
+        chosen" — so this default is what makes that safe.
+        """
+        http, main = client
+        seen = {}
+
+        class Recording:
+            descriptor = main.find_descriptor("hackernews")
+
+            def fetch(self, query):
+                seen["options"] = query.options
+                return []
+
+        monkeypatch.setattr(main, "resolve_permitted_source", lambda *_: Recording())
+
+        http.post("/v1/signals/hackernews", json=body())
+        assert seen["options"] == {}
+
 
 class TestSimulateContract:
     def test_a_missing_oasis_is_a_200_with_a_named_kind(self, client):

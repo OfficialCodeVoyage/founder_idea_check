@@ -2,6 +2,7 @@ import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { StreamWriter } from "@/lib/ai/types";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
+import type { AudienceView } from "@/lib/signals/audience";
 import type { DocumentToolResult } from "../documents/types";
 import type { DeepResearchRuntimeConfig } from "./configuration";
 
@@ -11,6 +12,20 @@ import type { DeepResearchRuntimeConfig } from "./configuration";
 
 export interface AgentOptions {
   abortSignal?: AbortSignal;
+  /**
+   * WHO THE FOUNDER'S BUYER IS, read ONCE per run in pipeline.ts and carried
+   * unchanged through the supervisor to the researcher's search tool.
+   *
+   * Read once rather than per search step because it is a fact about the
+   * project, not about a query: recomputing it per step would let two searches
+   * in the same run rank their sources differently, and the founder would have
+   * no way to tell which ordering produced which citation.
+   *
+   * Its unknown arm carries no audience and no weight — see lib/signals/
+   * audience.ts. An absent segment resolves to a named neutral ordering, never
+   * to the developer-audience default that put Hacker News first for everyone.
+   */
+  audience: AudienceView;
   config: DeepResearchRuntimeConfig;
   costAccumulator?: CostAccumulator;
   dataStream: StreamWriter;

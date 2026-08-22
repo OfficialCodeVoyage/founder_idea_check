@@ -1,18 +1,26 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
+import { AssertFactForm } from "@/components/project/assert-fact-form";
 import { FactRow } from "@/components/project/fact-row";
 import { auth } from "@/lib/auth";
-import { getProjectFacts } from "@/lib/db/phase-queries";
+import { getProjectFacts, getProjectPhases } from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
+import { resolveCurrentPhase } from "@/lib/phases/advance";
 import { PHASES } from "@/lib/phases/definitions";
 
 /**
- * The fact ledger, browsable and correctable.
+ * The fact ledger, browsable, correctable, and now writable by hand.
  *
  * Facts used to exist only as nodes on the canvas graph. If the extractor wrote
  * a wrong one there was no way to fix it — and facts ground the persona, the
  * simulation and the export, and the gate counts them.
+ *
+ * They were also only ever MODEL-EXTRACTED. A founder who went away and ran the
+ * interviews the gate asked for had no route from "I did the fieldwork" to "the
+ * gate can see it" except pasting the field logs into chat. AssertFactForm is
+ * that route; the ledger is the right place for it, because it is the one
+ * screen that already shows what is recorded and what provenance each row has.
  *
  * Same shape as the other project screens: a static frame with the private half
  * behind Suspense, and `params` not awaited above the boundary.
@@ -65,8 +73,27 @@ async function ProjectFactsContent({
     notFound();
   }
 
-  const facts = await getProjectFacts({ projectId });
+  const [facts, phaseRows] = await Promise.all([
+    getProjectFacts({ projectId }),
+    getProjectPhases({ projectId }),
+  ]);
   const founderCount = facts.filter((fact) => fact.origin === "founder").length;
+
+  /**
+   * The entry form offers the CURRENT phase's vocabulary, minus what is already
+   * recorded. Same `resolveCurrentPhase` the system prompt and the rail use, so
+   * the form cannot offer a different phase's keys than the gate is asking
+   * about. The server re-resolves this in `assertFact` — narrowing the dropdown
+   * is a courtesy, not the check.
+   */
+  const { phase } = resolveCurrentPhase(
+    phaseRows.map((row) => ({
+      phaseKey: row.phaseKey,
+      status: row.status as "locked" | "active" | "passed",
+    }))
+  );
+  const held = new Set(facts.map((fact) => fact.key));
+  const availableKeys = phase.factKeys.filter((key) => !held.has(key));
 
   return (
     <>
@@ -76,8 +103,11 @@ async function ProjectFactsContent({
           Facts ({facts.length})
         </span>
         {founderCount > 0 ? (
+          // "corrected by you" was accurate when correction was the only way a
+          // fact could carry `origin = 'founder'`. It can now also be one you
+          // entered outright, and the count covers both.
           <span className="text-muted-foreground text-xs">
-            {founderCount} corrected by you
+            {founderCount} marked as yours
           </span>
         ) : null}
       </div>
@@ -90,10 +120,17 @@ async function ProjectFactsContent({
           customer said, and the gate is told the difference.
         </p>
 
+        <AssertFactForm
+          availableKeys={availableKeys}
+          heldKeyCount={phase.factKeys.length - availableKeys.length}
+          phaseTitle={phase.title}
+          projectId={projectId}
+        />
+
         {facts.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             Nothing established yet. Facts are written by the extractor after a
-            turn, so this fills up as the interview goes.
+            turn — or by you, above, when you have gone and found something out.
           </p>
         ) : (
           <ul className="space-y-2">

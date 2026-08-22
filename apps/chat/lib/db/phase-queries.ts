@@ -3,6 +3,7 @@ import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { EmbeddingProvider } from "../embeddings/provider";
 import { factEmbeddingText } from "../embeddings/text";
 import { db } from "./client";
+import type { FounderFactWrite } from "./fact-assertion";
 import { PROJECT_FACT_UPSERT_SET } from "./fact-upsert";
 import {
   type ProjectFact,
@@ -287,6 +288,82 @@ export async function correctProjectFact({
     return rows.length;
   } catch (error) {
     console.error("Failed to correct project fact in database", error);
+    throw error;
+  }
+}
+
+/**
+ * THE FOUNDER ENTERS EVIDENCE THEY GATHERED IN THE FIELD.
+ *
+ * The other half of the gate's `offline-only` classification. When every
+ * outstanding criterion needs data that does not exist yet, the gate stops
+ * asking for the value and asks for the INSTRUMENT instead (`instrumentQuestion`
+ * in lib/phases/gate.ts). This is where the results of running it come back —
+ * structured, so the founder names the fact key and the value directly rather
+ * than pasting five field logs into chat and hoping the extractor guesses.
+ *
+ * EVERY JUDGEMENT ALREADY HAPPENED, in the PURE `planFactAssertion`
+ * (lib/db/fact-assertion.ts). The `FounderFactWrite` this takes is branded and
+ * cannot be built anywhere else, which is what makes the confidence policy
+ * structural instead of a rule everyone has to remember. This function only
+ * writes what it is handed — the same posture as `upsertProjectFacts` below.
+ *
+ * ON CONFLICT DO NOTHING, AND THAT IS THE WHOLE DECISION ABOUT ASSERTING OVER
+ * AN EXISTING FACT. A key that already holds a fact is refused; the founder is
+ * pointed at Correct on that row instead. Both alternatives are worse:
+ *
+ *   - overwrite and CARRY THE STORED CONFIDENCE FORWARD, as `correctProjectFact`
+ *     does, and a founder could type any value onto a key holding an
+ *     85-confidence extracted fact and inherit the 85. That is the confidence
+ *     raise the whole design forbids, done through the back door.
+ *   - overwrite and RESET to the assertion floor, and a founder loses the
+ *     extractor's record of what the transcript actually said, silently and
+ *     without asking for it.
+ *
+ * Correction is already the right tool for "there is a fact here and it is
+ * wrong": it changes the wording, flips the provenance to `founder`, and leaves
+ * the extractor's confidence untouched. Keeping the two paths apart keeps each
+ * one honest. It is enforced at the DATABASE rather than by a read-then-write,
+ * so two tabs racing cannot slip a second one through.
+ *
+ * `correctedAt` is set because ProjectFact_origin_coherent requires
+ * `(origin = 'founder') = (correctedAt IS NOT NULL)` — the column records when
+ * the founder last put their name to the row, and for an asserted fact that is
+ * the moment it was created. `sourceMessageId` stays NULL: there is genuinely
+ * no assistant message behind this one, which is the point.
+ *
+ * The embedding columns are left NULL together (the CHECK needs them together),
+ * so `backfillFactEmbeddings` picks the row up on the next turn and it becomes
+ * retrievable like any other fact.
+ */
+export async function assertProjectFact({
+  projectId,
+  write,
+}: {
+  projectId: string;
+  write: FounderFactWrite;
+}): Promise<"recorded" | "key-already-held"> {
+  try {
+    const rows = await db
+      .insert(projectFact)
+      .values({
+        projectId,
+        phaseKey: write.phaseKey,
+        key: write.key,
+        value: write.value,
+        confidence: write.confidence,
+        sourceMessageId: null,
+        origin: "founder",
+        correctedAt: new Date(),
+        extractedAt: new Date(),
+      })
+      .onConflictDoNothing({
+        target: [projectFact.projectId, projectFact.key],
+      })
+      .returning({ key: projectFact.key });
+    return rows.length === 0 ? "key-already-held" : "recorded";
+  } catch (error) {
+    console.error("Failed to assert project fact in database", error);
     throw error;
   }
 }

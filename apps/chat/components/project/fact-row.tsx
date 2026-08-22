@@ -94,8 +94,15 @@ export function FactRow({
           <p className="text-muted-foreground text-xs">
             Saving marks this as your own assertion, not something read out of
             the transcript. The gate is told the difference. Its confidence
-            stays at {confidence} — that number is the extractor's certainty
-            when it recorded the fact, and nothing may revise it upwards.
+            stays at {confidence} —{" "}
+            {origin === "founder"
+              ? // A founder-origin row is either a correction, whose confidence
+                // is the extractor's carried forward, or one entered by hand,
+                // whose confidence the system fixed at the ledger's floor. From
+                // the row alone the two are indistinguishable, so the sentence
+                // says the thing that is true of both rather than guessing.
+                "that number was set by the system, not by you, and nothing may revise it upwards."
+              : "that number is the extractor's certainty when it recorded the fact, and nothing may revise it upwards."}
           </p>
           <div className="flex gap-2">
             <Button disabled={isPending} onClick={save} size="sm">

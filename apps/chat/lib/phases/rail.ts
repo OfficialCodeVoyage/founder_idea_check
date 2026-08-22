@@ -1,4 +1,7 @@
 import type {
+  CriterionClosure,
+  CriterionSeverity,
+  CriterionStatus,
   GateDecisionValue,
   GateObstacle,
   GateObstacleKind,
@@ -20,8 +23,18 @@ import type {
  * Three states, three remedies, one headline. So the heading is per-arm and each
  * arm carries its own sentence.
  */
+/**
+ * `mixed` is not one of the gate's kinds. `obstacle.kind` names the LEADING
+ * condition only — the rule that fired first — and since the gate began
+ * reporting the whole open set rather than the deciding group, one list can
+ * hold criteria the judge could not assess AND criteria it assessed as unmet.
+ * "What could not be assessed" over five items it assessed perfectly well is a
+ * smaller version of the bug that reporting the whole set was meant to end.
+ */
+export type GateObstacleViewKind = GateObstacleKind | "mixed";
+
 export type GateObstacleView = {
-  kind: GateObstacleKind;
+  kind: GateObstacleViewKind;
   /** The list heading. Never the generic one. */
   heading: string;
   /** What this state IS and what closes it. Never blank. */
@@ -29,9 +42,13 @@ export type GateObstacleView = {
 };
 
 const OBSTACLE_VIEW: Record<
-  GateObstacleKind,
+  GateObstacleViewKind,
   Omit<GateObstacleView, "kind">
 > = {
+  mixed: {
+    heading: "What is still open",
+    note: "These are not all the same kind of problem, and they do not have the same remedy. Some the gate could not tell either way — those usually need restating plainly rather than more work. The rest it could tell, and they are genuinely not met yet. The checklist below marks which is which.",
+  },
   "phase-misconfigured": {
     heading: "What is wrong here",
     note: "This phase has no exit criteria, so it cannot be certified either way. That is a bug in the app, not something you did — nothing below tells you what to change.",
@@ -62,14 +79,49 @@ const OBSTACLE_VIEW: Record<
   },
 };
 
-/** PURE. Null in, null out — an older stored verdict simply has no arm. */
+/**
+ * Whether one heading can honestly cover this whole set.
+ *
+ * The only split that matters is `not-evaluable` against everything else: "the
+ * gate could not tell" and "the gate could tell, and the answer is no" have
+ * opposite remedies — say it again versus go and do it. A set of `unmet` and
+ * `partial` together is not mixed in that sense; both are gaps the founder
+ * closes by producing evidence, which is what the `evidence-missing` note says.
+ *
+ * A criterion id with no evaluation to look up is skipped rather than counted
+ * as either side. Guessing there would be the same mistake one level down.
+ */
+function isMixedObstacle(
+  obstacle: GateObstacle,
+  perCriterion: readonly { criterionId: string; status: CriterionStatus }[]
+): boolean {
+  const status = new Map(perCriterion.map((e) => [e.criterionId, e.status]));
+  const seen = obstacle.criterionIds
+    .map((id) => status.get(id))
+    .filter((value): value is CriterionStatus => value !== undefined);
+  const unclear = seen.filter((value) => value === "not-evaluable").length;
+  return unclear > 0 && unclear < seen.length;
+}
+
+/**
+ * PURE. Null in, null out — an older stored verdict simply has no arm.
+ *
+ * `perCriterion` is OPTIONAL, and absent means "the caller does not track it",
+ * never "the set is uniform". Without it the arm's own heading stands, which is
+ * exactly what every verdict written before this check was rendered under.
+ */
 export function describeObstacle(
-  obstacle: GateObstacle | null | undefined
+  obstacle: GateObstacle | null | undefined,
+  perCriterion?: readonly { criterionId: string; status: CriterionStatus }[]
 ): GateObstacleView | null {
   if (!obstacle) {
     return null;
   }
-  return { kind: obstacle.kind, ...OBSTACLE_VIEW[obstacle.kind] };
+  const kind: GateObstacleViewKind =
+    perCriterion && isMixedObstacle(obstacle, perCriterion)
+      ? "mixed"
+      : obstacle.kind;
+  return { kind, ...OBSTACLE_VIEW[kind] };
 }
 
 /**
@@ -177,6 +229,13 @@ export type DescribeRailInput = {
    */
   criteriaAssessed?: number;
   verdictReadable?: boolean;
+  /**
+   * The judge's result per criterion, id and status only. The rail does not use
+   * it; the card needs it to tell whether one heading can honestly cover the
+   * whole obstacle set. Optional, and absence means the caller does not track
+   * it — never that the set is uniform.
+   */
+  perCriterion?: readonly { criterionId: string; status: CriterionStatus }[];
   /**
    * Which rule fired. Optional and nullable for the same reason
    * `GateVerdictSchema.obstacle` is defaulted: every verdict written before this
@@ -294,6 +353,14 @@ export type GateVerdictView =
        */
       gaps: readonly string[];
       /**
+       * WHAT TO PRINT ABOVE THE LIST so the gaps are said exactly once.
+       *
+       * `reason` below is still the gate's own sentence, whole and unedited.
+       * This is the rendering decision taken over it, and the arms are not
+       * interchangeable — see `splitHeadline`.
+       */
+      headline: VerdictHeadline;
+      /**
        * Whether `gaps` can be trusted as a list of findings.
        *
        * - `scored`      the judge scored `criteria` criteria; gaps are real.
@@ -324,6 +391,82 @@ export type GateVerdictView =
        */
       obstacle: GateObstacleView | null;
     };
+
+/**
+ * SAYING THE GAP ONCE.
+ *
+ * `decideGate` builds its reason as "<summary>: <every gap joined by '; '>." —
+ * confirmed against all seven stored verdicts of the live problem-validation
+ * deadlock. The card printed that sentence AND the same gaps as a list, so on
+ * attempt 7, whose reason was
+ *
+ *   "1 of 8 exit criteria could not be assessed: four evidence-backed rubric
+ *    scores to calculate the validation score."
+ *
+ * and whose `missing[0]` was the second half of it verbatim, half of a small
+ * card was one sentence twice and the count appeared twice — on the single
+ * surface whose whole job is to name the gap ONCE, clearly.
+ *
+ * It is worse on a long list. `sanitizeSentence` caps the reason at 300
+ * characters, so attempt 1's five joined gaps arrive TRUNCATED MID-GAP, and
+ * that truncated run-on sat above the same five gaps rendered properly.
+ *
+ * THE FIX IS TO SPLIT, NOT TO DROP. The reason's own summary half — "5 of 8
+ * exit criteria are unmet" — is information the list does not carry, and the
+ * list is the readable rendering the reason's tail is not. So the tail is cut
+ * where the first gap begins and the two halves are printed once each.
+ *
+ * THE TEST IS THE TEXT, NEVER THE COUNT. Suppressing whenever `missing.length`
+ * is 1 would delete the ordinary shape of a refusal — one named gap — which is
+ * the one thing this card exists to show.
+ */
+export type VerdictHeadline =
+  /** The gate wrote no reason. Nothing to print above the list. */
+  | { kind: "none" }
+  /** Print `text`, then the gap list under it. */
+  | { kind: "summary"; text: string }
+  /**
+   * Print `text` and NOT the list: the reason is the gap and nothing else, so
+   * the list underneath would be the same sentence a second time.
+   */
+  | { kind: "instead-of-list"; text: string };
+
+/**
+ * How much of a gap must appear verbatim in the reason to be its tail.
+ *
+ * A whole-string match is wrong here because the reason is capped at 300 chars
+ * and the first gap can be cut in half by that cap. Forty characters of exact
+ * agreement is not something two different sentences do by accident.
+ */
+const GAP_PROBE_LENGTH = 40;
+
+/** Trailing punctuation left behind once the gap tail is cut off. */
+const DANGLING = /[\s:;,\u2014-]+$/;
+
+function splitHeadline(
+  gaps: readonly string[],
+  reason: string | null
+): VerdictHeadline {
+  if (!reason) {
+    return { kind: "none" };
+  }
+  const first = gaps.at(0);
+  if (!first) {
+    return { kind: "summary", text: reason };
+  }
+  const probe = first.slice(0, GAP_PROBE_LENGTH);
+  const at = probe.length > 0 ? reason.indexOf(probe) : -1;
+  if (at < 0) {
+    // The reason never quotes the gaps — nothing is being said twice.
+    return { kind: "summary", text: reason };
+  }
+  const summary = reason.slice(0, at).replace(DANGLING, "");
+  // Nothing but the gap itself was there, so there is no summary to keep and
+  // the list would only repeat what is printed.
+  return summary.length > 0
+    ? { kind: "summary", text: summary }
+    : { kind: "instead-of-list", text: reason };
+}
 
 /** PURE. The verdict card, from the state the router already returns. */
 export function describeGateVerdict(input: DescribeRailInput): GateVerdictView {
@@ -367,12 +510,343 @@ export function describeGateVerdict(input: DescribeRailInput): GateVerdictView {
     status,
     label: LABEL[status],
     gaps,
+    headline: splitHeadline(gaps, input.reason ?? null),
     coverage,
     noGapNote,
     reason: input.reason ?? null,
     nextQuestion: input.nextQuestion ?? null,
     pending,
-    obstacle: describeObstacle(input.obstacle),
+    obstacle: describeObstacle(input.obstacle, input.perCriterion),
+  };
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHERE THE FOUNDER STANDS: which attempt this is, what moved, what repeats.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Seven refusals arrived rendered IDENTICALLY and standalone. Nothing said this
+ * was attempt 7, nothing said the same criterion had now blocked four of them,
+ * and nothing said that four criteria had been closed and had re-opened twice
+ * along the way — the counts went 5 -> 1 -> 1 -> 1 -> 5 -> 5 -> 1 and the
+ * founder was told none of it. Every one of those facts was already in
+ * `ProjectPhaseAttempt` and already computed by `describeAttemptSeries`; it was
+ * rendered one navigation away, on a screen nobody in the middle of a refusal
+ * opens.
+ *
+ * This turns that ledger into the three sentences the card needs. PURE: it
+ * takes the series already computed in lib/phases/attempt-history.ts and
+ * decides only what may honestly be SAID about it.
+ */
+
+/**
+ * One attempt, projected down to what the card needs.
+ *
+ * `unmet` is NULL, never empty, when the attempt has no criterion state to
+ * read — the verdict did not parse, or the gate failed closed and scored
+ * nothing. An empty array there would mean "this attempt had no unmet
+ * criteria", i.e. good news, which is the exact inversion `AttemptDetail`
+ * exists to prevent.
+ */
+export type AttemptLedgerStep = {
+  attemptNo: number;
+  unmet: readonly string[] | null;
+  /** From describeAttemptSeries — the diff against the attempt before. */
+  closed: readonly string[];
+  opened: readonly string[];
+  stillOpen: readonly string[];
+};
+
+export type CriterionRepeat = {
+  criterionId: string;
+  /** Attempts ON RECORD where this criterion was not met. */
+  blocked: number;
+  /**
+   * Attempts on record that had criterion state at all — the denominator.
+   *
+   * NOT the attempt count. An attempt where the gate failed closed scored
+   * nothing, and counting it as an attempt this criterion did NOT block would
+   * quietly understate the repeat by claiming the gate had looked.
+   */
+  of: number;
+};
+
+export type AttemptProgress = {
+  /** Criteria that stopped being unmet. What the founder actually fixed. */
+  closed: readonly string[];
+  /** REGRESSIONS: met before, not met now. The line nobody was ever shown. */
+  opened: readonly string[];
+  stillOpen: readonly string[];
+};
+
+export type AttemptStandingView = {
+  /** "Attempt 7". NULL before the gate has ever run — never "Attempt 0". */
+  attemptLabel: string | null;
+  /**
+   * The latest attempt's diff, or NULL when there is nothing to say.
+   *
+   * `describeAttemptSeries` writes three empty lists both when nothing changed
+   * and when the two attempts could not be compared at all (an unreadable or
+   * fail-closed verdict on either side). Rendering an all-empty diff would
+   * assert "nothing moved" in a case where the truth is "this cannot be
+   * compared", so the arm is null and the card says nothing instead.
+   */
+  progress: AttemptProgress | null;
+  /** Criteria blocking NOW that have blocked before. Most-blocked first. */
+  repeats: readonly CriterionRepeat[];
+  /**
+   * `repeats` as ONE sentence for the card body, or null when nothing repeats.
+   *
+   * Replayed against the seven real attempts, `repeats` has SEVEN entries, six
+   * of them "blocked 7 of the 7". Printed as seven lines that is a wall of
+   * identical text sitting on top of the regression, which is the one line on
+   * the card the founder could not have worked out for themselves. Every repeat
+   * is still shown — the checklist annotates each row — but the body gets one
+   * sentence.
+   */
+  repeatNote: string | null;
+};
+
+/** Blocking once is a refusal. Blocking twice is a pattern worth naming. */
+const REPEAT_THRESHOLD = 2;
+
+function countRepeats(ledger: readonly AttemptLedgerStep[]): CriterionRepeat[] {
+  const latest = ledger.at(-1);
+  // The card is showing the LATEST attempt. If that one scored nothing, saying
+  // "this criterion is still blocking you" is a claim about work the gate never
+  // looked at, so no repeat is reported at all.
+  if (!latest?.unmet) {
+    return [];
+  }
+  const scored = ledger.filter((s) => s.unmet !== null);
+  const blocked = new Map<string, number>();
+  for (const attempt of scored) {
+    // Deduped per attempt: a criterion listed twice in one verdict is the
+    // judge's own defect and must not inflate the count.
+    for (const id of new Set(attempt.unmet ?? [])) {
+      blocked.set(id, (blocked.get(id) ?? 0) + 1);
+    }
+  }
+  return [...new Set(latest.unmet)]
+    .map((criterionId) => ({
+      criterionId,
+      blocked: blocked.get(criterionId) ?? 0,
+      of: scored.length,
+    }))
+    .filter((repeat) => repeat.blocked >= REPEAT_THRESHOLD)
+    .sort((a, b) => b.blocked - a.blocked);
+}
+
+/** PURE. The ledger, said as position rather than as a list of refusals. */
+export function describeAttemptStanding(input: {
+  /**
+   * `ProjectPhase.attemptCount` — how many times the gate has run on THIS
+   * phase. Authoritative, and deliberately not `ledger.length`: verdicts
+   * written before the ledger existed were overwritten and are gone, so the
+   * ledger is sometimes the shorter of the two.
+   */
+  attemptCount: number;
+  /** Oldest first, as describeAttemptSeries returns it. */
+  ledger: readonly AttemptLedgerStep[];
+}): AttemptStandingView {
+  const repeats = countRepeats(input.ledger);
+  return {
+    attemptLabel:
+      input.attemptCount > 0 ? `Attempt ${input.attemptCount}` : null,
+    progress: latestProgress(input.ledger),
+    repeats,
+    repeatNote: repeatNote(repeats),
+  };
+}
+
+function repeatNote(repeats: readonly CriterionRepeat[]): string | null {
+  const top = repeats.at(0);
+  if (!top) {
+    return null;
+  }
+  const one = `${top.criterionId} has blocked ${top.blocked} of the ${top.of} attempts on record`;
+  if (repeats.length === 1) {
+    return `${one}.`;
+  }
+  return `${repeats.length} of the criteria still open have blocked more than one attempt — ${one}. The checklist below marks each of them.`;
+}
+
+function latestProgress(
+  ledger: readonly AttemptLedgerStep[]
+): AttemptProgress | null {
+  const latest = ledger.at(-1);
+  if (!latest) {
+    return null;
+  }
+  const moved =
+    latest.closed.length + latest.opened.length + latest.stillOpen.length;
+  return moved > 0
+    ? {
+        closed: latest.closed,
+        opened: latest.opened,
+        stillOpen: latest.stillOpen,
+      }
+    : null;
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ALL EIGHT EXIT CRITERIA, WITH THEIR STATE, WITHOUT LEAVING THE CONVERSATION.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * The card names the blocking gap and nothing else, so through seven refusals
+ * the founder never saw what they were being judged against — the full list
+ * lives on the Phases screen, one navigation away from where the work happens.
+ *
+ * FIVE STATES, AND THE FIFTH IS THE IMPORTANT ONE. A criterion the judge did
+ * not score is NOT unmet: `normalizeEvaluation` can drop an evaluation, and a
+ * judge can return fewer than it was asked for. "Not met" is a finding about
+ * the founder's work; "not scored" is a fact about the gate, and folding the
+ * second into the first invents a refusal the gate never wrote.
+ */
+export type ChecklistCriterion = {
+  id: string;
+  description: string;
+  severity: CriterionSeverity;
+  closure: CriterionClosure;
+};
+
+export type ChecklistState = CriterionStatus | "unscored";
+
+export type ChecklistRow = {
+  id: string;
+  description: string;
+  severity: CriterionSeverity;
+  closure: CriterionClosure;
+  state: ChecklistState;
+  /** The state in founder's words. Never blank, never shared between states. */
+  label: string;
+  /** Set only when this criterion has blocked more than one attempt. */
+  repeat: CriterionRepeat | null;
+};
+
+/**
+ * THE UNAVAILABLE ARM CARRIES NO ROWS.
+ *
+ * `failClosedVerdict` produces `perCriterion: []`, which means NOTHING WAS
+ * JUDGED — not "eight criteria all came back untouched". Eight grey rows over
+ * that verdict would tell a founder the gate looked at all eight and found
+ * nothing to say, when the gate never ran. Same technique, and the same live
+ * incident, as `GateVerdictView.coverage` above and `AttemptDetail` in
+ * attempt-history.ts.
+ */
+export type CriterionChecklist =
+  | { available: false; note: string }
+  | {
+      available: true;
+      rows: readonly ChecklistRow[];
+      /** "3 of 8 met, 2 not met…". Never a bare count with no states named. */
+      summary: string;
+      metCount: number;
+      /** Rows the judge did not mark met. Includes the unscored ones. */
+      openCount: number;
+    };
+
+const CHECKLIST_LABEL: Record<ChecklistState, string> = {
+  met: "met",
+  partial: "partly evidenced",
+  unmet: "not met",
+  "not-evaluable": "could not be assessed",
+  unscored: "not scored on this attempt",
+};
+
+const NOTHING_SCORED =
+  "The gate reached a decision without scoring a single criterion, so no criterion was scored on this attempt and none of them can be reported as met or unmet. This is a plumbing failure, not a finding about your work.";
+const CANNOT_READ =
+  "The stored verdict can no longer be read, so its per-criterion detail is unavailable. That is a reading failure — it is not a clean sheet.";
+const NO_CRITERIA =
+  "This phase defines no exit criteria, so there is nothing to check against. That is a bug in the app rather than something you did.";
+
+function stateOf(
+  id: string,
+  perCriterion: readonly { criterionId: string; status: CriterionStatus }[]
+): ChecklistState {
+  return perCriterion.find((e) => e.criterionId === id)?.status ?? "unscored";
+}
+
+/** Counts of everything except `met`, in a stable order, as clauses. */
+function openClauses(rows: readonly ChecklistRow[]): string[] {
+  const order: ChecklistState[] = [
+    "unmet",
+    "partial",
+    "not-evaluable",
+    "unscored",
+  ];
+  return order
+    .map((state) => ({
+      state,
+      count: rows.filter((r) => r.state === state).length,
+    }))
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${entry.count} ${CHECKLIST_LABEL[entry.state]}`);
+}
+
+function summarize(rows: readonly ChecklistRow[], metCount: number): string {
+  const head = [`${metCount} of ${rows.length} met`, ...openClauses(rows)].join(
+    ", "
+  );
+  // WHICH OF THE OPEN ONES CANNOT BE ANSWERED. "you have not said this" and
+  // "nobody could say this yet" are different rows with opposite remedies, and
+  // this sentence is the only place a collapsed checklist says so.
+  const fieldwork = rows.filter(
+    (r) => r.state !== "met" && r.closure === "offline-only"
+  ).length;
+  if (fieldwork === 0) {
+    return `${head}.`;
+  }
+  const open = rows.length - metCount;
+  return `${head}. ${fieldwork} of the ${open} still open need data from outside this conversation.`;
+}
+
+/** PURE. The eight rows, or an honest refusal to draw any. */
+export function describeCriterionChecklist(input: {
+  /** The phase's criteria, in definition order. */
+  criteria: readonly ChecklistCriterion[];
+  /** The judge's result per criterion — id and status only. */
+  perCriterion: readonly { criterionId: string; status: CriterionStatus }[];
+  /** Whether the stored verdict parsed at all. */
+  verdictReadable: boolean;
+  /** From describeAttemptStanding. Absent when nothing has repeated. */
+  repeats?: readonly CriterionRepeat[];
+}): CriterionChecklist {
+  if (!input.verdictReadable) {
+    return { available: false, note: CANNOT_READ };
+  }
+  if (input.criteria.length === 0) {
+    return { available: false, note: NO_CRITERIA };
+  }
+  // perCriterion.length IS criteriaAssessed — toPhaseGateState derives one from
+  // the other — so zero here is the fail-closed signature and nothing else.
+  if (input.perCriterion.length === 0) {
+    return { available: false, note: NOTHING_SCORED };
+  }
+
+  const repeats = input.repeats ?? [];
+  const rows: ChecklistRow[] = input.criteria.map((c) => {
+    const state = stateOf(c.id, input.perCriterion);
+    return {
+      id: c.id,
+      description: c.description,
+      severity: c.severity,
+      closure: c.closure,
+      state,
+      label: CHECKLIST_LABEL[state],
+      repeat: repeats.find((r) => r.criterionId === c.id) ?? null,
+    };
+  });
+  const metCount = rows.filter((r) => r.state === "met").length;
+
+  return {
+    available: true,
+    rows,
+    summary: summarize(rows, metCount),
+    metCount,
+    openCount: rows.length - metCount,
   };
 }
 

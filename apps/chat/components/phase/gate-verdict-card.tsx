@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { describeGateVerdict } from "@/lib/phases/rail";
+import {
+  type AttemptProgress,
+  type ChecklistState,
+  type CriterionChecklist,
+  describeAttemptStanding,
+  describeCriterionChecklist,
+  describeGateVerdict,
+  type GateVerdictView,
+} from "@/lib/phases/rail";
 import { cn } from "@/lib/utils";
 import { usePhaseGate } from "./phase-gate-provider";
 
@@ -28,6 +36,17 @@ import { usePhaseGate } from "./phase-gate-provider";
  * the rail's own `describeRail`, reading the same payload. That is deliberate:
  * these two renderers disagreed once before, and the rail spent a release
  * saying "READY / no assessment yet".
+ *
+ * WHAT SEVEN IDENTICAL REFUSALS TAUGHT THIS CARD. The live problem-validation
+ * deadlock produced seven of these, each rendering exactly like the last. The
+ * founder called it "a lot of pushbacks", and they were right, because a card
+ * that cannot say WHERE YOU ARE has nothing to offer but the refusal itself.
+ * Four things were added for that, and each one is a fact the app already had:
+ *
+ *   the attempt number      "Attempt 7" — the ledger has always known
+ *   the repeat count        this criterion has blocked four of them
+ *   the diff, regressions   four criteria closed and re-opened, twice, unsaid
+ *   the full checklist      what the other seven criteria are, and their state
  */
 const STATUS_STYLE = {
   blocked: "border-destructive/40 bg-destructive/5",
@@ -42,6 +61,224 @@ const STATUS_VARIANT = {
   passed: "default",
   complete: "default",
 } as const;
+
+type AssessedView = Extract<GateVerdictView, { assessed: true }>;
+
+/**
+ * THE NAMED GAPS — printed once.
+ *
+ * `decideGate` writes its reason as "<summary>: <every gap joined by '; '>",
+ * and the card printed that sentence AND the same gaps as a list. On attempt 7
+ * of the live deadlock the reason and `missing[0]` were the same clause, so
+ * half of a small card was one sentence twice; on attempt 1 the reason was five
+ * joined gaps truncated mid-sentence by the 300-character cap, sitting above
+ * the same five rendered properly.
+ *
+ * `view.headline` is the split, decided on the TEXT in rail.ts and never on the
+ * list's length — suppressing every one-item list would delete the ordinary
+ * shape of a refusal, which is the one thing this card exists to show.
+ */
+function GapList({ view }: { view: AssessedView }) {
+  if (view.coverage.kind !== "scored" || view.gaps.length === 0) {
+    return null;
+  }
+  if (view.headline.kind === "instead-of-list") {
+    return null;
+  }
+  return (
+    <div className="mt-3">
+      {/*
+        THE HEADING IS PER-ARM. It used to be the literal string "What is
+        missing" over whatever `missing` held — so on four of the seven live
+        attempts it read "WHAT IS MISSING" above text that said "could not be
+        assessed". Those are opposite situations with opposite remedies, and the
+        founder could not tell which one they were in.
+      */}
+      <p className="font-medium text-xs uppercase tracking-wide opacity-70">
+        {`${view.obstacle?.heading ?? "What is missing"} — ${view.gaps.length} of ${view.coverage.criteria} criteria`}
+      </p>
+      <ul className="mt-1 space-y-1">
+        {/*
+          EVERY gap, not `missing.at(0)`. The rail shows one because it has one
+          line; this is the surface that exists so the rest are not invisible.
+
+          Keyed by the gap text: `missing` is a set of distinct criterion
+          descriptions from one verdict, so duplicates would themselves be a
+          defect worth seeing rather than a key to paper over.
+        */}
+        {view.gaps.map((gap) => (
+          <li className="flex gap-2 text-sm" key={gap}>
+            <span aria-hidden="true" className="opacity-50">
+              —
+            </span>
+            <span>{gap}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * WHAT MOVED SINCE THE LAST ATTEMPT, AND WHAT MOVED BACKWARDS.
+ *
+ * The live verdicts went 5 → 1 → 1 → 1 → 5 → 5 → 1 unmet. The founder closed
+ * four criteria, watched them re-open twice, and was told none of it — the diff
+ * was computed on every run and rendered only inside a panel behind a link.
+ *
+ * REGRESSIONS COME FIRST AND IN THEIR OWN BOX. Under a list of things that went
+ * well, "newly unmet" reads as a footnote to progress; it is the opposite of
+ * progress, and it is the single fact a founder cannot reconstruct from the
+ * conversation, because nothing they said caused it.
+ */
+function AttemptDiff({ progress }: { progress: AttemptProgress | null }) {
+  if (!progress) {
+    return null;
+  }
+  return (
+    <div className="mt-3 space-y-2">
+      {progress.opened.length > 0 ? (
+        <div className="rounded border border-destructive/50 bg-destructive/10 p-2">
+          <p className="font-medium text-destructive text-xs uppercase tracking-wide">
+            Newly unmet — this went backwards
+          </p>
+          <p className="mt-1 text-sm">{progress.opened.join(", ")}</p>
+          <p className="mt-1 text-muted-foreground text-xs">
+            These were met on the previous attempt and are not met now. Nothing
+            you said necessarily caused it — the gate re-reads the whole
+            transcript every time — but you would have no way of knowing it had
+            happened, so it is said here first.
+          </p>
+        </div>
+      ) : null}
+      {progress.closed.length > 0 ? (
+        <p className="text-emerald-600 text-xs dark:text-emerald-400">
+          <span className="font-medium">Closed since the last attempt:</span>{" "}
+          {progress.closed.join(", ")}
+        </p>
+      ) : null}
+      {progress.stillOpen.length > 0 ? (
+        <p className="text-muted-foreground text-xs">
+          <span className="font-medium">Still open:</span>{" "}
+          {progress.stillOpen.join(", ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * "THIS CRITERION HAS BLOCKED FOUR OF YOUR SEVEN ATTEMPTS."
+ *
+ * The single most useful fact on screen during the deadlock, and the one the
+ * card never said. Seven refusals that each looked like the first is how
+ * "annoying" happens; a refusal that knows it is the fourth of its kind is an
+ * argument for changing approach rather than answering again.
+ *
+ * ONE SENTENCE, NOT ONE LINE PER CRITERION. Replayed against the real seven
+ * attempts, six criteria had blocked all seven of them — as six lines that is a
+ * wall of identical text sitting on top of the regression above it. Every
+ * repeat is still shown, annotated on its own row in the checklist below.
+ */
+function RepeatNote({ note }: { note: string | null }) {
+  if (!note) {
+    return null;
+  }
+  return <p className="mt-2 text-muted-foreground text-xs">{note}</p>;
+}
+
+/** One tone per state. `unscored` shares muted with not-evaluable — the LABEL
+ * is what separates them, and the two are neighbouring shades of "unknown"
+ * rather than opposite findings. */
+const STATE_TONE: Record<ChecklistState, string> = {
+  met: "text-emerald-600 dark:text-emerald-400",
+  partial: "text-amber-600 dark:text-amber-400",
+  unmet: "text-destructive",
+  "not-evaluable": "text-muted-foreground",
+  unscored: "text-muted-foreground",
+};
+
+const STATE_MARK: Record<ChecklistState, string> = {
+  met: "✓",
+  partial: "~",
+  unmet: "✗",
+  "not-evaluable": "?",
+  unscored: "·",
+};
+
+/**
+ * ALL EIGHT CRITERIA, COLLAPSED.
+ *
+ * Through seven refusals the founder never saw what they were being judged
+ * against — the list lives on the Phases screen, one navigation away from where
+ * the work happens. Collapsed by default because the blocking gap above is
+ * still the headline; expandable because "4 closed, this one needs fieldwork,
+ * three untouched" is what turns a refusal into a position.
+ *
+ * IT DRAWS NO ROWS FOR A VERDICT THAT NEVER RAN. `describeCriterionChecklist`
+ * returns an arm with no `rows` at all when nothing was scored, so eight grey
+ * "untouched" rows cannot be rendered over a gate that failed closed.
+ * `explainAbsence` is false when the card is ALREADY saying so a few lines up —
+ * the fail-closed and unreadable notices — so the same fact is not stated twice.
+ */
+function CriteriaChecklist({
+  checklist,
+  explainAbsence,
+}: {
+  checklist: CriterionChecklist;
+  explainAbsence: boolean;
+}) {
+  if (!checklist.available) {
+    return explainAbsence ? (
+      <p className="mt-2 text-muted-foreground text-sm">{checklist.note}</p>
+    ) : null;
+  }
+  return (
+    <details className="mt-3 border-t pt-2">
+      <summary className="cursor-pointer text-muted-foreground text-xs opacity-80 hover:opacity-100">
+        All {checklist.rows.length} exit criteria — {checklist.summary}
+      </summary>
+      <ul className="mt-2 space-y-2">
+        {checklist.rows.map((row) => (
+          <li className="flex gap-2 text-xs" key={row.id}>
+            <span
+              aria-hidden="true"
+              className={cn("w-3 shrink-0", STATE_TONE[row.state])}
+            >
+              {STATE_MARK[row.state]}
+            </span>
+            <span className="min-w-0">
+              <span className="font-medium">{row.id}</span>
+              <span className={cn("ml-2", STATE_TONE[row.state])}>
+                {row.label}
+              </span>
+              {/*
+                WHY IT IS OPEN MATTERS MORE THAN THAT IT IS OPEN. "you have not
+                said this" and "nobody could say this yet" have opposite
+                remedies, and asking for the second is what produced a gate
+                demanding four rubric scores from a founder with no interviews.
+              */}
+              {row.state !== "met" && row.closure === "offline-only" ? (
+                <span className="ml-2 opacity-70">needs field data</span>
+              ) : null}
+              {row.severity === "advisory" ? (
+                <span className="ml-2 opacity-70">advisory only</span>
+              ) : null}
+              {row.repeat ? (
+                <span className="ml-2 opacity-70">
+                  blocked {row.repeat.blocked} of {row.repeat.of} attempts
+                </span>
+              ) : null}
+              <span className="mt-0.5 block text-muted-foreground">
+                {row.description}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 export function GateVerdictCard({
   projectId,
@@ -64,6 +301,7 @@ export function GateVerdictCard({
     obstacle: gate.data.obstacle,
     reason: gate.data.reason,
     total: gate.data.total,
+    perCriterion: gate.data.perCriterion,
     verdictReadable: gate.data.verdictReadable,
     workflowComplete: gate.data.workflowComplete,
   });
@@ -85,6 +323,20 @@ export function GateVerdictCard({
     ) : null;
   }
 
+  // Both read the SAME payload as the verdict above, in the same render, so the
+  // attempt number, the diff and the checklist cannot describe a different
+  // verdict from the one badged at the top.
+  const standing = describeAttemptStanding({
+    attemptCount: gate.data.attemptCount,
+    ledger: gate.data.ledger,
+  });
+  const checklist = describeCriterionChecklist({
+    criteria: gate.data.criteria,
+    perCriterion: gate.data.perCriterion,
+    repeats: standing.repeats,
+    verdictReadable: gate.data.verdictReadable,
+  });
+
   return (
     <output
       className={cn("mx-auto block w-full px-2 pb-2 md:max-w-3xl", className)}
@@ -97,6 +349,17 @@ export function GateVerdictCard({
             phase {gate.data.order} of {gate.data.total}
           </span>
           {/*
+            WHICH REFUSAL THIS IS. Seven of them arrived looking identical and
+            standalone, and that identity is why the seventh read as pushback
+            rather than as position in a sequence. Null, never "Attempt 0",
+            before the gate has run.
+          */}
+          {standing.attemptLabel ? (
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {standing.attemptLabel}
+            </span>
+          ) : null}
+          {/*
             Shown at every breakpoint. It is the only signal that this card may
             be describing an EARLIER turn, and a founder reading a refusal needs
             to know whether it judged what they just said.
@@ -108,7 +371,15 @@ export function GateVerdictCard({
           ) : null}
         </div>
 
-        {view.reason ? <p className="mt-2 text-sm">{view.reason}</p> : null}
+        {/*
+          THE SUMMARY HALF ONLY. `view.headline` is `view.reason` with its
+          trailing restatement of the gap list cut off, so the gaps below are
+          not the same sentences a second time — and on the `instead-of-list`
+          arm this IS the whole reason and GapList renders nothing.
+        */}
+        {view.headline.kind === "none" ? null : (
+          <p className="mt-2 text-sm">{view.headline.text}</p>
+        )}
 
         {/*
           THE GATE NEVER RAN. `failClosedVerdict` returns `perCriterion: []`
@@ -139,39 +410,7 @@ export function GateVerdictCard({
           </p>
         ) : null}
 
-        {view.coverage.kind === "scored" && view.gaps.length > 0 ? (
-          <div className="mt-3">
-            {/*
-              THE HEADING IS PER-ARM. It used to be the literal string "What is
-              missing" over whatever `missing` held — so on four of the seven
-              live attempts it read "WHAT IS MISSING" above text that said "could
-              not be assessed". Those are opposite situations with opposite
-              remedies, and the founder could not tell which one they were in.
-            */}
-            <p className="font-medium text-xs uppercase tracking-wide opacity-70">
-              {`${view.obstacle?.heading ?? "What is missing"} — ${view.gaps.length} of ${view.coverage.criteria} criteria`}
-            </p>
-            <ul className="mt-1 space-y-1">
-              {/*
-                EVERY gap, not `missing.at(0)`. The rail shows one because it
-                has one line; this is the surface that exists so the rest are
-                not invisible.
-
-                Keyed by the gap text: `missing` is a set of distinct criterion
-                descriptions from one verdict, so duplicates would themselves be
-                a defect worth seeing rather than a key to paper over.
-              */}
-              {view.gaps.map((gap) => (
-                <li className="flex gap-2 text-sm" key={gap}>
-                  <span aria-hidden="true" className="opacity-50">
-                    —
-                  </span>
-                  <span>{gap}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+        <GapList view={view} />
 
         {/*
           WHAT THIS STATE IS, AND WHAT CLOSES IT. Without this the list above is
@@ -188,6 +427,13 @@ export function GateVerdictCard({
         {view.coverage.kind === "scored" && view.noGapNote ? (
           <p className="mt-2 text-muted-foreground text-sm">{view.noGapNote}</p>
         ) : null}
+
+        <AttemptDiff progress={standing.progress} />
+        <RepeatNote note={standing.repeatNote} />
+        <CriteriaChecklist
+          checklist={checklist}
+          explainAbsence={view.coverage.kind === "scored"}
+        />
 
         {view.nextQuestion ? (
           <p className="mt-3 border-t pt-2 text-sm">

@@ -11,6 +11,56 @@ import { toPhaseGateState } from "@/lib/phases/directive";
 import { PHASE_COUNT } from "@/lib/phases/types";
 import { createTRPCRouter, protectedProcedure } from "@/trpc/init";
 
+/**
+ * The current phase's attempt ledger, projected to what the verdict card needs.
+ *
+ * ONE EXTRA QUERY, FOR ONE PHASE, and only once the gate has actually run —
+ * `getState` is polled every 3s while a verdict is pending, and a query issued
+ * on every poll of a project that has never been judged buys nothing. The
+ * `attempts` procedure above stays separate because IT loads a phase the
+ * founder chose to open; this is the phase they are already in.
+ *
+ * Projected rather than returned whole: `describeAttemptSeries` carries every
+ * evaluation's `evidence` and `gap` prose, which is model-written text that has
+ * no business crossing the wire on a 3-second poll. Ids and the diff are all
+ * the card reads.
+ *
+ * `unmet` stays NULLABLE all the way through. Null means the attempt had no
+ * criterion state at all — an unreadable verdict, or a gate that failed closed
+ * and scored nothing — and flattening it to `[]` would make that attempt read
+ * as one where nothing was unmet.
+ */
+async function currentPhaseLedger({
+  projectId,
+  phaseKey,
+  attemptCount,
+}: {
+  projectId: string;
+  phaseKey: string;
+  attemptCount: number;
+}) {
+  if (attemptCount === 0) {
+    return [];
+  }
+  const rows = await getProjectPhaseAttempts({ projectId, phaseKey });
+  return describeAttemptSeries(
+    rows.map((row) => ({
+      attemptNo: row.attemptNo,
+      decision: row.decision,
+      reason: row.reason,
+      nextQuestion: row.nextQuestion,
+      evaluatedAt: row.evaluatedAt,
+      verdict: row.verdict,
+    }))
+  ).map((step) => ({
+    attemptNo: step.attemptNo,
+    unmet: step.detail.readable ? step.detail.unmet : null,
+    closed: step.closed,
+    opened: step.opened,
+    stillOpen: step.stillOpen,
+  }));
+}
+
 export const phaseRouter = createTRPCRouter({
   /**
    * THE REFUSAL LEDGER, which until now nothing read.
@@ -87,6 +137,11 @@ export const phaseRouter = createTRPCRouter({
       const row = rows.find((r) => r.phaseKey === phase.key) ?? null;
       // Parsed, not cast: `verdict` is a json column, i.e. genuinely unknown.
       const state = toPhaseGateState(row);
+      const ledger = await currentPhaseLedger({
+        projectId: input.projectId,
+        phaseKey: phase.key,
+        attemptCount: row?.attemptCount ?? 0,
+      });
 
       return {
         phaseKey: phase.key,
@@ -131,6 +186,50 @@ export const phaseRouter = createTRPCRouter({
          * INSERTs a row at 0 with onConflictDoNothing; nothing resets rows.
          */
         assessmentCount: rows.reduce((total, r) => total + r.attemptCount, 0),
+        /**
+         * HOW MANY TIMES THE GATE HAS RUN ON THIS PHASE — "Attempt 7".
+         *
+         * Read from the ProjectPhase row rather than from the ledger below,
+         * which is sometimes shorter: verdicts written before the ledger
+         * existed were overwritten in place and are gone. This column has been
+         * incremented on every gate run since it existed and is the honest
+         * count.
+         *
+         * Per-PHASE, unlike `assessmentCount` directly above, which sums every
+         * phase because it exists to detect a verdict LANDING. Both are needed
+         * and they are not interchangeable.
+         */
+        attemptCount: row?.attemptCount ?? 0,
+        /**
+         * WHAT THIS PHASE IS JUDGED AGAINST, so the card can show all eight
+         * rows without a navigation. Sent from here rather than imported by the
+         * component so the criteria and the verdict come from the same resolved
+         * phase and cannot describe two different ones.
+         */
+        criteria: phase.exitCriteria.map((c) => ({
+          id: c.id,
+          description: c.description,
+          severity: c.severity,
+          closure: c.closure,
+        })),
+        /**
+         * The judge's verdict per criterion, id and status only. EMPTY has two
+         * causes — a gate that failed closed and a verdict that no longer
+         * parses — and `criteriaAssessed` / `verdictReadable` above are what
+         * tell them apart. It is never "all eight came back untouched".
+         */
+        perCriterion: state?.perCriterion ?? [],
+        /**
+         * THE DIFF, WHICH WAS ALWAYS COMPUTED AND NEVER SHOWN HERE.
+         *
+         * `describeAttemptSeries` has produced closed / opened / stillOpen per
+         * attempt since the ledger was read, and it rendered only inside the
+         * Phases screen's history panel. The founder whose verdicts went
+         * 5 -> 1 -> 1 -> 1 -> 5 -> 5 -> 1 closed four criteria, watched them
+         * re-open twice and was never told, because the one screen carrying
+         * that fact was a click away from the conversation.
+         */
+        ledger,
       };
     }),
 });

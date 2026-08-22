@@ -1,4 +1,5 @@
 import {
+  type CriterionStatus,
   type GateDecisionValue,
   type GateObstacle,
   GateVerdictSchema,
@@ -61,6 +62,27 @@ export type PhaseGateState = {
    */
   criteriaAssessed: number;
   /**
+   * WHAT THE JUDGE SAID ABOUT EACH CRITERION — id and status, nothing else.
+   *
+   * Until this existed the projection counted `perCriterion.length` and then
+   * discarded the evaluations, so the only surface a founder reads mid-
+   * conversation could say how MANY criteria were judged and never WHICH. The
+   * full list of eight, with met / partial / unmet / could-not-be-assessed
+   * against each, lived a navigation away on the Phases screen.
+   *
+   * ID AND STATUS ONLY. `evidence`, `gap` and `nextQuestion` are model-written
+   * prose, and this projection feeds both the system prompt and the client. The
+   * gap sentences already travel, sanitised and capped, through `missing`;
+   * carrying them a second time here would be a second, unsanitised route.
+   *
+   * EMPTY HAS TWO CAUSES AND THEY ARE NOT THE SAME. `failClosedVerdict` writes
+   * `perCriterion: []` — nothing was judged — and an unparseable blob yields
+   * the same empty array. `criteriaAssessed` and `verdictReadable` are what
+   * tell them apart. A caller must never read a length of zero as "eight
+   * criteria came back untouched".
+   */
+  perCriterion: readonly { criterionId: string; status: CriterionStatus }[];
+  /**
    * Did the stored verdict blob still parse?
    *
    * False collapses into `missing: []` above, which on a BLOCK reads as
@@ -82,7 +104,18 @@ export type PhaseGateState = {
 
 /** Longest gap sentence that reaches the model. */
 const MAX_GAP_LENGTH = 300;
-/** Most gaps that reach the model. missing[0] is the one that matters. */
+/**
+ * Most gaps that reach the MODEL. `missing[0]` is the one that matters there.
+ *
+ * THE CAP BELONGS TO THE PROMPT, NOT TO THE PROJECTION, and it moved here from
+ * `toPhaseGateState` once the gate started reporting the whole open blocking
+ * set on every BLOCK rather than only the group that decided the verdict. Two
+ * phases define nine criteria and one defines ten, so a first-turn refusal can
+ * legitimately name more than six — and the verdict card renders this same list
+ * as the complete answer to "what is in my way", under a heading that counts
+ * it. Capping in the projection would have made that heading quietly wrong and
+ * hidden real gaps from the one surface that exists to show them.
+ */
 const MAX_GAPS = 6;
 const DECISIONS: readonly string[] = ["PASS", "WARN", "BLOCK"];
 
@@ -122,10 +155,7 @@ export function toPhaseGateState(
   }
   const parsed = GateVerdictSchema.safeParse(row.verdict);
   const missing = parsed.success
-    ? parsed.data.missing
-        .map(sanitizeGap)
-        .filter((g) => g.length > 0)
-        .slice(0, MAX_GAPS)
+    ? parsed.data.missing.map(sanitizeGap).filter((g) => g.length > 0)
     : [];
   return {
     decision: row.decision as GateDecisionValue,
@@ -134,6 +164,12 @@ export function toPhaseGateState(
     missing,
     attemptCount: row.attemptCount,
     criteriaAssessed: parsed.success ? parsed.data.perCriterion.length : 0,
+    perCriterion: parsed.success
+      ? parsed.data.perCriterion.map((e) => ({
+          criterionId: e.criterionId,
+          status: e.status,
+        }))
+      : [],
     verdictReadable: parsed.success,
     obstacle: parsed.success ? parsed.data.obstacle : null,
   };
@@ -206,7 +242,21 @@ function gapLines(missing: string[]): string[] {
   if (missing.length === 0) {
     return [];
   }
-  return ["What is still missing:", ...missing.map((g) => `- ${g}`)];
+  // Capped HERE rather than in the projection: this is the prompt's budget, and
+  // the card downstream needs the whole list. Ordered by the phase definition
+  // upstream, so a cut tail is the end of the phase's criteria rather than an
+  // arbitrary slice.
+  const shown = missing.slice(0, MAX_GAPS);
+  const rest = missing.length - shown.length;
+  const lines = ["What is still missing:", ...shown.map((g) => `- ${g}`)];
+  if (rest > 0) {
+    // Never silently. A prompt that lists six of nine gaps and says so cannot
+    // tell the founder the phase is nearly closed.
+    lines.push(
+      `- ...and ${rest} more open ${rest === 1 ? "criterion" : "criteria"} not listed here.`
+    );
+  }
+  return lines;
 }
 
 function askLine(nextQuestion: string | null): string {

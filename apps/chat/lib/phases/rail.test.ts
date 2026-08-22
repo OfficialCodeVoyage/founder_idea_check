@@ -1,11 +1,17 @@
 import { assert, describe, expect, it } from "vitest";
+import { PHASES } from "./definitions";
 import {
+  type AttemptLedgerStep,
   advanceRailWait,
+  type ChecklistCriterion,
+  describeAttemptStanding,
+  describeCriterionChecklist,
   describeGateVerdict,
   describeRail,
   type RailStatus,
   type RailWait,
 } from "./rail";
+import type { GateObstacle } from "./types";
 
 const TOTAL = 8;
 
@@ -465,5 +471,593 @@ describe("describeGateVerdict — a fail-closed BLOCK is not a gap list", () => 
     const view = verdict({ decision: "BLOCK", missing: ["no permalink"] });
     assert(view.assessed);
     expect(view.coverage).toEqual({ kind: "scored", criteria: 1 });
+  });
+});
+
+/**
+ * THE SEVEN STORED VERDICTS, IN THEIR REAL SHAPE.
+ *
+ * Read back out of ProjectPhaseAttempt for project 01a0279c. `decideGate`
+ * writes "<summary>: <every gap joined by '; '>." — so the card printed the
+ * gaps inside the reason AND again as a list.
+ */
+const LIVE_GAP =
+  "four evidence-backed rubric scores to calculate the validation score.";
+const LIVE_REASON = `1 of 8 exit criteria could not be assessed: ${LIVE_GAP}`;
+
+describe("describeGateVerdict — the gap is said once", () => {
+  it("splits the reason at the first gap and keeps both halves", () => {
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: [LIVE_GAP],
+      reason: LIVE_REASON,
+    });
+    assert(view.assessed);
+    expect(view.headline).toEqual({
+      kind: "summary",
+      text: "1 of 8 exit criteria could not be assessed",
+    });
+    // The gaps are NOT dropped, and `reason` still carries the gate's own
+    // sentence whole — the split is a rendering decision, not a filter.
+    expect(view.gaps).toEqual([LIVE_GAP]);
+    expect(view.reason).toBe(LIVE_REASON);
+  });
+
+  it("splits a reason listing SIX gaps, which is now the normal shape", () => {
+    // Since the gate began reporting the whole open set rather than only the
+    // group that decided, the reason ends with every gap joined by "; ".
+    const gaps = ["no buyer is named", "no workaround is described"];
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: gaps,
+      reason: `1 of 8 exit criteria could not be assessed, and 5 more of the 8 are still open: ${gaps.join("; ")}.`,
+    });
+    assert(view.assessed);
+    expect(view.headline).toEqual({
+      kind: "summary",
+      text: "1 of 8 exit criteria could not be assessed, and 5 more of the 8 are still open",
+    });
+    expect(view.gaps).toHaveLength(2);
+  });
+
+  it("splits a reason the 300-char cap truncated mid-gap", () => {
+    // sanitizeSentence caps the reason, so attempt 1's five joined gaps arrive
+    // cut off inside one of them. Matching the whole gap string would fail and
+    // the truncated run-on would sit above the same gaps rendered properly.
+    const gap = `${"a".repeat(60)} the rest of this gap never fits`;
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: [gap],
+      reason: `5 of 8 exit criteria are unmet: ${gap.slice(0, 50)}`,
+    });
+    assert(view.assessed);
+    expect(view.headline).toEqual({
+      kind: "summary",
+      text: "5 of 8 exit criteria are unmet",
+    });
+  });
+
+  it("prints the reason INSTEAD of the list when it is only the gap", () => {
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: [LIVE_GAP],
+      reason: LIVE_GAP,
+    });
+    assert(view.assessed);
+    expect(view.headline.kind).toBe("instead-of-list");
+  });
+
+  it("KEEPS a genuine single gap the reason never quotes", () => {
+    // The failure mode of suppressing on `missing.length === 1`: one named gap
+    // is the ordinary shape of a refusal, and deleting it would hide the only
+    // thing the card exists to show.
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: ["No workaround has been named."],
+      reason: "1 blocking criterion is unmet.",
+    });
+    assert(view.assessed);
+    expect(view.headline).toEqual({
+      kind: "summary",
+      text: "1 blocking criterion is unmet.",
+    });
+  });
+
+  it("has nothing to print above the list when the gate wrote no reason", () => {
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: ["no buyer is named"],
+      reason: null,
+    });
+    assert(view.assessed);
+    expect(view.headline).toEqual({ kind: "none" });
+  });
+
+  it("keeps a reason with no gaps beside it exactly as written", () => {
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "PASS",
+      missing: [],
+      reason: "Every blocking criterion is met.",
+    });
+    assert(view.assessed);
+    expect(view.headline).toEqual({
+      kind: "summary",
+      text: "Every blocking criterion is met.",
+    });
+  });
+});
+
+/**
+ * ONE HEADING MUST NOT SIT OVER TWO KINDS OF PROBLEM.
+ *
+ * `obstacle.kind` names the LEADING condition — the rule that fired first. Since
+ * the gate began reporting the whole open blocking set, a verdict whose kind is
+ * `not-evaluable` can carry six criteria of which five are plainly unmet, and
+ * "What could not be assessed" is then wrong for five of the six.
+ */
+describe("describeGateVerdict — a mixed set gets a mixed heading", () => {
+  const MIXED: GateObstacle = {
+    kind: "not-evaluable",
+    criterionIds: ["validation-score", "target-user", "existing-workarounds"],
+  };
+
+  it("does not claim a mixed set could not be assessed", () => {
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: ["a", "b", "c"],
+      obstacle: MIXED,
+      perCriterion: [
+        { criterionId: "validation-score", status: "not-evaluable" },
+        { criterionId: "target-user", status: "unmet" },
+        { criterionId: "existing-workarounds", status: "partial" },
+      ],
+    });
+    assert(view.assessed);
+    expect(view.obstacle?.kind).toBe("mixed");
+    expect(view.obstacle?.heading).toBe("What is still open");
+    expect(view.obstacle?.note).toContain("not all the same kind");
+  });
+
+  it("keeps the arm's own heading when the whole set really is one kind", () => {
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: ["a", "b"],
+      obstacle: {
+        kind: "not-evaluable",
+        criterionIds: ["validation-score", "evidence-quality"],
+      },
+      perCriterion: [
+        { criterionId: "validation-score", status: "not-evaluable" },
+        { criterionId: "evidence-quality", status: "not-evaluable" },
+      ],
+    });
+    assert(view.assessed);
+    expect(view.obstacle?.kind).toBe("not-evaluable");
+  });
+
+  it("does not call unmet-plus-partial mixed — both close the same way", () => {
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: ["a", "b"],
+      obstacle: {
+        kind: "evidence-missing",
+        criterionIds: ["target-user", "existing-workarounds"],
+      },
+      perCriterion: [
+        { criterionId: "target-user", status: "unmet" },
+        { criterionId: "existing-workarounds", status: "partial" },
+      ],
+    });
+    assert(view.assessed);
+    expect(view.obstacle?.kind).toBe("evidence-missing");
+  });
+
+  it("leaves the heading alone when the caller tracks no per-criterion state", () => {
+    // Absence is "this caller does not know", never "the set is uniform".
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: ["a", "b"],
+      obstacle: MIXED,
+    });
+    assert(view.assessed);
+    expect(view.obstacle?.kind).toBe("not-evaluable");
+  });
+
+  it("ignores criterion ids it has no evaluation for", () => {
+    // Guessing a status for an id the judge never scored would be the same
+    // mistake one level down.
+    const view = verdict({
+      criteriaAssessed: 8,
+      decision: "BLOCK",
+      missing: ["a"],
+      obstacle: MIXED,
+      perCriterion: [
+        { criterionId: "validation-score", status: "not-evaluable" },
+      ],
+    });
+    assert(view.assessed);
+    expect(view.obstacle?.kind).toBe("not-evaluable");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Where the founder stands: which attempt this is, what moved, what repeats.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function step(over: Partial<AttemptLedgerStep> = {}): AttemptLedgerStep {
+  return {
+    attemptNo: 1,
+    unmet: [],
+    closed: [],
+    opened: [],
+    stillOpen: [],
+    ...over,
+  };
+}
+
+describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'", () => {
+  it("names the attempt the founder is on", () => {
+    // Seven refusals rendered identically and standalone. Nothing on any of
+    // them said which one it was, which is why the seventh read as pushback
+    // rather than as position in a sequence.
+    const s = describeAttemptStanding({ attemptCount: 7, ledger: [] });
+    expect(s.attemptLabel).toBe("Attempt 7");
+  });
+
+  it("names no attempt at all before the gate has ever run", () => {
+    // "Attempt 0" is a number standing in for "never judged".
+    expect(
+      describeAttemptStanding({ attemptCount: 0, ledger: [] }).attemptLabel
+    ).toBeNull();
+  });
+
+  it("counts how many attempts one criterion has blocked", () => {
+    const s = describeAttemptStanding({
+      attemptCount: 3,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["validation-score", "target-user"] }),
+        step({ attemptNo: 2, unmet: ["validation-score"] }),
+        step({ attemptNo: 3, unmet: ["validation-score"] }),
+      ],
+    });
+    expect(s.repeats).toEqual([
+      { criterionId: "validation-score", blocked: 3, of: 3 },
+    ]);
+  });
+
+  it("reports nothing as repeating on its first refusal", () => {
+    const s = describeAttemptStanding({
+      attemptCount: 1,
+      ledger: [step({ attemptNo: 1, unmet: ["validation-score"] })],
+    });
+    expect(s.repeats).toEqual([]);
+  });
+
+  it("reports only criteria that are STILL open, not ones already closed", () => {
+    // "target-user has blocked 2 of your 3 attempts" is a true sentence and a
+    // useless one once the founder has closed it. The repeat line is about what
+    // is in the way now.
+    const s = describeAttemptStanding({
+      attemptCount: 3,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["target-user", "validation-score"] }),
+        step({ attemptNo: 2, unmet: ["target-user", "validation-score"] }),
+        step({ attemptNo: 3, unmet: ["validation-score"] }),
+      ],
+    });
+    expect(s.repeats.map((r) => r.criterionId)).toEqual(["validation-score"]);
+  });
+
+  it("counts only attempts that had criterion state, and says so in `of`", () => {
+    // An attempt where the gate failed closed scored nothing. Counting it as an
+    // attempt this criterion did NOT block would understate the repeat — the
+    // gate never looked.
+    const s = describeAttemptStanding({
+      attemptCount: 3,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["validation-score"] }),
+        step({ attemptNo: 2, unmet: null }),
+        step({ attemptNo: 3, unmet: ["validation-score"] }),
+      ],
+    });
+    expect(s.repeats).toEqual([
+      { criterionId: "validation-score", blocked: 2, of: 2 },
+    ]);
+  });
+
+  it("claims no repeat at all when the LATEST attempt scored nothing", () => {
+    // The card is showing that attempt. Saying "this criterion is still
+    // blocking you" over a verdict that judged nothing is a claim about work
+    // the gate never looked at.
+    const s = describeAttemptStanding({
+      attemptCount: 3,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["validation-score"] }),
+        step({ attemptNo: 2, unmet: ["validation-score"] }),
+        step({ attemptNo: 3, unmet: null }),
+      ],
+    });
+    expect(s.repeats).toEqual([]);
+  });
+
+  it("says a single repeat as one plain sentence", () => {
+    const s = describeAttemptStanding({
+      attemptCount: 2,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["validation-score"] }),
+        step({ attemptNo: 2, unmet: ["validation-score"] }),
+      ],
+    });
+    expect(s.repeatNote).toBe(
+      "validation-score has blocked 2 of the 2 attempts on record."
+    );
+  });
+
+  it("does not print seven identical lines when seven criteria repeat", () => {
+    // Replayed against the seven real attempts, six criteria had blocked all
+    // seven. As seven lines that is a wall of identical text sitting on top of
+    // the regression — the one line the founder could not have worked out for
+    // themselves. Every repeat still reaches the checklist.
+    const ids = ["a-one", "b-two", "c-three"];
+    const s = describeAttemptStanding({
+      attemptCount: 2,
+      ledger: [
+        step({ attemptNo: 1, unmet: ids }),
+        step({ attemptNo: 2, unmet: ids }),
+      ],
+    });
+    expect(s.repeats).toHaveLength(3);
+    expect(s.repeatNote).toContain("3 of the criteria still open");
+    expect(s.repeatNote).toContain("checklist below");
+  });
+
+  it("says nothing at all when nothing repeats", () => {
+    expect(
+      describeAttemptStanding({ attemptCount: 1, ledger: [] }).repeatNote
+    ).toBeNull();
+  });
+
+  it("puts the criterion that has blocked most often first", () => {
+    const s = describeAttemptStanding({
+      attemptCount: 3,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["a-criterion", "b-criterion"] }),
+        step({ attemptNo: 2, unmet: ["b-criterion"] }),
+        step({ attemptNo: 3, unmet: ["a-criterion", "b-criterion"] }),
+      ],
+    });
+    expect(s.repeats.map((r) => r.criterionId)).toEqual([
+      "b-criterion",
+      "a-criterion",
+    ]);
+  });
+
+  it("counts a duplicated id in one verdict once", () => {
+    // The judge writes the list; a duplicate there is its own defect and must
+    // not inflate the repeat count, nor produce two rows with one key.
+    const s = describeAttemptStanding({
+      attemptCount: 2,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["validation-score", "validation-score"] }),
+        step({ attemptNo: 2, unmet: ["validation-score"] }),
+      ],
+    });
+    expect(s.repeats).toEqual([
+      { criterionId: "validation-score", blocked: 2, of: 2 },
+    ]);
+  });
+});
+
+describe("describeAttemptStanding — the diff, regressions included", () => {
+  it("carries the latest attempt's diff through", () => {
+    // 5 -> 1 -> 1 -> 1 -> 5 -> 5 -> 1. The founder closed four criteria,
+    // watched them re-open twice, and was told none of it.
+    const s = describeAttemptStanding({
+      attemptCount: 5,
+      ledger: [
+        step({ attemptNo: 4, unmet: ["validation-score"] }),
+        step({
+          attemptNo: 5,
+          unmet: ["validation-score", "target-user"],
+          opened: ["target-user"],
+          stillOpen: ["validation-score"],
+        }),
+      ],
+    });
+    expect(s.progress).toEqual({
+      closed: [],
+      opened: ["target-user"],
+      stillOpen: ["validation-score"],
+    });
+  });
+
+  it("claims nothing when there is no diff to report", () => {
+    // describeAttemptSeries writes three empty lists both when nothing changed
+    // and when the two attempts could not be compared at all. An empty object
+    // rendered as "nothing moved" would be a claim in the second case, so the
+    // arm is null and the card says nothing.
+    expect(
+      describeAttemptStanding({ attemptCount: 1, ledger: [step()] }).progress
+    ).toBeNull();
+    expect(
+      describeAttemptStanding({ attemptCount: 0, ledger: [] }).progress
+    ).toBeNull();
+  });
+
+  it("reports a regression even when nothing else moved", () => {
+    const s = describeAttemptStanding({
+      attemptCount: 2,
+      ledger: [step({ attemptNo: 1 }), step({ attemptNo: 2, opened: ["x-y"] })],
+    });
+    expect(s.progress?.opened).toEqual(["x-y"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// All eight criteria, with their state, without leaving the conversation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function criterion(
+  id: string,
+  over: Partial<ChecklistCriterion> = {}
+): ChecklistCriterion {
+  return {
+    id,
+    description: `what ${id} requires`,
+    severity: "blocking",
+    closure: "in-conversation",
+    ...over,
+  };
+}
+
+const EIGHT = PHASES[0].exitCriteria.map((c) => ({
+  id: c.id,
+  description: c.description,
+  severity: c.severity,
+  closure: c.closure,
+}));
+
+describe("describeCriterionChecklist — a verdict that never ran has no rows", () => {
+  it("shows NO rows when the gate scored nothing", () => {
+    // failClosedVerdict returns perCriterion: []. Eight grey "untouched" rows
+    // would tell a founder the gate looked at all eight and found nothing —
+    // when it never ran. Six bugs in this codebase were this exact shape.
+    const list = describeCriterionChecklist({
+      criteria: EIGHT,
+      perCriterion: [],
+      verdictReadable: true,
+    });
+    expect(list.available).toBe(false);
+    assert(!list.available);
+    expect("rows" in list).toBe(false);
+    expect(list.note).toContain("no criterion was scored");
+  });
+
+  it("shows NO rows when the stored verdict cannot be read", () => {
+    const list = describeCriterionChecklist({
+      criteria: EIGHT,
+      perCriterion: [],
+      verdictReadable: false,
+    });
+    assert(!list.available);
+    expect(list.note).toContain("no longer be read");
+    // And it must not be the same sentence as the never-ran one: one is a
+    // storage failure, the other is the gate failing closed.
+    expect(list.note).not.toContain("no criterion was scored");
+  });
+
+  it("shows no rows for a phase that defines no criteria", () => {
+    const list = describeCriterionChecklist({
+      criteria: [],
+      perCriterion: [{ criterionId: "x-y", status: "met" }],
+      verdictReadable: true,
+    });
+    assert(!list.available);
+    expect(list.note).toContain("exit criteria");
+  });
+});
+
+describe("describeCriterionChecklist — the eight rows", () => {
+  const scored = describeCriterionChecklist({
+    criteria: [
+      criterion("problem-statement"),
+      criterion("target-user"),
+      criterion("existing-workarounds", { closure: "offline-only" }),
+      criterion("validation-score", { closure: "offline-only" }),
+      criterion("people-interviewed", {
+        closure: "offline-only",
+        severity: "advisory",
+      }),
+    ],
+    perCriterion: [
+      { criterionId: "problem-statement", status: "met" },
+      { criterionId: "target-user", status: "met" },
+      { criterionId: "existing-workarounds", status: "partial" },
+      { criterionId: "validation-score", status: "not-evaluable" },
+    ],
+    verdictReadable: true,
+  });
+
+  it("keeps one row per DEFINED criterion, in definition order", () => {
+    assert(scored.available);
+    expect(scored.rows.map((r) => r.id)).toEqual([
+      "problem-statement",
+      "target-user",
+      "existing-workarounds",
+      "validation-score",
+      "people-interviewed",
+    ]);
+  });
+
+  it("does not report a criterion the judge skipped as met OR as unmet", () => {
+    // The judge returned four evaluations for five criteria. "not met" is a
+    // finding; "the judge did not score this" is not, and folding the second
+    // into the first invents a refusal the gate never wrote.
+    assert(scored.available);
+    const skipped = scored.rows.find((r) => r.id === "people-interviewed");
+    expect(skipped?.state).toBe("unscored");
+    expect(skipped?.label).not.toContain("not met");
+  });
+
+  it("gives each of the five states its own label", () => {
+    assert(scored.available);
+    const labels = new Set(scored.rows.map((r) => r.label));
+    expect(labels.size).toBe(4);
+    expect(scored.rows[0].label).toBe("met");
+    expect(scored.rows[3].label).toContain("could not be assessed");
+  });
+
+  it("says which open criteria need fieldwork rather than an answer", () => {
+    // The whole point of `closure`: "you have not said this" and "nobody could
+    // say this yet" are different rows with opposite remedies.
+    assert(scored.available);
+    expect(scored.summary).toContain("outside this conversation");
+    expect(scored.metCount).toBe(2);
+    expect(scored.openCount).toBe(3);
+  });
+
+  it("attaches the repeat count to the criterion it is about", () => {
+    const list = describeCriterionChecklist({
+      criteria: [criterion("validation-score"), criterion("target-user")],
+      perCriterion: [
+        { criterionId: "validation-score", status: "unmet" },
+        { criterionId: "target-user", status: "met" },
+      ],
+      repeats: [{ criterionId: "validation-score", blocked: 4, of: 7 }],
+      verdictReadable: true,
+    });
+    assert(list.available);
+    expect(list.rows[0].repeat).toEqual({
+      criterionId: "validation-score",
+      blocked: 4,
+      of: 7,
+    });
+    expect(list.rows[1].repeat).toBeNull();
+  });
+
+  it("counts an all-met phase honestly", () => {
+    const list = describeCriterionChecklist({
+      criteria: [criterion("a-one"), criterion("b-two")],
+      perCriterion: [
+        { criterionId: "a-one", status: "met" },
+        { criterionId: "b-two", status: "met" },
+      ],
+      verdictReadable: true,
+    });
+    assert(list.available);
+    expect(list.metCount).toBe(2);
+    expect(list.openCount).toBe(0);
+    expect(list.summary).toBe("2 of 2 met.");
   });
 });

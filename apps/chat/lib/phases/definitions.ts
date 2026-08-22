@@ -179,7 +179,7 @@ const PHASE_ONE_CRITERIA: ExitCriterion[] = [
     operator: "≥",
     threshold: 100,
     description:
-      "Frequency x Intensity x Workarounds x Willingness-to-pay, each scored 1-5, must reach 100. Below 100 the rubric says walk away or reframe the problem.",
+      "The validation score — frequency, intensity, workarounds and willingness to pay, each scored 1-5 and multiplied together — must reach 100. Below 100 the rubric says walk away or reframe the problem.",
   },
   {
     id: "people-interviewed",

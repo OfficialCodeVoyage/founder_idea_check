@@ -10,12 +10,14 @@ import {
   useState,
 } from "react";
 import {
+  type AttemptLedgerStep,
   advanceRailWait,
+  type ChecklistCriterion,
   RAIL_POLL_CEILING_MS,
   RAIL_POLL_INTERVAL_MS,
   type RailWait,
 } from "@/lib/phases/rail";
-import type { GateObstacle } from "@/lib/phases/types";
+import type { CriterionStatus, GateObstacle } from "@/lib/phases/types";
 import { useTRPC } from "@/trpc/react";
 
 /**
@@ -81,6 +83,22 @@ export type PhaseGateData = {
    * words. NULL for any verdict stored before the arm existed.
    */
   obstacle: GateObstacle | null;
+  /**
+   * Gate runs on THIS phase — the card's "Attempt 7". Distinct from
+   * `assessmentCount` above, which sums every phase and exists only so the
+   * wait can detect a verdict landing.
+   */
+  attemptCount: number;
+  /** What this phase is judged against, from the same resolved phase. */
+  criteria: ChecklistCriterion[];
+  /**
+   * The judge's result per criterion. EMPTY is not "all eight untouched" — read
+   * it with `criteriaAssessed` and `verdictReadable`, which say which of the
+   * two absences it is.
+   */
+  perCriterion: { criterionId: string; status: CriterionStatus }[];
+  /** Every recorded attempt on this phase, with its diff. Oldest first. */
+  ledger: AttemptLedgerStep[];
 };
 
 const PhaseGateContext = createContext<PhaseGateState | null>(null);

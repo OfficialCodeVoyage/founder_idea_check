@@ -13,6 +13,7 @@ import {
   finalReportGenerationPrompt,
   transformMessagesIntoResearchTopicPrompt,
 } from "./prompts";
+import { describeMissingReportDocument } from "./report-outcome";
 import { runSupervisor } from "./supervisor-agent";
 import {
   type AgentOptions,
@@ -359,7 +360,7 @@ To write the report, call the createTextDocument tool with:
   if (!createdDocumentToolResult) {
     return {
       status: "error",
-      error: "createTextDocument tool was not called",
+      error: await describeMissingReportDocument(result),
     };
   }
 

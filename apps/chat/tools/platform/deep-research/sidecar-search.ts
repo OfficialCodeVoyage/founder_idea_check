@@ -2,20 +2,15 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { StreamWriter } from "@/lib/ai/types";
 import { config } from "@/lib/config";
-import { env } from "@/lib/env";
 import { createModuleLogger } from "@/lib/logger";
 import { runSignalHarvest } from "@/lib/signals/provider";
-import {
-  ALL_PROVIDERS,
-  parseOperatorEnabledSources,
-} from "@/lib/signals/providers";
+import { ALL_PROVIDERS } from "@/lib/signals/providers";
 import { createSidecarSignalFetcher } from "@/lib/signals/sidecar";
-import type {
-  DemandSignal,
-  DeploymentMode,
-  SignalFailure,
-} from "@/lib/signals/types";
+import type { DemandSignal, SignalFailure } from "@/lib/signals/types";
 import { generateUUID } from "@/lib/utils";
+import type { LaneReport } from "../research-updates-schema";
+import { currentDeployment } from "./deployment-mode";
+import { describeLanes } from "./lane-report";
 
 /**
  * THE `apps/research` SIDECAR, EXPOSED AS A DEEP-RESEARCH SEARCH TOOL.
@@ -62,52 +57,6 @@ function isoDate(value: Date): string {
 }
 
 /**
- * Every credential any descriptor asks for, derived from the descriptors
- * themselves rather than restated. A hardcoded list here would drift the first
- * time a source is added, and `decideProviderGate` would then refuse it for a
- * credential the operator had actually set.
- */
-const CREDENTIAL_ENV_NAMES: readonly string[] = [
-  ...new Set(ALL_PROVIDERS.flatMap((provider) => provider.requiredCredentials)),
-];
-
-/**
- * READ FROM `RESEARCH_ENABLED_SOURCES`, NOT HARDCODED.
- *
- * This used to pin `operatorEnabled` to `DEFAULT_ENABLED_SOURCE_IDS`, which
- * made the variable a lie on this side: an operator could switch a source on,
- * the sidecar would agree to serve it, and the app would still refuse it here
- * — before any request — with the reason "not enabled for this deployment".
- * True sentence, false cause, and no way to tell from the report which of the
- * two locks was shut.
- *
- * The unknown ids come back alongside rather than folded in, for the same
- * reason `/v1/health` reports them: a typo must not present as a source that
- * ran and found nothing.
- */
-function currentDeployment(): {
-  mode: DeploymentMode;
-  unknownSourceIds: readonly string[];
-} {
-  const values = env as unknown as Record<string, string | undefined>;
-  const requested = parseOperatorEnabledSources(
-    values.RESEARCH_ENABLED_SOURCES
-  );
-  return {
-    mode: {
-      hosted: config.ai.tools.deepResearch.hosted,
-      availableCredentials: CREDENTIAL_ENV_NAMES.filter((name) => {
-        const value = values[name];
-        return typeof value === "string" && value.length > 0;
-      }),
-      // The operator's request, which the gate may still refuse.
-      operatorEnabled: requested.enabled,
-    },
-    unknownSourceIds: requested.unknown,
-  };
-}
-
-/**
  * Names the ids that matched no descriptor, so a misspelled source reads as a
  * misspelling rather than as a quiet absence.
  */
@@ -130,6 +79,26 @@ function describeFailures(failures: readonly SignalFailure[]): string {
 }
 
 type SearchResult = { url: string; title: string; content: string };
+
+/**
+ * One row per source, on its own update.
+ *
+ * A fresh `id` each time: this tool runs once per researcher search step, and
+ * two steps are two genuinely different observations of the same six lanes. The
+ * UI merges them — see `mergeLaneReports` in components/research-run-summary.ts
+ * — rather than the producer flattening them into a number here.
+ */
+function writeLaneReport(
+  dataStream: StreamWriter,
+  toolCallId: string,
+  lanes: LaneReport[]
+): void {
+  dataStream.write({
+    type: "data-researchUpdate",
+    id: generateUUID(),
+    data: { toolCallId, title: "Sources", type: "lanes", lanes },
+  });
+}
 
 /**
  * DEDUPED BY URL, first occurrence wins.
@@ -268,6 +237,18 @@ Avoid:
         (entry) => entry.query.trim().length > 0
       );
       if (usable.length === 0) {
+        // `attempted: false` — no harvest ran, so no lane may be described as
+        // having found nothing. See lane-report.ts.
+        writeLaneReport(
+          dataStream,
+          toolCallId,
+          describeLanes({
+            descriptors: ALL_PROVIDERS,
+            signals: [],
+            failures: [],
+            attempted: false,
+          })
+        );
         return {
           searches: [],
           error:
@@ -314,6 +295,28 @@ Avoid:
 
       const allResults = searches.flatMap((search) => search.results);
       const failures = harvests.flatMap((harvest) => harvest.failures);
+
+      /*
+        WHICH LANES RAN, AND WHICH REFUSED — STREAMED, not just logged.
+
+        The failures below have always been complete: `{ok:false, source_id,
+        kind, detail}` from the sidecar, and `gateRefusalToFailure` for anything
+        the gate barred before a request. Until now they reached
+        `describeFailures()`, the log line at the bottom of this function, and
+        nowhere else — so on 2026-08-21 a founder read "0 sources" and had to
+        ASK why they were only seeing Y Combinator. Four of six lanes were off
+        and every one of them had already written down why.
+      */
+      writeLaneReport(
+        dataStream,
+        toolCallId,
+        describeLanes({
+          descriptors: ALL_PROVIDERS,
+          signals: harvests.flatMap((harvest) => harvest.signals),
+          failures,
+          attempted: true,
+        })
+      );
 
       dataStream.write({
         type: "data-researchUpdate",

@@ -366,6 +366,68 @@ describe("sidecarWebSearch", () => {
     expect(result.searches[0].results).toHaveLength(1);
   });
 
+  it("streams a lane report naming every source and what it did", async () => {
+    // TASK 19. The founder had to ask "why am I only seeing Y Combinator?" to
+    // learn that four of six lanes were off, while every refusal was already
+    // sitting in `harvest.failures` with a full written reason.
+    const { stream, written } = recordingStream();
+    const tool = sidecarWebSearch({
+      dataStream: stream,
+      writeTopLevelUpdates: false,
+      fetchImpl: fetchReturning({
+        hackernews: signalBody("hackernews", [signal()]),
+        "web-keyless": signalBody("web-keyless", []),
+      }),
+    });
+
+    await runTool(tool, [{ query: "demand", maxResults: 5 }]);
+
+    const laneUpdate = written.find((w) => w.data.type === "lanes");
+    expect(laneUpdate).toBeDefined();
+    const lanes = laneUpdate?.data.lanes as {
+      sourceId: string;
+      label: string;
+      outcome: { kind: string; signals?: number; detail?: string };
+    }[];
+
+    // Every source, including the ones that never ran.
+    expect(lanes).toHaveLength(6);
+
+    const hn = lanes.find((lane) => lane.sourceId === "hackernews");
+    expect(hn?.outcome).toEqual({ kind: "returned", signals: 1 });
+
+    // Ran, found nothing — a finding, and it must not read as a refusal.
+    const web = lanes.find((lane) => lane.sourceId === "web-keyless");
+    expect(web?.outcome).toEqual({ kind: "found-nothing" });
+
+    // Refused before any request, with the gate's own sentence attached.
+    const reddit = lanes.find((lane) => lane.sourceId === "reddit-rss");
+    expect(reddit?.outcome.kind).toBe("refused");
+    expect(reddit?.outcome.detail).toContain("Reddit (RSS discovery)");
+    expect(reddit?.outcome.signals).toBeUndefined();
+  });
+
+  it("reports NOT-ATTEMPTED lanes when the tool call was malformed", async () => {
+    const { stream, written } = recordingStream();
+    const tool = sidecarWebSearch({
+      dataStream: stream,
+      writeTopLevelUpdates: false,
+      fetchImpl: (() =>
+        Promise.resolve(
+          jsonResponse(signalBody("hackernews", []))
+        )) as unknown as typeof fetch,
+    });
+
+    await runTool(tool, [{ query: "  ", maxResults: 5 }]);
+
+    const laneUpdate = written.find((w) => w.data.type === "lanes");
+    const lanes = laneUpdate?.data.lanes as { outcome: { kind: string } }[];
+    // Six lanes that were never asked. None of them "found nothing".
+    expect(lanes.every((lane) => lane.outcome.kind === "not-attempted")).toBe(
+      true
+    );
+  });
+
   it("sends the configured lookback window to the sidecar", async () => {
     const bodies: Record<string, unknown>[] = [];
     const { stream } = recordingStream();

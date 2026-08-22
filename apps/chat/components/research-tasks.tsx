@@ -1,4 +1,11 @@
-import { CircleCheck, Dot, FileText, Pencil, Sparkles } from "lucide-react";
+import {
+  CircleCheck,
+  Dot,
+  FileText,
+  Layers,
+  Pencil,
+  Sparkles,
+} from "lucide-react";
 import { motion } from "motion/react";
 import type React from "react";
 import type { ReactNode } from "react";
@@ -67,6 +74,10 @@ const icons: Record<ResearchUpdate["type"], React.ElementType> = {
   completed: CircleCheck,
   thoughts: Sparkles,
   writing: Pencil,
+  // `lanes` updates are filtered out before the timeline in
+  // components/part/deep-research.tsx — which lanes ran is rendered on its own,
+  // not behind the expander. The entry exists so the Record stays exhaustive.
+  lanes: Layers,
 } as const;
 
 const StepTypeIcon = ({ update }: { update: ResearchUpdate }) => {

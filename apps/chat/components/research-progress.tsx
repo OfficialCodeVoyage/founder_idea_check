@@ -4,6 +4,7 @@ import { UpdateTitle } from "@/components/update-title";
 import { cn } from "@/lib/utils";
 // Type-only imports
 import type { ResearchUpdate } from "@/tools/platform/research-updates-schema";
+import { describeResearchRun, researchRunLine } from "./research-run-summary";
 import { ResearchTask } from "./research-task";
 import { ResearchTasks } from "./research-tasks";
 
@@ -14,6 +15,7 @@ const updateName = {
   completed: "Completed",
   thoughts: "Thoughts",
   writing: "Writing",
+  lanes: "Sources",
 } as const;
 
 export const ResearchProgress = ({
@@ -29,18 +31,17 @@ export const ResearchProgress = ({
 
   const lastUpdate = updates.length > 0 ? updates.at(-1) : null;
 
-  const searchCount = React.useMemo(
-    () => updates.filter((u) => u.type === "web").length,
-    [updates]
-  );
+  /*
+    WHAT ACTUALLY RAN, AS A UNION — see components/research-run-summary.ts.
 
-  const sourceCount = React.useMemo(
-    () =>
-      updates
-        .filter((u) => u.type === "web")
-        .reduce((acc, u) => acc + (u.results?.length || 0), 0),
-    [updates]
-  );
+    This row used to be three independent numbers, each defaulting to 0, and on
+    2026-08-21 it told a founder "Researched for 0 seconds, 0 searches, 0
+    sources" about a run in which `deepResearch` never received a prompt and no
+    search was ever attempted. Three zeros are indistinguishable from a search
+    that ran and found nobody, which is the single most damaging thing this
+    product can say by accident.
+  */
+  const run = React.useMemo(() => describeResearchRun(updates), [updates]);
 
   // TODO: First update is not showing
   const lastUpdateTitle = (() => {
@@ -52,24 +53,6 @@ export const ResearchProgress = ({
     }
     return lastUpdate.title || updateName[lastUpdate.type];
   })();
-
-  const timeSpent = React.useMemo(() => {
-    if (isComplete) {
-      const progressUpdates = updates.filter(
-        (u) => u.type === "started" || u.type === "completed"
-      );
-      const completedUpdate = progressUpdates.find(
-        (u) => u.type === "completed"
-      );
-
-      return completedUpdate?.timestamp
-        ? Math.floor(
-            (completedUpdate.timestamp - progressUpdates[0].timestamp) / 1000
-          )
-        : 0;
-    }
-    return 0;
-  }, [updates, isComplete]);
 
   return (
     <div className="w-full rounded-lg border p-1">
@@ -84,7 +67,14 @@ export const ResearchProgress = ({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             {isComplete ? (
-              <span className="text-muted-foreground text-xs">{`Researched for ${timeSpent} seconds, ${searchCount} searches, ${sourceCount} sources`}</span>
+              <span
+                className={cn(
+                  "text-xs",
+                  run.searched ? "text-muted-foreground" : "text-foreground"
+                )}
+              >
+                {researchRunLine(run)}
+              </span>
             ) : (
               <UpdateTitle isRunning={!isComplete} title={lastUpdateTitle} />
             )}

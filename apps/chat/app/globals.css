@@ -40,6 +40,20 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
 
+  /*
+    THE ERROR BANNER'S OWN PAIR — see the token definitions below for why
+    `destructive` + `destructive-foreground` could not be used for a tinted
+    surface.
+  */
+  --color-destructive-surface: var(--destructive-surface);
+  --color-destructive-on-surface: var(--destructive-on-surface);
+  --color-destructive-edge: var(--destructive-edge);
+
+  /* A refusal is not a crash. Same contrast discipline, different voice. */
+  --color-notice-surface: var(--notice-surface);
+  --color-notice-on-surface: var(--notice-on-surface);
+  --color-notice-edge: var(--notice-edge);
+
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -262,6 +276,47 @@
   --accent-foreground: hsl(224.4444 64.2857% 32.9412%);
   --destructive: hsl(0 84.2365% 60.1961%);
   --destructive-foreground: hsl(0 0% 100%);
+
+  /*
+    THE ERROR BANNER, MEASURED.
+
+    `bg-destructive/10 text-destructive-foreground` was pale red text on a pale
+    pink fill, and it was the first thing the founder pointed at on 2026-08-21:
+    the error was the least legible thing in the research block, less readable
+    than the two summary rows above it.
+
+    The measurement, not an impression. `--destructive-foreground` is WHITE — it
+    is designed to sit on the SOLID `--destructive`, where it is fine. Over
+    `bg-destructive/10` composited on a white page it becomes #FFFFFF on #FDECEC:
+    a contrast ratio of 1.14:1, against a WCAG AA floor of 4.5:1 for body text.
+    It was not "low contrast", it was very nearly invisible.
+
+    A tinted surface needs its OWN foreground, so here it is, and the pair is
+    checked in both themes rather than in the one the author had open:
+
+      light  #8C1717 on #FEECEC =  8.17:1   (AA needs 4.5:1)
+      dark   #FDBABA on #371515 = 10.05:1
+
+    The edge is decorative — the fill and the label identify the banner — but it
+    still clears 3:1 against the page: 4.04:1 light, 3.22:1 dark.
+  */
+  --destructive-surface: hsl(0 86% 96%);
+  --destructive-on-surface: hsl(0 72% 32%);
+  --destructive-edge: hsl(0 58% 58%);
+
+  /*
+    THE REFUSAL BANNER. A tool that says "research is unavailable on this
+    deployment, and here is which source refused and why" has not crashed — it
+    has done its job. Rendering that in the same red as a stack trace teaches a
+    founder to read a correct, actionable answer as a defect.
+
+      light  #773F0D on #FEF7E1 =  7.84:1
+      dark   #F9D894 on #342614 = 10.63:1
+  */
+  --notice-surface: hsl(45 95% 94%);
+  --notice-on-surface: hsl(28 80% 26%);
+  --notice-edge: hsl(35 65% 44%);
+
   --border: hsl(220 13.0435% 90.9804%);
   --input: hsl(220 13.0435% 90.9804%);
   --ring: hsl(217.2193 91.2195% 59.8039%);
@@ -315,6 +370,25 @@
   --accent-foreground: hsl(213.3333 96.9231% 87.2549%);
   --destructive: hsl(0 84.2365% 60.1961%);
   --destructive-foreground: hsl(0 0% 100%);
+
+  /*
+    Measured against this theme's own background, not inherited from the light
+    block. Dark was the theme that happened to survive the old markup — white on
+    a dark-red composite is 16.31:1 — which is exactly why it was never noticed
+    and exactly why both halves are now stated explicitly. A pair defined in one
+    theme only is a pair that breaks the first time the other one is edited.
+
+      #FDBABA on #371515 = 10.05:1, edge 3.22:1 against the page.
+  */
+  --destructive-surface: hsl(0 45% 15%);
+  --destructive-on-surface: hsl(0 93% 86%);
+  --destructive-edge: hsl(0 45% 48%);
+
+  /* #F9D894 on #342614 = 10.63:1, edge 5.53:1 against the page. */
+  --notice-surface: hsl(35 45% 14%);
+  --notice-on-surface: hsl(40 90% 78%);
+  --notice-edge: hsl(40 50% 46%);
+
   --border: hsl(0 0% 25.098%);
   --input: hsl(0 0% 25.098%);
   --ring: hsl(217.2193 91.2195% 59.8039%);

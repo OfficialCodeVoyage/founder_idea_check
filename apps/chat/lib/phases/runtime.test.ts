@@ -154,6 +154,12 @@ function extractorPrompt(): string {
   return JSON.stringify(call?.prompt ?? "");
 }
 
+/** Whatever the GATE JUDGE was actually shown. */
+function judgePrompt(): string {
+  const call = judgeModel.doGenerateCalls.at(-1);
+  return JSON.stringify(call?.prompt ?? "");
+}
+
 let judgeModel: MockLanguageModelV3;
 let extractModel: MockLanguageModelV3;
 
@@ -683,6 +689,67 @@ describe("runPostTurnPhasePass / the exchange handed to the extractor", () => {
 });
 
 // ─── budgets ─────────────────────────────────────────────────────────────────
+
+/**
+ * `toStoredFacts` in runtime.ts carries `origin` and says why: "ALWAYS
+ * supplied, so an absent origin downstream can only be a hand-written literal
+ * and never a row that lost its provenance." Two other mappings in the same
+ * file quietly broke that invariant, and both fed a model.
+ */
+describe("runPostTurnPhasePass / provenance reaches the models", () => {
+  function factsWithFounderAssertion() {
+    return storedFacts().map((f, i) => ({
+      ...f,
+      origin: i === 0 ? ("founder" as const) : ("extracted" as const),
+    }));
+  }
+
+  it("tells the JUDGE which facts the founder asserted rather than evidenced", async () => {
+    // The whole reason the provenance column exists. Without it a judge cannot
+    // tell an assumption the founder typed from a quote observed in the field,
+    // and can be passed on the former — the exact failure this product exists
+    // to prevent.
+    getProjectFacts.mockResolvedValue(factsWithFounderAssertion());
+
+    await runPostTurnPhasePass({
+      projectId: PROJECT_ID,
+      chatId: CHAT_ID,
+      assistantMessageId: "a1",
+    });
+
+    expect(judgePrompt()).toContain("asserted by the founder, not extracted");
+  });
+
+  it("tells the EXTRACTOR too, since it decides what to overwrite", async () => {
+    getProjectFacts.mockResolvedValue(factsWithFounderAssertion());
+
+    await runPostTurnPhasePass({
+      projectId: PROJECT_ID,
+      chatId: CHAT_ID,
+      assistantMessageId: "a1",
+    });
+
+    expect(extractorPrompt()).toContain(
+      "asserted by the founder, not extracted"
+    );
+  });
+
+  it("says nothing of the sort when every fact was extracted", async () => {
+    // The marker is additive: an extracted fact must render byte-for-byte as
+    // before, or every existing prompt and fixture shifts.
+    getProjectFacts.mockResolvedValue(
+      storedFacts().map((f) => ({ ...f, origin: "extracted" as const }))
+    );
+
+    await runPostTurnPhasePass({
+      projectId: PROJECT_ID,
+      chatId: CHAT_ID,
+      assistantMessageId: "a1",
+    });
+
+    expect(judgePrompt()).not.toContain("asserted by the founder");
+  });
+});
 
 describe("phase budgets", () => {
   it("the assistant's context budget is the judge's transcript budget", () => {

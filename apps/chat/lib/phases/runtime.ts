@@ -490,6 +490,10 @@ async function runPhasePass({
     key: r.key,
     value: r.value,
     confidence: r.confidence,
+    // Same omission, same fix. The extractor is shown the known facts through
+    // the same `renderFacts`, and it decides whether to overwrite them — so it
+    // needs to know which ones a founder put there by hand.
+    origin: r.origin,
   }));
 
   // Both ids come from config.ai.workflows. workflows.chat is the JUDGE (the
@@ -571,6 +575,18 @@ async function runPhasePass({
     key: r.key,
     value: r.value,
     confidence: r.confidence,
+    // PROVENANCE REACHES THE JUDGE, AND IT DID NOT USED TO.
+    //
+    // `renderFacts` (gate.ts) annotates a founder-asserted fact with
+    // ", asserted by the founder, not extracted" precisely so the judge can
+    // weigh an assertion differently from evidence drawn out of the
+    // transcript — the comment there calls that the point of the provenance
+    // column. This map dropped `origin`, so the annotation could never fire on
+    // the gate path and the marker was dead code: a fact the founder typed
+    // read to the judge exactly like an observed quote. That is the one thing
+    // the column exists to prevent, and it is the half of the founder
+    // evidence-entry path that makes the rest of it mean anything.
+    origin: r.origin,
   }));
   const verdict = await evaluateGate(
     { judge: createModelGateJudge({ model: gateModel }) },

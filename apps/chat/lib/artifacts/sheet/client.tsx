@@ -3,6 +3,7 @@ import { parse, unparse } from "papaparse";
 import { toast } from "sonner";
 import { Artifact, type ArtifactMetadata } from "@/components/create-artifact";
 import { SpreadsheetEditor } from "@/components/sheet-editor";
+import { copyArtifactToClipboard } from "@/lib/artifacts/copy-to-clipboard";
 import { config } from "@/lib/config";
 
 export type SheetArtifactMetadata = Record<string, unknown>;
@@ -70,7 +71,11 @@ export const sheetArtifact = new Artifact<"sheet", SheetArtifactMetadata>({
     {
       icon: <Copy size={16} />,
       description: "Copy as .csv",
-      onClick: ({ content }) => {
+      // A sheet has a second way to be empty that text and code do not: every
+      // row can be filtered out as blank, leaving `cleanedCsv === ""` from a
+      // `content` that was not itself empty. The guard sits on the string that
+      // is actually written, not on the one that was passed in.
+      onClick: async ({ content }) => {
         const parsed = parse<string[]>(content, { skipEmptyLines: true });
 
         const nonEmptyRows = parsed.data.filter((row) =>
@@ -79,8 +84,15 @@ export const sheetArtifact = new Artifact<"sheet", SheetArtifactMetadata>({
 
         const cleanedCsv = unparse(nonEmptyRows);
 
-        navigator.clipboard.writeText(cleanedCsv);
-        toast.success("Copied csv to clipboard!");
+        const outcome = await copyArtifactToClipboard({
+          content: cleanedCsv,
+          what: "data",
+        });
+        if (outcome.copied) {
+          toast.success("Copied csv to clipboard!");
+          return;
+        }
+        toast.error(outcome.why);
       },
     },
   ],

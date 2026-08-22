@@ -19,6 +19,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useGetChatById, useSetVisibility } from "@/hooks/chat-sync-hooks";
+import { copyArtifactToClipboard } from "@/lib/artifacts/copy-to-clipboard";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/providers/session-provider";
 import { LoginPrompt } from "./upgrade-cta/login-prompt";
@@ -69,10 +70,21 @@ function ShareDialogContent({
     );
   };
 
-  const handleCopyLink = () => {
+  // Awaited and caught, and the toast reports the OUTCOME. `writeText` rejects
+  // on an insecure origin, a denied permission, or an unfocused document; this
+  // used to fire "Share link copied to clipboard" over an unhandled rejection,
+  // which is the same lie the artifact copy button was telling (QA #6).
+  const handleCopyLink = async () => {
     const shareUrl = `${window.location.origin}/share/${chatId}`;
-    navigator.clipboard.writeText(shareUrl);
-    toast.success("Share link copied to clipboard");
+    const outcome = await copyArtifactToClipboard({
+      content: shareUrl,
+      what: "link",
+    });
+    if (outcome.copied) {
+      toast.success("Share link copied to clipboard");
+      return;
+    }
+    toast.error(outcome.why);
   };
 
   return (

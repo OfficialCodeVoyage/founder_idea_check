@@ -7,6 +7,7 @@ import {
   type ConsoleOutputContent,
 } from "@/components/console";
 import { Artifact, type ArtifactMetadata } from "@/components/create-artifact";
+import { copyArtifactToClipboard } from "@/lib/artifacts/copy-to-clipboard";
 import { config } from "@/lib/config";
 import { generateUUID, getLanguageFromFileName } from "@/lib/utils";
 
@@ -267,9 +268,19 @@ export const codeArtifact = new Artifact<"code", CodeArtifactMetadata>({
     {
       icon: <Copy size={18} />,
       description: "Copy code to clipboard",
-      onClick: ({ content }) => {
-        navigator.clipboard.writeText(content);
-        toast.success("Copied to clipboard!");
+      // Same three defects as the text artifact had, in the same five lines:
+      // no empty check, an unawaited and uncaught promise, and an
+      // unconditional success toast. Fixed here for the same reason.
+      onClick: async ({ content }) => {
+        const outcome = await copyArtifactToClipboard({
+          content,
+          what: "code",
+        });
+        if (outcome.copied) {
+          toast.success("Copied to clipboard!");
+          return;
+        }
+        toast.error(outcome.why);
       },
     },
   ],

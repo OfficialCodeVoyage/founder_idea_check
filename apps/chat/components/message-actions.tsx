@@ -1,12 +1,12 @@
 import { Copy, Pencil, PencilOff } from "lucide-react";
 import { memo } from "react";
 import { toast } from "sonner";
-import { useCopyToClipboard } from "usehooks-ts";
 import {
   MessageAction as Action,
   MessageActions as Actions,
 } from "@/components/ai-elements/message";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { copyArtifactToClipboard } from "@/lib/artifacts/copy-to-clipboard";
 import { useChatStoreApi } from "@/lib/stores/base";
 import { useMessageRoleById } from "@/lib/stores/hooks-base";
 import { useChatVotes } from "./chat/use-chat-votes";
@@ -31,7 +31,6 @@ function PureMessageActions({
   onCancelEdit?: () => void;
 }) {
   const storeApi = useChatStoreApi();
-  const [_, copyToClipboard] = useCopyToClipboard();
   const role = useMessageRoleById(messageId);
 
   const isMobile = useIsMobile();
@@ -92,13 +91,22 @@ function PureMessageActions({
             .join("\n")
             .trim();
 
-          if (!textFromParts) {
-            toast.error("There's no text to copy!");
+          // THE LAST THIRD OF THE SAME LIE, FIXED HERE TOO. This was the
+          // repo's reference copy implementation and it did guard on empty and
+          // did await — but `useCopyToClipboard` from usehooks-ts CATCHES the
+          // rejection, `console.warn`s it, and returns `false`
+          // (usehooks-ts/dist/index.js:60). The boolean was dropped, so a
+          // denied permission or an unfocused document still produced "Copied
+          // to clipboard!". The outcome is now read and reported.
+          const outcome = await copyArtifactToClipboard({
+            content: textFromParts,
+            what: "text",
+          });
+          if (outcome.copied) {
+            toast.success("Copied to clipboard!");
             return;
           }
-
-          await copyToClipboard(textFromParts);
-          toast.success("Copied to clipboard!");
+          toast.error(outcome.why);
         }}
         tooltip="Copy"
       >

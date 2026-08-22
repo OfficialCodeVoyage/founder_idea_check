@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { Artifact } from "@/components/create-artifact";
 import { DocumentSkeleton } from "@/components/document-skeleton";
+import { copyArtifactToClipboard } from "@/lib/artifacts/copy-to-clipboard";
 import { config } from "@/lib/config";
 
 const DiffView = dynamic(
@@ -108,9 +109,21 @@ export const textArtifact = new Artifact<"text">({
     {
       icon: <Copy size={18} />,
       description: "Copy to clipboard",
-      onClick: ({ content }) => {
-        navigator.clipboard.writeText(content);
-        toast.success("Copied to clipboard!");
+      // GUARD, AWAIT, THEN REPORT WHAT HAPPENED. This used to fire
+      // `toast.success` unconditionally over an unawaited, uncaught promise,
+      // with no empty check — so a founder whose document stream had died was
+      // told "Copied to clipboard!" and got nothing. See
+      // lib/artifacts/copy-to-clipboard.ts for the full incident.
+      onClick: async ({ content }) => {
+        const outcome = await copyArtifactToClipboard({
+          content,
+          what: "text",
+        });
+        if (outcome.copied) {
+          toast.success("Copied to clipboard!");
+          return;
+        }
+        toast.error(outcome.why);
       },
     },
   ],

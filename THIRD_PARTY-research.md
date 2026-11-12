@@ -213,8 +213,9 @@ the whole lane asks the archive nothing until the pause it named is over (thirty
 seconds when it names none, at most sixty), and after a timeout in either form it
 asks nothing for twenty seconds and the rest of that call's subreddits are not
 asked; keywords are sent as `title`,
-the parameter the archive's own search example uses (ten live GET requests on
-2026-11-12 in all, generic queries, nothing stored); the whole lane stops at 25
+the parameter the archive's own search example uses (ten live probe requests on
+2026-11-12, plus the requests the live QA runs of that day made through the lane
+itself, generic queries, nothing stored); the whole lane stops at 25
 seconds; never an unscoped search; a field list that excludes `author`, so no username is ever
 received; and the monthly dumps are not downloaded or ingested.
 

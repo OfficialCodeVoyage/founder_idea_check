@@ -1,0 +1,158 @@
+# The only workflow in this repository. `ci-success` is the one required status check
+# (see .github/rulesets/main.json); every other job feeds it.
+#
+# Needs no secrets: the suites below run with no database, no network service and no API key.
+# Playwright e2e is left out on purpose: it needs Postgres and an auth secret, so it is run
+# locally (`bun run test:e2e`), not here.
+#
+# Rules for editing this file:
+# - Pin every action to a full commit SHA with a version comment. Dependabot moves the pins.
+# - Never add `paths-ignore` at workflow level: a skipped workflow leaves a required check
+#   pending forever. Decide what runs in the `changes` job instead.
+# - This is the only workflow allowed to trigger on `push`. No `schedule`, `workflow_run`
+#   or `release` triggers anywhere.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push to a PR cancels the superseded run. A push to `main` gets a group of its own
+# (the commit sha), so no commit that lands there loses its verdict to a newer one.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  TURBO_TELEMETRY_DISABLED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  # Decides which language jobs run. A pull request that touches only docs runs neither,
+  # and `ci-success` still passes. A push to `main` always runs both.
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # paths-filter lists the PR's files through the API
+    outputs:
+      typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
+      python: ${{ github.event_name != 'pull_request' || steps.filter.outputs.python == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            typescript:
+              - 'apps/chat/**'
+              - 'packages/**'
+              - 'scripts/**'
+              - '.agents/skills/worktree-ports/**'
+              - '.worktree-env.json'
+              - 'package.json'
+              - 'bun.lock'
+              - 'turbo.json'
+              - '.github/workflows/**'
+            python:
+              - 'apps/research/**'
+              - '.github/workflows/**'
+
+  # Same checks as `bun run verify` and `bun run test:unit` locally: lint and type-check
+  # apps/chat and packages/thread, then the unit tests of every TypeScript workspace.
+  # `verify` skips its Python step here (no apps/research/.venv); the `python` job owns it.
+  typescript:
+    name: TypeScript
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json # the `packageManager` field
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run verify
+      - run: bun run test:unit
+
+  # Sidecar: lint and tests with no network and no API key. The `simulation` extra
+  # (torch and friends) is deliberately not installed.
+  python:
+    name: Python
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/research
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11" # pinned below 3.12 by OASIS, see apps/research/pyproject.toml
+          cache: pip
+          cache-dependency-path: apps/research/pyproject.toml
+      - name: Create venv and install the dev extra
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -e ".[dev]"
+      - run: .venv/bin/python -m ruff check app tests
+      - run: .venv/bin/python -m pytest
+
+  # The ONLY required status check. Passes when every needed job succeeded, or was skipped
+  # because `changes` said its files were untouched. Anything else (failed, cancelled, or
+  # skipped for another reason) fails it.
+  ci-success:
+    name: ci-success
+    if: always()
+    needs: [changes, typescript, python]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check every needed job
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          status=0
+          for job in changes typescript python; do
+            result="$(jq -r --arg j "$job" '.[$j].result' <<<"$NEEDS")"
+            echo "$job: $result"
+            case "$result" in
+              success) ;;
+              skipped)
+                wanted="$(jq -r --arg j "$job" '.changes.outputs[$j] // "unset"' <<<"$NEEDS")"
+                if [ "$job" = changes ] || [ "$wanted" != false ]; then
+                  echo "::error::$job was skipped but 'changes' did not ask for that (output: $wanted)"
+                  status=1
+                fi
+                ;;
+              *)
+                echo "::error::$job finished as '$result'"
+                status=1
+                ;;
+            esac
+          done
+          exit "$status"

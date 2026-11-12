@@ -1,0 +1,70 @@
+# Version updates. Security updates are separate and are never delayed by a cooldown.
+# Every ecosystem waits 7 days after a release before proposing it, and folds minor and
+# patch bumps into one grouped pull request; a major bump gets its own pull request.
+version: 2
+updates:
+  # Bun workspaces (apps/chat, packages/*), one root bun.lock.
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Research sidecar. `mcp` stays below 2 because camel-ai, pulled in by the OASIS extra,
+  # imports a name that mcp 2 removed; see apps/research/pyproject.toml.
+  - package-ecosystem: "pip"
+    directory: "/apps/research"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "mcp"
+        versions: [">=2"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # apps/research/Dockerfile. The base image stays on Python 3.11 for the same OASIS reason.
+  - package-ecosystem: "docker"
+    directory: "/apps/research"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  # Images in docker-compose.yml (Postgres with pgvector, Redis, SearXNG).
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

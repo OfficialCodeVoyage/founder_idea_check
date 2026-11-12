@@ -10,6 +10,7 @@ import { Artifact, type ArtifactMetadata } from "@/components/create-artifact";
 import { copyArtifactToClipboard } from "@/lib/artifacts/copy-to-clipboard";
 import { config } from "@/lib/config";
 import { generateUUID, getLanguageFromFileName } from "@/lib/utils";
+import { loadPyodideRuntime } from "./pyodide-loader";
 
 const OUTPUT_HANDLERS = {
   matplotlib: `
@@ -148,11 +149,10 @@ export const codeArtifact = new Artifact<"code", CodeArtifactMetadata>({
         }));
 
         try {
-          // Python execution using Pyodide
-          // @ts-expect-error - loadPyodide is not defined
-          const currentPyodideInstance = await globalThis.loadPyodide({
-            indexURL: "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/",
-          });
+          // Python execution using Pyodide. The runtime script is fetched here,
+          // on the first Run, not on every page view; a failed download throws
+          // a readable message that the catch below shows as this run's output.
+          const currentPyodideInstance = await loadPyodideRuntime();
 
           currentPyodideInstance.setStdout({
             batched: (output: string) => {

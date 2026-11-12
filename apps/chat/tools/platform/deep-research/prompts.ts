@@ -15,6 +15,13 @@
  * lines; `summarize_webpage_prompt` was not ported. THIRD_PARTY-research.md has
  * the full comparison.
  *
+ * EDITED SINCE (2026-11-12): two lines of `compressResearchSystemPrompt` and one
+ * of `compressResearchSimpleHumanMessage` now ask for a note of at most about
+ * 2,000 words instead of "as long as necessary" and "the raw information,
+ * verbatim", which kept running into the output cap (3,637 to 4,000 of 4,000
+ * tokens in four live calls). That leaves 212 of 221 identical; THIRD_PARTY-research.md
+ * has the count.
+ *
  *   gh api "repos/langchain-ai/open_deep_research/commits?path=src/open_deep_research/prompts.py&since=2025-07-25" --jq '.[].commit.message'
  */
 
@@ -237,7 +244,7 @@ Only these fully comprehensive cleaned findings are going to be returned to the 
 
 <Guidelines>
 1. Your output findings should be fully comprehensive and include ALL of the information and sources that the researcher has gathered from tool calls and web searches. It is expected that you repeat key information verbatim.
-2. This report can be as long as necessary to return ALL of the information that the researcher has gathered.
+2. Keep the whole note, sources list included, to at most about 2,000 words (about 2,800 tokens): it must be finished in the space it has, and a note that is cut off loses its last sources. To fit, drop repetition first, then commentary that cites no source, then shorten the wording of each remaining finding, keeping its numbers, names and citation. Never leave out a sourced finding or a source to make it fit.
 3. In your report, you should return inline citations for each source that the researcher found.
 4. You should include a "Sources" section at the end of the report that lists all of the sources the researcher found with corresponding citations, cited against statements in the report.
 5. Make sure to include ALL of the sources that the researcher gathered in the report, and how they were used to answer the question!
@@ -260,12 +267,12 @@ The report should be structured like this:
   [2] Source Title: URL
 </Citation Rules>
 
-Critical Reminder: It is extremely important that any information that is even remotely relevant to the user's research topic is preserved verbatim (e.g. don't rewrite it, don't summarize it, don't paraphrase it).`;
+Critical Reminder: It is extremely important that every sourced finding that is relevant to the user's research topic is kept, with its citation, in the researcher's own words wherever the length limit allows (e.g. don't paraphrase it away), and that the note stays within that limit: repetition and unsourced commentary are what goes.`;
 }
 
 export const compressResearchSimpleHumanMessage = `All above messages are about research conducted by an AI Researcher. Please clean up these findings.
 
-DO NOT summarize the information. I want the raw information returned, just in a cleaner format. Make sure all relevant information is preserved - you can rewrite findings verbatim.`;
+DO NOT drop any sourced finding or source. I want the information returned in a cleaner format and within the length limit: remove repetition and unsourced commentary first, and shorten wording before dropping anything.`;
 
 export function finalReportGenerationPrompt({
   research_brief,

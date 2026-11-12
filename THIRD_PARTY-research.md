@@ -96,19 +96,23 @@ difference between `{x}` and `${x}` placeholders:
 
 | Compared with | Prompt lines identical | Words on identical lines |
 |---|---|---|
-| Upstream at `c0a160b5` (2025-07-25), the last change to the file before the port | **215 of 221 (97.3%)** | 95.6% |
-| Upstream today, `6532a417` (2025-08-06, the last commit to that file) | 152 of 221 (68.8%) | 51.3% |
+| Upstream at `c0a160b5` (2025-07-25), the last change to the file before the port | **212 of 221 (95.9%)** | 90.0% |
+| Upstream today, `6532a417` (2025-08-06, the last commit to that file) | 149 of 221 (67.4%) | 47.3% |
 
 Upstream rewrote several prompts after the port, which is why the second row is
-lower. Per prompt, against `c0a160b5`:
+lower. Three lines of the two compression prompts were reworded on 2026-11-12 (live
+compression calls kept ending at the 4,000-token output cap), so both rows were
+measured again then; the words column counts whitespace-separated words, and the
+earlier 95.6% / 51.3% came from a slightly different count, so the two are not
+comparable. Per prompt, against `c0a160b5`:
 
 | Prompt in `prompts.ts` | Against upstream |
 |---|---|
 | `clarifyWithUserInstructions` | 30 of 30 lines identical |
 | `transformMessagesIntoResearchTopicPrompt` | 25 of 25 identical |
 | `leadResearcherPrompt` | 50 of 50 identical |
-| `compressResearchSystemPrompt` | 31 of 31 identical |
-| `compressResearchSimpleHumanMessage` | 2 of 2 identical |
+| `compressResearchSystemPrompt` | 29 of 31 identical; 2 lines reworded on 2026-11-12 ("as long as necessary" became a length target of about 2,000 words with what to drop first, and the closing reminder asks for every sourced finding kept within that limit instead of everything verbatim) |
+| `compressResearchSimpleHumanMessage` | 1 of 2 identical; 1 line reworded on 2026-11-12 ("do not summarize" became "do not drop any sourced finding or source", within the length limit) |
 | `finalReportGenerationPrompt` | Upstream minus 12 lines (the language-matching instruction and a messages block); nothing added |
 | `researchSystemPrompt` | 23 of 29 identical; 6 lines reworded or added (the `ResearchComplete` tool references became "stop making tool calls", and the closing reply is limited to brief notes because the findings are condensed from the search results; one line states the maximum number of search queries) |
 | `summarize_webpage_prompt` | Not ported |

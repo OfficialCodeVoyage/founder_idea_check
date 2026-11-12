@@ -125,6 +125,9 @@ export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
     */
     researcher_step_max_tokens: 1500,
     compression_model: compressionModel,
+    // The cap is the time budget, not a length target: `compressResearchSystemPrompt`
+    // asks for a note of at most about 2,000 words (about 2,800 tokens) so that it
+    // ends well before this. Lower or raise one with the other in mind.
     compression_model_max_tokens: 4000,
     final_report_model: finalReportModel,
     final_report_model_max_tokens: 6000,

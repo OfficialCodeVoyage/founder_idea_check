@@ -2,12 +2,14 @@ import type { CanvasPersonaInput } from "@/lib/ultraplan/graph";
 import type { Persona } from "./types";
 
 /**
- * THE ONE PERSONA → CANVAS MAPPER. Imported by both canvas readers.
+ * THE ONE PERSONA → CANVAS MAPPER. Its only caller is `loadProjectCanvas` in
+ * `lib/project/canvas-data.ts` (the server-rendered read behind the project
+ * canvas route).
  *
- * There are two reads behind the project canvas — `loadProjectCanvas` in
- * `lib/project/canvas-data.ts` (server-rendered) and `canvas.getCanvas` in
- * `trpc/routers/canvas.router.ts` (client) — and they each grew their own
- * version of this mapping. They disagreed about all three derived fields:
+ * There used to be two reads behind the canvas — that one and `canvas.getCanvas`
+ * in `trpc/routers/canvas.router.ts` (client), deleted in c98d30a8 — and they
+ * each grew their own version of this mapping. They disagreed about all three
+ * derived fields:
  *
  *   - `evidenceCount`: the router totalled interviews, attributes, observable
  *     attributes and excluded segments; canvas-data totalled observable
@@ -19,7 +21,7 @@ import type { Persona } from "./types";
  *   - `name`: the router fell back to the stored title and then the id;
  *     canvas-data used the label and had no fallback.
  *
- * The router's definitions won, because they were the complete ones: evidence
+ * The router's definitions won (they are the ones below), because they were the complete ones: evidence
  * cited on an interview or an excluded segment is evidence the founder
  * supplied, and omitting it understates how well sourced a persona is.
  */

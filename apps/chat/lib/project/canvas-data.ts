@@ -20,18 +20,19 @@ import type { BlockerAnalysis, CanvasGraph } from "@/lib/ultraplan/types";
 /**
  * The read behind the project canvas route.
  *
- * WHY THIS EXISTS ALONGSIDE `canvas.getCanvas`. This is the SERVER-RENDERED
- * read: the route is a server component, and an RSC calling its own tRPC
- * endpoint over HTTP would pay a round trip to reach code already running in
- * the same process. The router is the CLIENT read plus the one mutation. Both
- * run the same three pure calls in the same order
- * (analyzeBlockers → reconcileTasks → buildCanvasGraph); neither decides
- * anything the other does not.
+ * THE ONLY CANVAS READ. The route is a server component, so it reads the
+ * database in-process through this function rather than calling a tRPC
+ * endpoint over HTTP. There used to be a second, client-side read
+ * (`canvas.getCanvas`, with a `canvas.setTaskState` mutation, in
+ * `trpc/routers/canvas.router.ts`); it had no caller and was deleted in
+ * c98d30a8, so this is now the only path that builds the canvas graph and
+ * nothing in the app writes task state through it. It runs three pure calls in
+ * order (analyzeBlockers → reconcileTasks → buildCanvasGraph).
  *
- * The persona mapping is NOT duplicated here: both this file and
- * canvas.router.ts call `toCanvasPersonaInput` from lib/personas/canvas-input.ts.
- * They used to disagree about evidenceCount, summary and name — see that file
- * for what each of them got wrong.
+ * The persona mapping lives in `toCanvasPersonaInput` in
+ * lib/personas/canvas-input.ts, not here. The two reads used to disagree about
+ * evidenceCount, summary and name — see that file for what each of them got
+ * wrong.
  *
  * Ownership check is the one copied from `trpc/routers/phase.router.ts`,
  * including its deliberate lie-by-omission: a project somebody else owns is

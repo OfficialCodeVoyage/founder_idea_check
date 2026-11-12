@@ -7,15 +7,16 @@ import {
 import type { Persona } from "./types";
 
 /**
- * The regression these lock down: `loadProjectCanvas` and `canvas.getCanvas`
- * each had their own copy of this mapping and disagreed about every derived
- * field, so the same persona rendered differently depending on whether the page
- * was server-rendered or client-fetched.
+ * The regression these lock down: `loadProjectCanvas` and the since-deleted
+ * `canvas.getCanvas` (`trpc/routers/canvas.router.ts`) each had their own copy
+ * of this mapping and disagreed about every derived field, so the same persona
+ * rendered differently depending on whether the page was server-rendered or
+ * client-fetched.
  *
- * Both production mappers are module-private, so the agreement test at the
- * bottom asserts the delegation STRUCTURALLY: each read must import the shared
- * mapper and must not carry its own definition of either derived field. It is
- * the one that fails if either call site grows a private copy again.
+ * The production mapper in `lib/project/canvas-data.ts` is module-private, so
+ * the delegation test at the bottom asserts STRUCTURALLY: the read must import
+ * the shared mapper and must not carry its own definition of either derived
+ * field. It is the one that fails if a call site grows a private copy again.
  */
 
 const EVIDENCE = [{ factKey: "f1", quote: "they said so" }] as const;

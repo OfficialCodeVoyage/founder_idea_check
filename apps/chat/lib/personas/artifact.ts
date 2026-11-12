@@ -288,8 +288,10 @@ export function latestPersonaVersion(
  * GROUPING FIRST IS THE POINT. `orderPersonaVersions` numbers versions by
  * position in the rows it is handed, so handing it rows from two documents
  * numbers them 1..n ACROSS both and a project's second persona reports itself as
- * "v4". Grouping keeps a version number the founder's version number. Same
- * grouping `groupDocumentVersions` does in trpc/routers/canvas.router.ts.
+ * "v4". Grouping keeps a version number the founder's version number. The
+ * grouping by document id is done inline below. (It used to be done by a
+ * `groupDocumentVersions` helper in `trpc/routers/canvas.router.ts`; that
+ * router was deleted in c98d30a8 and this function is the only grouping left.)
  *
  * `latestPersonaVersion`, not `latestReadablePersona`: an unreadable newest
  * version must surface as a refusal, not be quietly replaced by an older

@@ -177,6 +177,17 @@ export async function createCoreChatAgent({
     throw error;
   }
 
+  // The model's own output ceiling, or none when the catalog does not state
+  // one. The OpenAI, LiteLLM, OpenAI-compatible and OpenRouter gateways write
+  // `max_tokens: 0` for a model they have no figure for (OpenAI's /v1/models
+  // reports none; `model-capabilities.ts` fills in only the models it lists).
+  // That 0 means "unknown", not "zero tokens allowed": clamping to it would
+  // cap every turn at 0 and fail it.
+  const modelOutputCeiling =
+    modelDefinition.max_tokens > 0
+      ? modelDefinition.max_tokens
+      : config.ai.maxOutputTokens;
+
   const result = streamText({
     model,
     system,
@@ -192,11 +203,9 @@ export async function createCoreChatAgent({
      * Clamped by the model's own ceiling: `max_tokens` comes from the model
      * catalog and a request above it is a provider error, so the config value
      * may lower the limit but never raise it past what the model accepts.
+     * An unstated ceiling leaves the configured cap in force.
      */
-    maxOutputTokens: Math.min(
-      config.ai.maxOutputTokens,
-      modelDefinition.max_tokens
-    ),
+    maxOutputTokens: Math.min(config.ai.maxOutputTokens, modelOutputCeiling),
     stopWhen: [
       stepCountIs(5),
       ({ steps }) => {

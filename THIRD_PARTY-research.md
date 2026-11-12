@@ -96,7 +96,7 @@ difference between `{x}` and `${x}` placeholders:
 
 | Compared with | Prompt lines identical | Words on identical lines |
 |---|---|---|
-| Upstream at `c0a160b5` (2025-07-25), the version current at the port | **215 of 221 (97.3%)** | 95.6% |
+| Upstream at `c0a160b5` (2025-07-25), the last change to the file before the port | **215 of 221 (97.3%)** | 95.6% |
 | Upstream today, `6532a417` (2025-08-06, the last commit to that file) | 152 of 221 (68.8%) | 51.3% |
 
 Upstream rewrote several prompts after the port, which is why the second row is
@@ -136,7 +136,8 @@ notice in `LICENSES/` and `NOTICE` is what covers them.
 **No OASIS code is copied.** `apps/research/app/simulation/oasis_runner.py` calls
 only the names `oasis/__init__.py` exports, and OASIS is installed by the optional
 `simulation` extra (`camel-oasis==0.2.5`, Apache-2.0). Facts the code relies on,
-read directly from the sources at `40bf1705` on 2026-08-19:
+read directly from the OASIS sources at `40bf1705` on 2026-08-19 (the paths in the
+second column are in that repository):
 
 | Fact | Where | Consequence here |
 |---|---|---|
@@ -199,7 +200,7 @@ uptime or performance guarantees", "If you're a normal user and only make a coup
 requests per second, you have nothing to worry about", and "Remember, this is a free
 service, so be considerate. If you want to process massive amounts of data, use the
 monthly dumps instead", and it describes 429 rate limiting with `X-RateLimit-Reset`
-headers. Those are the only terms.
+headers. Those are the only terms found.
 
 **What the adapter does against that.** At most one request per second sustained
 (burst of two, `ARCTIC_SHIFT_LIMITER` in `app/http.py`); retries with backoff only

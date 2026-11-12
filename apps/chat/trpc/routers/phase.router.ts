@@ -86,7 +86,7 @@ export const phaseRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const project = await getProjectById({ id: input.projectId });
       // "No such project" and "not yours" are deliberately the same answer,
-      // copied from getState below rather than reinvented.
+      // as in getState and currentLedger.
       if (!project || project.userId !== ctx.user.id) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -145,15 +145,12 @@ export const phaseRouter = createTRPCRouter({
         getProjectById({ id: input.projectId }),
         getProjectPhases({ projectId: input.projectId }),
       ]);
-      if (!project) {
+      // "No such project" and "not yours" are the same answer, as in
+      // `attempts` and `currentLedger`. A FORBIDDEN here used to tell a caller
+      // that the id they guessed belongs to someone.
+      if (!project || project.userId !== ctx.user.id) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "Project not found",
-        });
-      }
-      if (project.userId !== ctx.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
           message: "Project not found",
         });
       }

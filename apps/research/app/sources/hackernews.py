@@ -6,7 +6,9 @@
 # MODIFICATIONS: the Algolia query construction — including BOTH traps quoted in
 # the comments below, which are the reason this file was worth taking rather
 # than writing — is upstream's, except that `restrictSearchableAttributes=title`
-# is added (`build_search_url`). Removed: the depth presets, the thread-comment
+# is added and the one word that is not an `optionalWords` entry is the first
+# content word of the query rather than its first word (`build_search_url`,
+# `_content_word_first`). Removed: the depth presets, the thread-comment
 # enrichment fan-out, and the `log.source_log` sink. Errors now raise named
 # exceptions instead of returning `{"hits": [], "error": ...}`. Added: a hit is
 # dropped unless its TITLE shares a CONTENT word with the query (or two distinct
@@ -95,7 +97,8 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
     TRAP 2 — ALGOLIA ANDs QUERY TOKENS BY DEFAULT, so a four- or five-word theme
     query matches no stories at all. Marking all but the first token as
     `optionalWords` makes Algolia rank by how many tokens match instead of
-    requiring every one.
+    requiring every one. The one token that stays required is the first CONTENT
+    word of the query, not simply its first word (`_content_word_first`).
 
     DEPARTURE FROM UPSTREAM — `restrictSearchableAttributes=title` IS set.
     Upstream leaves it off so that Ask HN / Show HN threads whose topic appears
@@ -118,10 +121,26 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
         ),
         "hitsPerPage": str(count * _OVERFETCH_MULTIPLIER),
     }
-    tokens = flat.split()
+    tokens = _content_word_first(flat.split())
     if len(tokens) > 1:
         params["optionalWords"] = " ".join(tokens[1:])
     return f"{ALGOLIA_SEARCH_URL}?{urlencode(params)}"
+
+
+def _content_word_first(words: list[str]) -> list[str]:
+    """PURE. `words` with the first CONTENT word (see `_kind`) moved to the front.
+
+    Algolia requires the one word that is not an `optionalWords` entry, and with
+    `restrictSearchableAttributes=title` that is a word a title must contain. A
+    researcher's query often opens with filler ("official ...", "best ...",
+    "recent ..."), and every title then had to contain that filler word: the lane
+    came back empty or full of stories named for the filler. The word that decides
+    a topic is the one to require. Without a content word the order is unchanged.
+    """
+    for index, word in enumerate(words):
+        if any(_kind(token) == _CONTENT for token in tokenize(word)):
+            return [word, *words[:index], *words[index + 1 :]]
+    return words
 
 
 # ── WHICH HITS ARE ON TOPIC. ─────────────────────────────────────────────────

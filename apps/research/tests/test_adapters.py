@@ -117,6 +117,26 @@ class TestHackerNews:
         )
         assert "optionalWords" in url
 
+        # The one word Algolia still requires (the one NOT in `optionalWords`) is the
+        # first CONTENT word, not the first word: with the title restriction a query
+        # that opens with filler ("official", "best", "recent") otherwise only finds
+        # titles that contain the filler word.
+        def optional(query):
+            url = hackernews.build_search_url(query, "2026-07-01", "2026-08-01", 5)
+            return parse_qs(urlsplit(url).query).get("optionalWords", [""])[0].split()
+
+        assert optional("official dog walking scheduling app") == [
+            "official",
+            "walking",
+            "scheduling",
+            "app",
+        ]
+        assert optional("best recent tutoring marketplaces") == ["best", "recent", "marketplaces"]
+        # Content first stays first, and the rest keep their order.
+        assert optional("dog walking scheduling app") == ["walking", "scheduling", "app"]
+        # With no content word in the query the order is unchanged.
+        assert optional("price comparison tool") == ["comparison", "tool"]
+
     def test_algolia_is_asked_for_title_matches_only(self):
         # The relevance test reads the title only, so a body-only hit would take a
         # slot of the overfetched page and then be dropped. Upstream does not set

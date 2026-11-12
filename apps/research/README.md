@@ -141,7 +141,9 @@ lane in which every subreddit it was given answered cleanly with no posts.
 Hacker News is searched with Algolia's `optionalWords`, restricted to the title
 (`restrictSearchableAttributes=title`, which the upstream request does not set: the
 relevance test below reads the title only, so a body-only hit would fill a slot of
-the over-fetched page and then be dropped), so a page of stories comes back
+the over-fetched page and then be dropped; the one word of the query Algolia still
+requires is its first content word, so a query that opens with "official" or "best"
+is not limited to titles that contain it), so a page of stories comes back
 whatever the topic, and the lane keeps a story only when it is on
 topic for the query (`app/sources/hackernews.py::matches_a_content_word`). Only the
 **title** decides: one content word of the query in it is enough, or two

@@ -349,7 +349,7 @@ override, drop `@better-auth/electron` with the Electron code.
 
 **Python sidecar has no lockfile:** `apps/research/pyproject.toml` uses ranges (`fastapi>=0.115,<1.0`, `uvicorn[standard]`,
 `pydantic`), the Dockerfile runs `pip install .`, and CI installs `-e ".[dev]"`; builds are not reproducible and carry no hashes.
-`camel-oasis==0.2.5` and `mcp<2` are exact pins with a reason.
+`camel-oasis==0.2.6` and `mcp<2` are pins with a reason.
 
 **Pinned internals:** `ai@6.0.219`, `next@16.3.0`, `resumable-stream@2.2.10`, `redis@^5.5.6`, `files-sdk@2.1.0`; see Fragile
 Areas. `.github/dependabot.yml` waits seven days before proposing a bump.

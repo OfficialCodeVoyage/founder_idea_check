@@ -684,20 +684,30 @@ export function estimateSimulationCostCents({
 }
 
 /**
- * PURE. Whether a run is known to have spent model calls, which is when it is
- * charged. NOT the same as "the run was recorded": a NO RESULT run is recorded
- * either way, but one whose agents never reached the model (the sidecar has no
- * key, every call was refused) spent nothing on the operator's account.
+ * PURE. Whether a run is charged. A NO RESULT run is recorded either way, but
+ * the charge is waived only when the run demonstrably spent nothing.
  *
  *   - a judged run, or one with a single reaction: an agent answered, so yes;
- *   - no reactions and `agentErrors === 0`: the sidecar measured that every
- *     action went through and the agents posted nothing, so yes;
- *   - no reactions with failed actions, or with no count (an older sidecar):
- *     no. Some calls may still have succeeded beside the failures; that is
- *     left uncharged rather than charging for a run that may have cost nothing.
+ *   - no reactions: yes, UNLESS the sidecar reports at least as many failed
+ *     agent actions as the run could make (`seats × rounds`) — every expected
+ *     call failed, which is the sidecar-with-no-model-key case;
+ *   - no reactions and no count (an older sidecar): yes. A missing count is
+ *     not evidence that nothing was spent, and waiving on it would let any
+ *     run that omits the field ride free;
  *   - every other failure means the run never started: no.
+ *
+ * WAIVE ONLY ON A COMPLETE FAILURE, never a partial one. An earlier version
+ * waived any run with one failed action, so a run where most agents were
+ * reached and stayed silent went uncharged. The sidecar counts ERROR log
+ * records (`oasis_runner.py::run_simulation`), and a retried call can log more
+ * than one, so a count at or above `seats × rounds` can occasionally waive a
+ * run where a few calls did succeed; that errs toward the founder only when
+ * the failures are at least as many as the calls.
  */
-export function simulationReachedModel(outcome: SimulationOutcome): boolean {
+export function simulationReachedModel(
+  outcome: SimulationOutcome,
+  { seats, rounds }: { seats: number; rounds: number }
+): boolean {
   if (outcome.ok) {
     return true;
   }
@@ -705,7 +715,8 @@ export function simulationReachedModel(outcome: SimulationOutcome): boolean {
     return true;
   }
   if (outcome.kind === "no-reactions") {
-    return outcome.agentErrors === 0;
+    const failed = outcome.agentErrors;
+    return failed === null || failed === undefined || failed < seats * rounds;
   }
   return false;
 }

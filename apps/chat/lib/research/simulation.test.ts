@@ -209,6 +209,8 @@ describe("estimateSimulationCostCents", () => {
 describe("simulationReachedModel — when a run is charged", () => {
   // Driven through runSimulation with the bodies the sidecar actually sends,
   // so the rule is pinned against the wire shape and not a hand-built outcome.
+  // Two seats over two rounds: four expected model calls.
+  const SIZE = { seats: 2, rounds: 2 };
   const outcomeFor = (body: unknown) =>
     runSimulation(
       { run: () => Promise.resolve(body) },
@@ -216,12 +218,12 @@ describe("simulationReachedModel — when a run is charged", () => {
         personas: [persona(), persona({ id: "p2", name: "Other" })],
         facts: [],
         pitch: "an app for coordinating dog walkers",
-        rounds: 2,
+        rounds: SIZE.rounds,
       }
     );
 
-  it("does NOT charge a NO RESULT run whose agents never reached the model", async () => {
-    // The sidecar with no model key: every agent call fails, nothing is said.
+  it("waives the charge only when every expected model call failed", async () => {
+    // The sidecar with no model key: all four agent calls fail, nothing is said.
     const outcome = await outcomeFor({
       ok: false,
       kind: "no-reactions",
@@ -229,26 +231,37 @@ describe("simulationReachedModel — when a run is charged", () => {
       agentErrors: 4,
     });
     expect(outcome.ok).toBe(false);
-    expect(simulationReachedModel(outcome)).toBe(false);
+    expect(simulationReachedModel(outcome, SIZE)).toBe(false);
   });
 
-  it("does not charge a NO RESULT run from a sidecar that reports no error count", async () => {
+  it("charges a NO RESULT run from a sidecar that reports no error count", async () => {
+    // A missing count is not evidence that nothing was spent.
     const outcome = await outcomeFor({
       ok: false,
       kind: "no-reactions",
       detail: "no reactions",
     });
-    expect(simulationReachedModel(outcome)).toBe(false);
+    expect(simulationReachedModel(outcome, SIZE)).toBe(true);
   });
 
-  it("charges a NO RESULT run in which every action went through", async () => {
-    const outcome = await outcomeFor({
+  it("charges a NO RESULT run in which only some calls failed, or none did", async () => {
+    // Three of four failed: one agent was reached and stayed silent. Partial
+    // failures used to ride free; they are charged now.
+    const partial = await outcomeFor({
+      ok: false,
+      kind: "no-reactions",
+      detail: "some agent actions failed",
+      agentErrors: 3,
+    });
+    expect(simulationReachedModel(partial, SIZE)).toBe(true);
+
+    const silent = await outcomeFor({
       ok: false,
       kind: "no-reactions",
       detail: "the personas were reached and simply posted nothing",
       agentErrors: 0,
     });
-    expect(simulationReachedModel(outcome)).toBe(true);
+    expect(simulationReachedModel(silent, SIZE)).toBe(true);
   });
 
   it("charges a run in which an agent answered, and not one that never started", async () => {
@@ -258,14 +271,14 @@ describe("simulationReachedModel — when a run is charged", () => {
       detail: "a single reaction",
       agentErrors: 1,
     });
-    expect(simulationReachedModel(single)).toBe(true);
+    expect(simulationReachedModel(single, SIZE)).toBe(true);
 
     const neverStarted = await outcomeFor({
       ok: false,
       kind: "oasis-not-installed",
       detail: "OASIS is not installed",
     });
-    expect(simulationReachedModel(neverStarted)).toBe(false);
+    expect(simulationReachedModel(neverStarted, SIZE)).toBe(false);
   });
 });
 

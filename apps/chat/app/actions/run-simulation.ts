@@ -214,21 +214,17 @@ export async function runProjectSimulation({
     revalidatePath(`/project/${projectId}/simulation`);
   }
 
-  // CHARGED ONLY WHEN MODEL CALLS HAPPENED, which is narrower than "recorded":
-  // a NO RESULT run whose agents never reached the model (no key on the
-  // sidecar, every call refused) is recorded above and costs nothing. A
-  // refusal before the sidecar (no seats, OASIS missing, the sidecar
-  // unreachable or refusing the app) is neither recorded nor charged. The rule
-  // is `simulationReachedModel`; the amount is an estimate — see
-  // `estimateSimulationCostCents`.
-  if (simulationReachedModel(outcome)) {
-    await deductCredits(
-      userId,
-      estimateSimulationCostCents({
-        seats: seeded.personas.length,
-        rounds: DEFAULT_ROUNDS,
-      })
-    );
+  // CHARGED UNLESS THE RUN DEMONSTRABLY SPENT NOTHING. A NO RESULT run is
+  // recorded above either way; its charge is waived only when every expected
+  // model call failed (no key on the sidecar, every call refused). A refusal
+  // before the sidecar (no seats, OASIS missing, the sidecar unreachable or
+  // refusing the app) is neither recorded nor charged. The rule is
+  // `simulationReachedModel`; the amount is an estimate — see
+  // `estimateSimulationCostCents`. Both take this run's own seat and round
+  // counts.
+  const size = { seats: seeded.personas.length, rounds: DEFAULT_ROUNDS };
+  if (simulationReachedModel(outcome, size)) {
+    await deductCredits(userId, estimateSimulationCostCents(size));
   }
 
   return { status: "ran", outcome };

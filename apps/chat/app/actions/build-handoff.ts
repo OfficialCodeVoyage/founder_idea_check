@@ -19,11 +19,9 @@ import type { ExportPhaseState, HandoffOutcome } from "@/lib/export/types";
  * split in `lib/export/`: the same plan feeds a preview pane, a zip and a
  * filesystem write with no second code path.
  *
- * EXPORT-INTEGRATION-NOTES.md §4a puts this in `trpc/routers/export.router.ts`,
- * and that is still where it belongs — `trpc/routers/**` is owned by another
- * lane right now, so this is the same body behind a server action instead. The
- * ownership check is copied verbatim from `phase.router.ts`, including its
- * refusal to distinguish "does not exist" from "not yours".
+ * A server action rather than a tRPC procedure. The ownership check is copied
+ * verbatim from `phase.router.ts`, including its refusal to distinguish "does
+ * not exist" from "not yours".
  */
 
 export type BuildHandoffResult =

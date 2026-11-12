@@ -852,9 +852,8 @@ async function prepareRequestContext({
  * no `tool_errorText`, and no `Document` row. Nothing looked at it, so nothing
  * reported it, so the turn that lost 26KB of the founder's protocol produced
  * ZERO text characters and said nothing at all. The founder found it. The
- * content had to be recovered by hand — it is committed as
- * RECOVERED-phase1-protocol.md, and this function exists so that never has to
- * happen again.
+ * content had to be recovered by hand (Incident 6 in docs/INCIDENTS.md), and
+ * this function exists so that never has to happen again.
  *
  * `onFinish` is the one place that knows the stream is over. Anything still in
  * `input-streaming` here will stay in `input-streaming` forever, so this is the

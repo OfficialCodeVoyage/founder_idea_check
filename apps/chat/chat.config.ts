@@ -74,7 +74,7 @@ const config = defineConfig({
      *
      * There was none before 2026-08-22 — output length was whatever the
      * provider happened to default to, and nothing checked whether a cap had
-     * been hit. That is the config gap behind QA-BACKLOG #5: a
+     * been hit. That is the config gap behind Incident 6 (docs/INCIDENTS.md): a
      * `createTextDocument` whose input stopped mid-table-row at 26,731
      * characters, with no output, no error, and no `Document` row.
      *

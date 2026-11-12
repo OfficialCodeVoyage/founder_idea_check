@@ -795,10 +795,10 @@ describe("decideGate — a gap that needs fieldwork", () => {
 /**
  * THE OSCILLATION, WHICH WAS NEVER AN OSCILLATION.
  *
- * QA-BACKLOG §3 records the verdicts moving 5 → 1 → 1 → 1 → 5 → 5 → 1 across
- * seven attempts and reads it as the founder closing four criteria and watching
- * them re-open twice. Replaying the seven stored rows out of ProjectPhaseAttempt
- * shows nothing of the kind. FIVE criteria were `unmet` on every single attempt;
+ * A manual QA log recorded the verdicts moving 5 → 1 → 1 → 1 → 5 → 5 → 1 across
+ * seven attempts and read it as the founder closing four criteria and watching
+ * them re-open twice (Incident 3 in docs/INCIDENTS.md). Replaying the seven
+ * stored rows out of ProjectPhaseAttempt shows nothing of the kind. FIVE criteria were `unmet` on every single attempt;
  * the true count of not-met criteria was 8 → 8 → 8 → 7 → 7 → 6 → 7, monotone
  * progress with one real regression.
  *

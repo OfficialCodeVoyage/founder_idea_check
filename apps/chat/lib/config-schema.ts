@@ -134,7 +134,7 @@ function createAiSchema<G extends GatewayType>(g: G) {
      * length was entirely at the provider's default and nothing anywhere
      * detected a cap being hit — which is how a `createTextDocument` call came
      * to freeze mid-sentence with 26,731 characters of input and no error
-     * (QA-BACKLOG #5).
+     * (Incident 6 in docs/INCIDENTS.md).
      *
      * Defaulted rather than required so every gateway default block stays
      * valid; `chat.config.ts` sets it explicitly, and

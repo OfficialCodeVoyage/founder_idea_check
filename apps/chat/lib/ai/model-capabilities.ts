@@ -33,8 +33,8 @@
  *
  * PROVENANCE. Every number below was read from OpenAI's own per-model
  * documentation pages at `developers.openai.com/api/docs/models/<id>` on
- * 2026-08-21, and cross-checked against the independently gathered table in
- * NEXT-BATCH-2026-08-21.md ("Model data (verified 2026-08-21)"). The two agree.
+ * 2026-08-21, and cross-checked against a table gathered independently the same
+ * day. The one disagreement is recorded at `gpt-5.6-sol` below.
  * Prices are post the 2026-07-30 cut. When you change a number here, say where
  * you read it.
  */
@@ -105,11 +105,11 @@ export const MODEL_CAPABILITIES: Readonly<Record<string, ModelCapabilities>> =
       toolTransport: "responses-only",
     },
     "gpt-5.6-sol": {
-      // PRICE CORRECTION, 2026-08-21. NEXT-BATCH-2026-08-21.md lists sol at
-      // $5.00 / $0.50 / $30.00, and several third-party pricing pages still say
-      // the same "since launch". OpenAI's own model page states $4 / $0.40 /
-      // $20 and calls it a reduction, quoted verbatim twice. The batch
-      // document's row is stale — it was gathered for a model no workflow uses,
+      // PRICE CORRECTION, 2026-08-21. The independently gathered table listed
+      // sol at $5.00 / $0.50 / $30.00, and several third-party pricing pages
+      // still say the same "since launch". OpenAI's own model page states $4 /
+      // $0.40 / $20 and calls it a reduction, quoted verbatim twice. That
+      // table's row was stale — it was gathered for a model no workflow uses,
       // so nobody re-checked it. Primary source wins; if you change this back,
       // quote where you read it.
       contextWindow: 1_050_000,

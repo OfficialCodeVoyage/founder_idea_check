@@ -30,7 +30,7 @@ import { FlowSurface } from "./flow-surface";
  * is unit-tested without a DOM. Data fetching is deliberately the caller's job
  * — wiring it to tRPC would mean editing routers outside this change's scope,
  * and a presentational component is testable and reusable in a way a
- * self-fetching one is not. See CANVAS-INTEGRATION-NOTES.md for the wiring.
+ * self-fetching one is not. The caller is components/project/project-canvas-screen.tsx.
  */
 
 /**

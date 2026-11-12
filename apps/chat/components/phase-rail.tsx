@@ -135,7 +135,7 @@ export function PhaseRail({
           Canvas
         </Link>
         {/*
-          The export entry point (EXPORT-INTEGRATION-NOTES.md §4d). It sits next
+          The export entry point. It sits next
           to the phase badge on purpose and is NOT conditioned on `decision`,
           `workflowComplete` or export readiness: a founder who stops at phase 4
           still walks away with an honest repo, and the documents themselves say

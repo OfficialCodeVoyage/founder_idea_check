@@ -16,7 +16,7 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
 | `.claude/hooks/` | none | Kit copies (byte-identical) + `format-on-edit.sh`. |
 | `verify` | none (`bun lint` + `bun test:types`, the latter unsafe beside dev) | `bun run verify` → `scripts/verify.sh`. |
 | `.planning/` | none | STATE.md, DEFERRED-BY-BLOCKER.md (Section F), this file. Public: nothing private here. |
-| `docs/` | upstream docs app removed; many root notes | ARCHITECTURE.md, ADR/README + 0001, INCIDENTS.md (template). Root notes fold into `docs/` during the release clean-up. |
+| `docs/` | upstream docs app removed; many root notes | ARCHITECTURE.md, ADR/README + 0001, INCIDENTS.md (template). The root notes were then folded into `docs/DATABASE.md`, ADR-0002 to 0004, ten incidents in `INCIDENTS.md` and the design notes in `ARCHITECTURE.md`, and deleted (docs for strangers). |
 | `CONTEXT.md` | none | 25-term glossary. |
 | `RECONSTRUCTION.md`, `.planning/codebase/` | none | Deferred to the end of the release clean-up so they map the code that ships; stamped after the history rewrite. |
 | `.codex/`, `.cursor/` hooks | run `scripts/ai-post-codegen.sh` (whole-repo format + `test:types`) | `ai-post-codegen.sh` now runs `bun run verify` (no whole-repo format, no `test:types`). |
@@ -45,7 +45,7 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
 - `bun run verify`: all pass in 13 s (Python step skipped in a worktree without `apps/research/.venv`); exits 1 on a
   deliberate type error.
 - `bun run test:unit`: chat 1,255 passed (79 files), thread 58, cli 31, worktree-runtime 13; 0 failed.
-- `pytest` (from the QA batch): 126 passed, 2 skipped.
+- `pytest` (from `apps/research`, no network, no key): 196 passed, 2 skipped.
 - Hook suite: `323 passed, 0 failed` on bash 5 and `/bin/bash` 3.2.
 
 ## Findings recorded for the release work
@@ -54,7 +54,8 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
   out of `overrides` without regenerating the lockfile). Fixed by regenerating it with the local Bun.
 - `@better-auth/core` is forced to 1.5.6 while `better-auth` resolves 1.6.2; the recorded reason (the Electron
   app) no longer applies.
-- `turbo.json` `globalEnv` misses `RESEARCH_ENABLED_SOURCES`, `LITELLM_*`, `VERCEL_SANDBOX_RUNTIME_*`.
+- `turbo.json` `globalEnv` misses `RESEARCH_ENABLED_SOURCES`, `LITELLM_*`, `VERCEL_SANDBOX_RUNTIME_*`. Fixed since:
+  they are listed, and `apps/chat/lib/env-schema.test.ts` checks every schema key against the list (Incident 10).
 - `.cursor/mcp.json` ran `next-devtools-mcp@latest` unpinned. Fixed: pinned to 0.4.0.
 
 ## Guide §16 progress
@@ -69,7 +70,7 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
 - [x] `guard-push.json` protects `main`
 - [x] Push guard proven on the real STATE.md (exit 2 with the blocker, 0 after `RESOLVED:`)
 - [x] STATE.md, DEFERRED-BY-BLOCKER.md, agent-setup.md tracked
-- [x] Docs: ARCHITECTURE.md, CONTEXT.md, ADR README + 0001, INCIDENTS.md
+- [x] Docs: ARCHITECTURE.md, CONTEXT.md, DATABASE.md, ADR README + 0001 to 0004, INCIDENTS.md (ten incidents)
 - [x] `verify` exists and passes
 - [x] MEMORY.md created
 - [ ] Owner actions listed in the final report (LSP plugins)

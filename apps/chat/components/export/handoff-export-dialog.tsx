@@ -19,7 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import type { ExportFile, ExportReadiness } from "@/lib/export/types";
 
 /**
- * The handoff export entry point (EXPORT-INTEGRATION-NOTES.md §4d).
+ * The handoff export entry point.
  *
  * 🚨 THE BUTTON IS NEVER DISABLED ON READINESS, AND MUST NOT BECOME SO.
  * `readiness.level` is `empty | partial | complete`, and `partial` is a

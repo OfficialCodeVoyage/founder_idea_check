@@ -16,8 +16,8 @@
 
 ## Before merging
 
-- [ ] The documentation that owns the facts I changed is updated (schema in `DATA-LAYER.md`,
-      environment variables in `apps/chat/.env.example` and `README-DEV.md`, research sources in
+- [ ] The documentation that owns the facts I changed is updated (schema in `docs/DATABASE.md`,
+      environment variables in `.env.example` and `README-DEV.md`, research sources in
       `apps/research/README.md`)
 - [ ] No secret, personal detail or local path is in the files, the commits or this description
 - [ ] Code copied or adapted from another project is credited with its licence (see `CONTRIBUTING.md`)

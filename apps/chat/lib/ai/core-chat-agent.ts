@@ -206,7 +206,7 @@ export async function createCoreChatAgent({
      * provider default nobody had chosen and nobody could see. A
      * `createTextDocument` call died mid-table-row at 26,731 characters of
      * input with no output, no error and no document, and the founder had to
-     * discover it (QA-BACKLOG #5).
+     * discover it (Incident 6 in docs/INCIDENTS.md).
      *
      * Clamped by the model's own ceiling: `max_tokens` comes from the model
      * catalog and a request above it is a provider error, so the config value

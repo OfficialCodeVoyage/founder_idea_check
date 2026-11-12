@@ -15,7 +15,7 @@ Please read the [Code of Conduct](CODE_OF_CONDUCT.md) first. To report a securit
   `docs/ARCHITECTURE.md` for where things live.
 - Some areas have rules that are easy to break. Read the matching document before changing them:
   the phase gate (`apps/chat/lib/phases/REFERENCES.md`), the database schema and migrations
-  (`DATA-LAYER.md`), and the research sources (the "Sources" section of `apps/research/README.md`).
+  (`docs/DATABASE.md`), and the research sources (the "Sources" section of `apps/research/README.md`).
 
 ## Set up
 
@@ -81,8 +81,8 @@ are never waived.
 - Keep the pull request small and focused. A short description of the problem and the fix is
   enough; the template asks for the rest.
 - Make sure `bun run verify` and `bun run test:unit` pass, and say how you tested the change.
-- Update the documentation that owns the fact you changed (the schema in `DATA-LAYER.md`,
-  environment variables in `apps/chat/.env.example` and `README-DEV.md`, a research source in
+- Update the documentation that owns the fact you changed (the schema in `docs/DATABASE.md`,
+  environment variables in `.env.example` and `README-DEV.md`, a research source in
   `apps/research/README.md`).
 - This repository is public. Never put a secret, a personal detail or a local path in a file, a
   commit message or a pull request.

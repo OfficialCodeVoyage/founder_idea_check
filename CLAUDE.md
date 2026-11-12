@@ -42,14 +42,16 @@ bun run build                    # only right before a push; it runs the DB migr
 - Sidecar (from `apps/research`): `.venv/bin/python -m pytest` for tests (no network, no key);
   `../../node_modules/.bin/dotenv -e ../../.env.local -- .venv/bin/python -m uvicorn app.main:app --port 8099`
   to run it, then check `http://127.0.0.1:8099/v1/health` (a listening port is not proof).
-- Not plain `docker compose up -d`: it also starts a containerised sidecar on :8099.
+- Not plain `docker compose up -d` here: it also starts a containerised sidecar on :8099, which would take the port
+  from the venv sidecar above. (`README.md` uses it on purpose: a new install has no venv.)
 - Not `bun run test:types` beside a dev server: it deletes `apps/chat/.next/dev/types`. `verify` does not.
 - Not bare `bun test` inside `apps/chat`: that is Bun's runner, not vitest.
 
 ### Environments & data
-- Local only. The dev database is the Docker container `ic-pg` (database `ideacheck`), built with `db:push`.
-  Never run `db:migrate` against it (`.claude/rules/db.md`).
-- Env lives in the repo-root `.env.local` (gitignored; never open it). Variable names: `apps/chat/.env.example`,
+- Local only. The maintainers' dev database is the Docker container `ic-pg` (database `ideacheck`), built with
+  `db:push`. Never run `db:migrate` against it (`.claude/rules/db.md`). A fresh install builds its schema with
+  `bun run db:migrate` instead (`docs/DATABASE.md`).
+- Env lives in the repo-root `.env.local` (gitignored; never open it). Variable names: the root `.env.example`,
   `apps/chat/lib/env-schema.ts`, `apps/research/app/config.py`.
 - Paid calls: chat turns, the gate judge, extraction, research runs and `bun run eval:gate` all hit OpenAI.
   Spend shows in `UserCredit.credits` (cents). Ask before any bulk or eval run.
@@ -64,7 +66,7 @@ None: nothing is deployed.
   attributes cannot be built without a source (type-enforced); extraction never overwrites a founder's fact.
   Guards: `apps/chat/lib/research/simulation.test.ts`, `apps/chat/lib/phases/extract.test.ts`.
 - **Migrations that carry CHECK constraints are hand-written, and the dev DB is never migrated with `db:migrate`.**
-  Guard: none automatic; see `DATA-LAYER.md`.
+  Guard: none automatic; see `docs/DATABASE.md` and Incident 9 in `docs/INCIDENTS.md`.
 
 ### Branch, push & deploy
 - Default branch `main`. The public repo is `github.com/OfficialCodeVoyage/founder_idea_check`. The `upstream` remote
@@ -93,15 +95,17 @@ None: nothing is deployed.
 - Commit subjects state the defect being fixed, as a sentence.
 
 ### Documentation
-- `docs/ARCHITECTURE.md` — modules, layer rules, where to add X.
-- `CONTEXT.md` — domain glossary (phase, gate, criterion, fact, origin, signal, lane…). Use its words.
+- `README.md` — what the product is, the research limit, the quick start. `GETTING-STARTED.md` — the same commands,
+  one step at a time with what you should see. `README-DEV.md` — ports, worktrees, verification, the dev database.
+- `docs/ARCHITECTURE.md` — modules, layer rules, design notes, where to add X.
+- `docs/DATABASE.md` — schema, constraints, migrations, the push-versus-migrate history.
 - `docs/ADR/` — hard-to-reverse decisions. `docs/INCIDENTS.md` — incidents, each with its guard.
-- `DATA-LAYER.md` — schema, migrations, the push-vs-migrate history.
-- `README-DEV.md`, `GETTING-STARTED.md` — local setup. `apps/research/README.md` — sidecar setup and source policy.
+- `CONTEXT.md` — domain glossary (phase, gate, criterion, fact, origin, signal, lane…). Use its words.
+- `apps/research/README.md` — sidecar setup and source policy.
 - `NOTICE`, `THIRD_PARTY.md`, `THIRD_PARTY-research.md` — what was copied or adapted, under which licence.
 - `.planning/STATE.md` — current focus and push blockers. `.planning/agent-setup.md` — how this agent setup was built.
 
-**Consult before changing:** the gate → `apps/chat/lib/phases/REFERENCES.md`; the schema → `DATA-LAYER.md`; a
+**Consult before changing:** the gate → `apps/chat/lib/phases/REFERENCES.md`; the schema → `docs/DATABASE.md`; a
 research source → `apps/research/README.md`. **Record decisions:** hard to reverse → new ADR; smaller → the commit
 message. **Keep in sync:** `.claude/rules/docs-sync.md`.
 

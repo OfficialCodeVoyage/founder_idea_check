@@ -2,7 +2,7 @@
 -- drizzle-kit does not emit CREATE EXTENSION for a vector column, so on a
 -- fresh database every statement below fails with 'type "vector" does not
 -- exist'. This is the first migration that introduces a vector column, so this
--- is where the extension has to be created. See DATA-LAYER.md.
+-- is where the extension has to be created. See docs/DATABASE.md.
 -- Requires an image that ships pgvector: pgvector/pgvector:pg17, not
 -- postgres:17-alpine.
 CREATE EXTENSION IF NOT EXISTS vector;--> statement-breakpoint

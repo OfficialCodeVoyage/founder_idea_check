@@ -21,9 +21,9 @@
  *           still in `input-streaming` is a FAILURE, and it says so in words a
  *           founder can act on, including the line it stopped after.
  *   SALVAGE `salvageTextDocumentInput` — 26KB of content behind a title is a
- *           RECOVERABLE DOCUMENT, not garbage. The hand-recovery of that exact
- *           payload is committed at RECOVERED-phase1-protocol.md; this is the
- *           product doing automatically what a human had to do once.
+ *           RECOVERABLE DOCUMENT, not garbage. A human had to recover that
+ *           exact payload by hand (Incident 6 in docs/INCIDENTS.md); this is
+ *           the product doing it automatically.
  *
  * PURE. No database, no clock, no React. Both the route (server, at finalize)
  * and the tool renderer (client, live) read the same functions, so the chat and

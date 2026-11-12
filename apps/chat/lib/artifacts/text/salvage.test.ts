@@ -430,7 +430,7 @@ describe("sweepDeadInputStreams", () => {
         type: "tool-deepResearch",
         toolCallId: "call_r",
         state: "input-streaming",
-        input: { topic: "tip credits" },
+        input: { topic: "regional pricing" },
       },
     ]);
 

@@ -13,7 +13,7 @@
 --
 -- The expressions below are drizzle-kit's own output for these constraints,
 -- copied verbatim from a `push --verbose` run, so they match schema.ts exactly.
--- See DATA-LAYER.md.
+-- See docs/DATABASE.md and Incident 9 in docs/INCIDENTS.md.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Part_text_required_if_type_text' AND conrelid = '"Part"'::regclass) THEN
     ALTER TABLE "Part" ADD CONSTRAINT "Part_text_required_if_type_text" CHECK (CASE WHEN "Part"."type" = 'text' THEN "Part"."text_text" IS NOT NULL ELSE TRUE END);

@@ -70,7 +70,8 @@ function unsavedCopyFields(
  * "Creating …" row with a spinner. A spinner is a PROMISE that something is
  * still coming. Nothing was. The founder watched it, worked out for themselves
  * that the protocol stopped inside the INTENSITY rubric at score 3, and had to
- * report it; the 26KB was recovered by hand into RECOVERED-phase1-protocol.md.
+ * report it; the 26KB had to be recovered by hand (Incident 6 in
+ * docs/INCIDENTS.md).
  *
  * So a dead stream does not get a spinner and does not get a preview that looks
  * like a document. It gets this: the loss, its size, THE LINE IT STOPPED AFTER,

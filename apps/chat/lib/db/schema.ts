@@ -646,7 +646,7 @@ export const projectFact = pgTable(
      * "column cannot have more than 2000 dimensions for hnsw index"). That is
      * why text-embedding-3-large's native 3072 is not an option; the upgrade
      * path is 3-large with dimensions:1536, which is a re-embed, not a
-     * migration. See DATA-LAYER.md.
+     * migration. See docs/DATABASE.md and ADR-0002.
      */
     embedding: vector("embedding", { dimensions: 1536 }),
     /**

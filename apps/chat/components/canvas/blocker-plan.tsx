@@ -17,7 +17,8 @@ import { cn } from "@/lib/utils";
  * which writes into components/ai-elements/ and edits package.json), so this
  * renders the same two ideas with the shadcn primitives already in the repo:
  * the gate's own reason as the reasoning trace, and each blocker's unblocking
- * tasks as an ordered plan. CANVAS-INTEGRATION-NOTES.md has the swap.
+ * tasks as an ordered plan. If those components are installed later, this file
+ * is the only place to swap them in.
  *
  * There is NO logic here. Which blockers exist, how severe they are and what
  * closes them is decided by lib/ultraplan/blockers.ts, under test.

@@ -10,8 +10,9 @@ paths:
 
 | Changing… | Update in the same commit |
 |---|---|
-| the DB schema or a migration | `DATA-LAYER.md` |
-| env vars or deploy config | `apps/chat/.env.example`, `README-DEV.md` |
+| the DB schema or a migration | `docs/DATABASE.md` |
+| env vars or deploy config | the root `.env.example`, `README-DEV.md` |
+| a prerequisite, a port or a quick-start command | `README.md`, `GETTING-STARTED.md` and `README-DEV.md` (the same commands in each) |
 | a research source or its policy | `apps/research/README.md`, `THIRD_PARTY-research.md` |
 | copied or adapted third-party code | `THIRD_PARTY.md` or `THIRD_PARTY-research.md`, plus `NOTICE` if it is a new upstream |
 | a phase, criterion or borrowed gate idea | `apps/chat/lib/phases/REFERENCES.md` |

@@ -13,8 +13,8 @@ import { loadProjectCanvas } from "@/lib/project/canvas-data";
  * A SERVER COMPONENT, not a page, because two routes render it — see the note
  * on visibility in `app/(chat)/project/[projectId]/page.tsx`. The three pure
  * calls that produce the graph run in `loadProjectCanvas`, so the client
- * receives a decided graph rather than a raw verdict (CANVAS-INTEGRATION-NOTES
- * §4). `ProjectCanvas` itself composes and computes nothing.
+ * receives a decided graph rather than a raw verdict (docs/ARCHITECTURE.md,
+ * "Canvas and tasks"). `ProjectCanvas` itself composes and computes nothing.
  *
  * SPLIT INTO A STATIC SHELL AND A SUSPENDED BODY, the same shape
  * `app/(chat)/layout.tsx` uses. Everything below the frame depends on WHO IS

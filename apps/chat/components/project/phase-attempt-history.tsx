@@ -97,7 +97,7 @@ export function PhaseAttemptHistory({
         `ProjectPhase.attemptCount` has been incremented since the beginning;
         the ledger was added later, and the old `onConflictDoUpdate` kept only
         the newest verdict per phase — so every refusal before that change is
-        gone and unrecoverable (DATA-LAYER.md says so outright). Verified in the
+        gone and unrecoverable (Incident 4 in docs/INCIDENTS.md says so). Verified in the
         dev data: go-to-market counts 4 attempts and stores 3 verdicts, the
         first of them numbered #2.
 

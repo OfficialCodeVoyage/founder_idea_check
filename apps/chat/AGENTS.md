@@ -29,10 +29,11 @@ These instructions apply to this application directory.
 3. Review the generated migration. drizzle-kit can record a CHECK constraint
    and emit no SQL for it, so write CHECK constraints by hand
    (`lib/db/migrations/0051_absent_part_checks.sql`).
-4. Never run `bun db:migrate` against the local dev database: it was built with
-   `db:push`, and the migrator runs every pending file in one transaction that
-   aborts on the first already-applied change. Apply a migration there with
-   `psql`, after replaying it on a throwaway database. See `DATA-LAYER.md`.
+4. Never run `bun db:migrate` against a database built with `db:push`, such as
+   the maintainers' local dev database: the migrator runs every pending file in
+   one transaction that aborts on the first already-applied change. Apply a
+   migration there with `psql`, after replaying it on a throwaway database. A
+   fresh install is built with `db:migrate`. See `docs/DATABASE.md`.
 
 ## Environment and configuration
 

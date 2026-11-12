@@ -1,0 +1,30 @@
+---
+paths:
+  - "apps/research/app/**"
+  - "apps/research/pyproject.toml"
+  - "apps/chat/lib/signals/**"
+  - "apps/chat/tools/platform/deep-research/**"
+---
+# Research sources and the sidecar — landmines
+
+- **A source id lives in four places that must agree:** `apps/research/app/sources/registry.py::ALL_DESCRIPTORS`,
+  `apps/research/app/config.py::KNOWN_SOURCE_IDS`, `apps/chat/lib/signals/providers.ts::ALL_PROVIDERS` and the
+  `SignalSourceId` union in `lib/signals/types.ts`. No test reads both languages; check by hand.
+- **The permission gate is mirrored:** Python `sources/base.py::assert_permitted`, TypeScript
+  `lib/signals/provider.ts::decideProviderGate`. Same order: hosted bar, self-host bar, operator toggle,
+  credentials. Missing credentials never fall back to a keyless path. Guard: `apps/research/tests/test_gate.py`.
+- **Defaults fail closed:** `RESEARCH_HOSTED` unset means hosted; `RESEARCH_ENABLED_SOURCES` unset means
+  `hackernews,web-keyless`; unknown ids are refused and reported at `/v1/health`, never silently dropped.
+- **An adapter never returns `[]` to mean failure.** It raises a named `SourceError` subclass (`app/errors.py`);
+  an empty hit list is a finding. Guard: `tests/test_adapters.py`.
+- **No author is ever stored.** `DemandSignal` (`lib/signals/types.ts`) has no `author` field on purpose; the
+  Reddit-family adapters set `author=None` at parse time.
+- **Reddit: public-API access only.** The two keyless scraper lanes leave before the public release; until then
+  they are hosted-barred and need `REDDIT_ENABLED_ACK` plus an operator toggle.
+- **The sidecar has no auth and its endpoints spend money:** bind it to `127.0.0.1` only (`docker-compose.yml`).
+- **Python 3.11 only** (OASIS); `mcp<2` is load-bearing. Use `apps/research/.venv`, never system Python/pytest/ruff.
+- **Vendored files are not modernised or reformatted** (`app/text/cjk.py`, `app/text/relevance.py`,
+  `app/pipeline/{dedupe,entity_extract}.py`, see `pyproject.toml` per-file-ignores). `ruff format` is not enforced.
+- **`bun run dev` drops `RESEARCH_ENABLED_SOURCES`** (turbo strict env, not in `turbo.json` `globalEnv`); use
+  `bun run dev:local`.
+- Source or policy change → update `apps/research/README.md` and `THIRD_PARTY-research.md` in the same commit.

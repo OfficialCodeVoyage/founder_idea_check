@@ -45,9 +45,9 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
 - `bun run verify`: all pass in 13 s (Python step skipped in a worktree without `apps/research/.venv`); exits 1 on a
   deliberate type error.
 - `bun run test:unit`: chat 1,255 passed (79 files), thread 58, cli 31, worktree-runtime 13; 0 failed.
-  On the release candidate: chat 1,360 passed (83 files), thread 59, cli 31, worktree-runtime 13 (run directly from
+  On the release candidate: chat 1,363 passed (83 files), thread 59, cli 31, worktree-runtime 13 (run directly from
   `.agents/skills/worktree-ports/scripts/` by the root `test:unit`, not by turbo); 0 failed.
-- `pytest` (from `apps/research`, no network, no key): 196 passed, 2 skipped. On the release candidate: 227 passed,
+- `pytest` (from `apps/research`, no network, no key): 196 passed, 2 skipped. On the release candidate: 228 passed,
   0 skipped.
 - Hook suite: `323 passed, 0 failed` on bash 5 and `/bin/bash` 3.2.
 

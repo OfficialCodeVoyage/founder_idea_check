@@ -286,12 +286,16 @@ describe("createMainChatUsageMeter", () => {
     const { createMainChatUsageMeter, MAIN_CHAT_CUT_STEP_SOURCE } =
       await import("./main-chat-usage");
     const accumulator = new CostAccumulator();
-    const countPromptTokens = vi.fn(() => 5000);
+    // 19,320 characters at the test's 4 per token, plus two images: 5000.
+    const getPromptFloor = vi.fn(() => ({
+      texts: ["x".repeat(16_000), "y".repeat(3320)],
+      attachmentTokens: 170,
+    }));
     const transform = createMainChatUsageMeter({
       costAccumulator: accumulator,
       modelId: "test-model" as never,
       countTokens: (text) => Math.ceil(text.length / 4),
-      countPromptTokens,
+      getPromptFloor,
     })();
     const passed: unknown[] = [];
     const reading = (async () => {
@@ -327,7 +331,7 @@ describe("createMainChatUsageMeter", () => {
     return {
       entries,
       passed,
-      countPromptTokens,
+      getPromptFloor,
       cutSource: MAIN_CHAT_CUT_STEP_SOURCE,
     };
   }
@@ -351,7 +355,7 @@ describe("createMainChatUsageMeter", () => {
   });
 
   it("estimates a step cut off in step 2 from the step before it", async () => {
-    const { entries, countPromptTokens, cutSource } = await meter([
+    const { entries, getPromptFloor, cutSource } = await meter([
       { type: "start-step" },
       finishStep(40_000, 3000, "tool-calls"),
       { type: "start-step" },
@@ -363,7 +367,7 @@ describe("createMainChatUsageMeter", () => {
       ["main-chat", 40_000, 3000],
       [cutSource, 43_000, 110],
     ]);
-    expect(countPromptTokens).not.toHaveBeenCalled();
+    expect(getPromptFloor).not.toHaveBeenCalled();
   });
 
   it("estimates a step cut off in step 1 from the counted prompt", async () => {
@@ -449,5 +453,69 @@ describe("createMainChatUsageMeter", () => {
       finishStep(undefined, undefined, "error"),
     ]);
     expect(unreported.entries).toEqual([["main-chat", 40_000, 3000]]);
+  });
+});
+
+// GUARD: step 1's estimate counts the prompt's real content as a floor. It
+// used to add a flat 765 tokens per non-text part (overcounting small tool
+// calls), and then briefly left tool results, images and files out
+// altogether (undercounting a prompt that carries big ones).
+describe("promptFloor", () => {
+  it("counts tool calls and results as their text, images and files at a minimum", async () => {
+    const { promptFloor, IMAGE_FLOOR_TOKENS } = await import(
+      "./main-chat-usage"
+    );
+    const report = "r".repeat(30_000);
+    const floor = promptFloor("system prompt", [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "look at this" },
+          { type: "image", image: new URL("https://example.com/a.png") },
+          { type: "file", mediaType: "image/png", data: new Uint8Array(9) },
+          {
+            type: "file",
+            mediaType: "text/markdown",
+            data: new TextEncoder().encode("# notes"),
+          },
+          {
+            type: "file",
+            mediaType: "application/pdf",
+            data: new Uint8Array(9),
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "c1",
+            toolName: "deepResearch",
+            input: { topic: "dog walking" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            toolName: "deepResearch",
+            output: { type: "json", value: { report } },
+          },
+        ],
+      },
+    ]);
+    expect(floor.texts).toEqual([
+      "system prompt",
+      "look at this",
+      "# notes",
+      '{"topic":"dog walking"}',
+      JSON.stringify({ report }),
+    ]);
+    // Two images and one PDF, each at the per-attachment minimum.
+    expect(floor.attachmentTokens).toBe(3 * IMAGE_FLOOR_TOKENS);
   });
 });

@@ -1,4 +1,9 @@
-import type { LanguageModelUsage, TextStreamPart, ToolSet } from "ai";
+import type {
+  LanguageModelUsage,
+  ModelMessage,
+  TextStreamPart,
+  ToolSet,
+} from "ai";
 import type { AppModelId } from "../ai/app-models";
 import type { CostAccumulator } from "./cost-accumulator";
 
@@ -22,6 +27,141 @@ export type CutStepEstimate = {
   /** Characters of text, reasoning and tool input the cut step streamed. */
   streamedChars: number;
 };
+
+/**
+ * What step 1's prompt is known to contain at least: text to tokenize, and a
+ * fixed token count for the attachments whose tokens text cannot give.
+ */
+export type PromptFloor = { texts: string[]; attachmentTokens: number };
+
+/**
+ * What one image is counted as: OpenAI's flat charge for a low-detail image on
+ * its tile-priced models (85 base tokens, GPT-4o class), which every detail
+ * level of those models adds at least. Patch-priced models can bill a very
+ * small image below it, so it is a conservative per-image minimum rather than
+ * a proven floor for every model; it replaces the flat 765 (a typical
+ * high-detail image) that overcounted, and the 0 that undercounted.
+ */
+export const IMAGE_FLOOR_TOKENS = 85;
+
+/**
+ * A file that is neither an image nor inline text (a PDF, or a file sent by
+ * URL) is counted at the image floor. OpenAI gives the model a PDF as its
+ * extracted text plus an image of every page, so one page already costs at
+ * least one image; any other file is as small as the provider makes it, and
+ * this repo cannot read its text here without parsing it.
+ */
+const OTHER_FILE_FLOOR_TOKENS = IMAGE_FLOOR_TOKENS;
+
+const TEXT_MEDIA_TYPE = /^(?:text\/|application\/(?:json|xml|csv)\b)/;
+
+type PromptPart = Exclude<ModelMessage["content"], string>[number];
+type ToolOutput = Extract<PromptPart, { type: "tool-result" }>["output"];
+
+/** The UTF-8 text of an inline file, or null when it is sent by URL. */
+function inlineText(data: string | Uint8Array | ArrayBuffer | URL) {
+  if (data instanceof URL) {
+    return null;
+  }
+  if (typeof data === "string") {
+    // `DataContent` strings are base64.
+    return Buffer.from(data, "base64").toString("utf8");
+  }
+  return new TextDecoder().decode(data);
+}
+
+function addToolOutput(output: ToolOutput, floor: PromptFloor) {
+  switch (output.type) {
+    case "text":
+    case "error-text":
+      floor.texts.push(output.value);
+      return;
+    case "json":
+    case "error-json":
+      floor.texts.push(JSON.stringify(output.value));
+      return;
+    case "execution-denied":
+      if (output.reason) {
+        floor.texts.push(output.reason);
+      }
+      return;
+    case "content":
+      for (const item of output.value) {
+        if (item.type === "text") {
+          floor.texts.push(item.text);
+        } else {
+          floor.attachmentTokens += IMAGE_FLOOR_TOKENS;
+        }
+      }
+      return;
+    default:
+      return;
+  }
+}
+
+function addPart(part: PromptPart, floor: PromptFloor) {
+  switch (part.type) {
+    case "text":
+      floor.texts.push(part.text);
+      return;
+    case "tool-call":
+      floor.texts.push(JSON.stringify(part.input) ?? "");
+      return;
+    case "tool-result":
+      addToolOutput(part.output, floor);
+      return;
+    case "image":
+      floor.attachmentTokens += IMAGE_FLOOR_TOKENS;
+      return;
+    case "file": {
+      if (part.mediaType.startsWith("image/")) {
+        floor.attachmentTokens += IMAGE_FLOOR_TOKENS;
+        return;
+      }
+      const text = TEXT_MEDIA_TYPE.test(part.mediaType)
+        ? inlineText(part.data)
+        : null;
+      if (text === null) {
+        floor.attachmentTokens += OTHER_FILE_FLOOR_TOKENS;
+      } else {
+        floor.texts.push(text);
+      }
+      return;
+    }
+    default:
+      // Reasoning (OpenAI resends it as encrypted items whose size is not
+      // known here) and tool approvals: left out, so the count stays a floor.
+      return;
+  }
+}
+
+/**
+ * The floor of a prompt, for the step-1 estimate of `createMainChatUsageMeter`:
+ *  - the system prompt, string contents and text parts, as text;
+ *  - a tool call's input and a tool result's output, serialised to the JSON
+ *    or text the provider is sent, as text: their real content;
+ *  - an image, or an image inside a tool result, at `IMAGE_FLOOR_TOKENS`;
+ *  - a text file (`text/*`, JSON, XML, CSV) sent inline, as its text; any
+ *    other file at `OTHER_FILE_FLOOR_TOKENS`.
+ * Left out, so it stays a floor: tool definitions, message framing, reasoning
+ * and the provider's own wrapping of every part.
+ */
+export function promptFloor(
+  system: string,
+  messages: ModelMessage[]
+): PromptFloor {
+  const floor: PromptFloor = { texts: [system], attachmentTokens: 0 };
+  for (const message of messages) {
+    if (typeof message.content === "string") {
+      floor.texts.push(message.content);
+      continue;
+    }
+    for (const part of message.content) {
+      addPart(part, floor);
+    }
+  }
+  return floor;
+}
 
 function hasReportedUsage(usage: LanguageModelUsage): boolean {
   return usage.inputTokens !== undefined || usage.outputTokens !== undefined;
@@ -66,12 +206,16 @@ function hasReportedUsage(usage: LanguageModelUsage): boolean {
  *    Still a floor: the tool results that also joined the prompt are not
  *    counted. Preferred over counting the prompt because it is the provider's
  *    own number for all but the last addition.
- *  - Input, when the cut step is the first: `countPromptTokens()`, which the
- *    caller computes from the system prompt and messages with the repo's
- *    tokenizer (`lib/ai/token-utils.ts`, the counter the route's request-size
- *    check uses) rather than a 4-characters-per-token guess. A floor too: tool
- *    definitions are not counted. Called only on that path, since it
- *    tokenizes the whole prompt.
+ *  - Input, when the cut step is the first: `getPromptFloor()`, which the
+ *    caller builds with `promptFloor` (its docblock lists the rules): the
+ *    prompt's text, tool calls and tool results run through `countTokens`
+ *    (the repo's tokenizer, `lib/ai/token-utils.ts`) rather than a
+ *    4-characters-per-token guess, plus a per-attachment minimum for images
+ *    and files. A floor: tool definitions and message framing are not
+ *    counted. It deliberately does not reuse `calculateMessagesTokens`, which
+ *    adds a flat 765 tokens for every non-text part whatever its size, and so
+ *    overcounted a turn with many small tool calls by thousands of tokens.
+ *    Called only on that path, since it tokenizes the whole prompt.
  *  - Nothing, when no `start-step` was seen since the last step finished (the
  *    abort landed before the provider sent the next step's first chunk): no
  *    evidence the provider began that step, so nothing is charged for it.
@@ -105,7 +249,7 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
   costAccumulator,
   modelId,
   countTokens,
-  countPromptTokens,
+  getPromptFloor,
   onCutStepEstimated,
   onStepWithoutUsage,
 }: {
@@ -113,8 +257,11 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
   modelId: AppModelId;
   /** Tokens in a piece of streamed output. */
   countTokens: (text: string) => number;
-  /** Tokens in the turn's prompt; called only when step 1 is cut. */
-  countPromptTokens: () => number;
+  /**
+   * The floor of the turn's prompt (`promptFloor`), counted as step 1's
+   * input; called only when step 1 is cut.
+   */
+  getPromptFloor: () => PromptFloor;
   onCutStepEstimated?: (estimate: CutStepEstimate) => void;
   onStepWithoutUsage?: (finishReason: string) => void;
 }): () => TransformStream<TextStreamPart<TOOLS>, TextStreamPart<TOOLS>> {
@@ -135,6 +282,14 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
     };
   }
 
+  function countPromptFloor({ texts, attachmentTokens }: PromptFloor) {
+    let tokens = attachmentTokens;
+    for (const text of texts) {
+      tokens += text.length > 0 ? countTokens(text) : 0;
+    }
+    return tokens;
+  }
+
   function recordCutStep(text: string) {
     const outputTokens = text.length > 0 ? countTokens(text) : 0;
     const estimate: CutStepEstimate = lastCompletedStep
@@ -146,7 +301,7 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
           streamedChars: text.length,
         }
       : {
-          inputTokens: countPromptTokens(),
+          inputTokens: countPromptFloor(getPromptFloor()),
           outputTokens,
           inputBasis: "prompt-count",
           streamedChars: text.length,

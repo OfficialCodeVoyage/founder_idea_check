@@ -7,11 +7,14 @@ import { type AppModelId, getAppModelDefinition } from "@/lib/ai/app-models";
 import { selectContextWindow } from "@/lib/ai/context-window";
 import { markdownJoinerTransform } from "@/lib/ai/markdown-joiner-transform";
 import { getLanguageModel, getModelProviderOptions } from "@/lib/ai/providers";
-import { calculateMessagesTokens, countTextTokens } from "@/lib/ai/token-utils";
+import { countTextTokens } from "@/lib/ai/token-utils";
 import type { ChatMessage, StreamWriter, ToolName } from "@/lib/ai/types";
 import { config } from "@/lib/config";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
-import { createMainChatUsageMeter } from "@/lib/credits/main-chat-usage";
+import {
+  createMainChatUsageMeter,
+  promptFloor,
+} from "@/lib/credits/main-chat-usage";
 import type { McpConnector } from "@/lib/db/schema";
 import { createModuleLogger } from "@/lib/logger";
 import { GATE_TRANSCRIPT_BUDGET_TOKENS } from "@/lib/phases/context";
@@ -223,8 +226,7 @@ export async function createCoreChatAgent({
     costAccumulator,
     modelId: selectedModelId,
     countTokens: countTextTokens,
-    countPromptTokens: () =>
-      countTextTokens(system) + calculateMessagesTokens(contextForLLM),
+    getPromptFloor: () => promptFloor(system, contextForLLM),
     onCutStepEstimated: (estimate) => {
       log.warn(
         { messageId, chatId, selectedModelId, ...estimate },

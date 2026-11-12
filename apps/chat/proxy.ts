@@ -92,13 +92,14 @@ export const config = {
      * - api (API routes)
      * - _next/static (static files)
      * - _next/image (image optimization files)
-     * - favicon.ico, opengraph-image (favicon and og image)
+     * - favicon.ico, opengraph-image, apple-icon (favicon, og image, iOS icon; the last two are
+     *   generated routes with no file extension, so the asset rule below does not catch them)
      * - manifest files (.json, .webmanifest)
      * - Images and other static assets (.svg, .png, .jpg, .jpeg, .gif, .webp, .ico)
      * - models
      * - compare
      * - docs (Blume documentation)
      */
-    "/((?!api|docs|_next/static|_next/image|favicon.ico|opengraph-image|manifest|models|compare|privacy|terms|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|json|webmanifest)$).*)",
+    "/((?!api|docs|_next/static|_next/image|favicon.ico|opengraph-image|apple-icon|manifest|models|compare|privacy|terms|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|json|webmanifest)$).*)",
   ],
 };

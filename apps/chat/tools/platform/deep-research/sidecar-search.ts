@@ -151,14 +151,28 @@ function writeLaneReport(
  * counted as two pieces of evidence. A later query drops a url an earlier one
  * already listed. The same url returned by a LATER STEP is handled where the
  * steps meet, in `uniqueSources` (components/research-run-summary.ts).
+ *
+ * THE MODEL IS TOLD HOW MANY WERE LEFT OUT. A later query whose hits were all
+ * listed by an earlier one came back as `results: []`, which the researcher model
+ * cannot tell from a query that found nothing, and it may write "no evidence for
+ * this wording" off the back of it. `omittedAsDuplicates` counts the hits dropped
+ * because an EARLIER QUERY of the step already returned the url (not a url the
+ * sidecar repeated inside one query, which is the sidecar's repeat and not an
+ * earlier query's finding). The de-duplication itself is unchanged, so the
+ * streamed list, the run header and the Sources chip still count each url once.
  */
 function toSearchResults(
   signals: readonly DemandSignal[],
   seen: Set<string>
-): SearchResult[] {
+): { results: SearchResult[]; omittedAsDuplicates: number } {
   const results: SearchResult[] = [];
+  const listedByEarlierQueries = new Set(seen);
+  let omittedAsDuplicates = 0;
   for (const signal of signals) {
     if (seen.has(signal.url)) {
+      if (listedByEarlierQueries.has(signal.url)) {
+        omittedAsDuplicates += 1;
+      }
       continue;
     }
     seen.add(signal.url);
@@ -171,7 +185,25 @@ function toSearchResults(
       content: signal.snippet,
     });
   }
-  return results;
+  return { results, omittedAsDuplicates };
+}
+
+/**
+ * PURE. The sentence that goes next to a query's results when some of its hits
+ * were left out as repeats of an earlier query's, and nothing when none were.
+ */
+function duplicatesNote(omittedAsDuplicates: number): {
+  omittedAsDuplicates?: number;
+  note?: string;
+} {
+  if (omittedAsDuplicates === 0) {
+    return {};
+  }
+  const hits = omittedAsDuplicates === 1 ? "hit was" : "hits were";
+  return {
+    omittedAsDuplicates,
+    note: `${omittedAsDuplicates} ${hits} left out of this query's results because an earlier query of this step already returned the same page. The page is listed there; its absence here is not a finding that this wording found nothing.`,
+  };
 }
 
 /**
@@ -532,16 +564,20 @@ Avoid:
       // One set for the step, read in query order, so the first query's
       // results are the ones that stay. See `toSearchResults`.
       const seenUrls = new Set<string>();
-      const searches = harvests.map((harvest, index) => ({
-        query: {
-          query: usable[index].query,
-          maxResults: usable[index].maxResults ?? DEFAULT_MAX_RESULTS,
-        },
-        results: toSearchResults(
+      const searches = harvests.map((harvest, index) => {
+        const { results, omittedAsDuplicates } = toSearchResults(
           rankSignals(harvest.signals, ranking),
           seenUrls
-        ),
-      }));
+        );
+        return {
+          query: {
+            query: usable[index].query,
+            maxResults: usable[index].maxResults ?? DEFAULT_MAX_RESULTS,
+          },
+          results,
+          ...duplicatesNote(omittedAsDuplicates),
+        };
+      });
 
       const allResults = searches.flatMap((search) => search.results);
       const failures = harvests.flatMap((harvest) => harvest.failures);

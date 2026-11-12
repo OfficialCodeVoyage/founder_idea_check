@@ -180,7 +180,7 @@ export async function assertFact({
   if (written === "key-already-held") {
     return {
       status: "key-already-held",
-      detail: `"${plan.write.key}" already holds a fact. Correct that one instead — a correction keeps the extractor's own confidence rather than replacing it with yours.`,
+      detail: `"${plan.write.key}" already holds a fact. Correct that one instead — a correction keeps the score the fact already has rather than replacing it with yours, and marks the fact as yours.`,
     };
   }
 

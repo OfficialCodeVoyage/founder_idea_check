@@ -119,7 +119,8 @@ function HandoffPlanView({
         <span className="font-mono">{result.plan.repoName}/</span> ·{" "}
         {result.plan.files.length} files ·{" "}
         {result.plan.notEstablishedKeys.length} facts never established ·{" "}
-        {result.plan.lowConfidenceKeys.length} low confidence
+        {result.plan.lowConfidenceKeys.length} low confidence ·{" "}
+        {result.plan.founderAssertedKeys.length} founder-asserted
       </p>
       <div className="flex min-h-0 flex-col gap-3 sm:flex-row">
         <FileList

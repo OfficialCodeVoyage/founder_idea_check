@@ -117,7 +117,7 @@ export function AssertFactForm({
             either would say neither.
           */}
           {heldKeyCount > 0
-            ? `Every fact ${phaseTitle} records already holds a value. If one of them is wrong, correct it below — a correction keeps the extractor's own confidence rather than replacing it with yours.`
+            ? `Every fact ${phaseTitle} records already holds a value. If one of them is wrong, correct it below — a correction keeps the score the fact already has rather than replacing it with yours, and marks the fact as yours.`
             : `${phaseTitle} records no facts you can enter by hand.`}
         </p>
       </div>
@@ -173,11 +173,13 @@ export function AssertFactForm({
 
         <p className="text-muted-foreground text-xs">
           There is no confidence box, on purpose. Confidence is not a quality
-          score you set — it is the extractor's own certainty when it recorded a
-          fact, and nothing may revise it upwards. A fact you enter by hand
-          enters at the lowest score anything in this ledger is allowed to hold,
-          and typing a more emphatic sentence will not move it. That is what
-          stops anyone passing their own gate on their own assumption.
+          score you set. For a fact read out of your chat it is how sure the
+          extractor was. A fact you enter by hand gets a fixed floor score, the
+          lowest any fact in this ledger can hold, and is marked as yours;
+          typing a more emphatic sentence will not move it. If you later correct
+          a fact, it keeps the score it already had, which was about the earlier
+          wording, not yours. Nothing may raise a score. That is what stops
+          anyone passing their own gate on their own assumption.
         </p>
 
         <div className="flex flex-wrap items-center gap-2">

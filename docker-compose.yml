@@ -195,7 +195,9 @@ services:
       # own default is 128 — high enough to 429 a shared gateway, and a 429
       # storm inside OASIS surfaces as agents that "chose to do nothing", which
       # is indistinguishable from genuine disinterest.
-      RESEARCH_SIM_MODEL: "${RESEARCH_SIM_MODEL:-gpt-4o-mini}"
+      # The default matches `oasis_runner.py::DEFAULT_MODEL`, so the container
+      # and a sidecar started from the venv run the same model.
+      RESEARCH_SIM_MODEL: "${RESEARCH_SIM_MODEL:-gpt-5.6-luna}"
       RESEARCH_SIM_BASE_URL: "${RESEARCH_SIM_BASE_URL:-}"
       RESEARCH_SIM_CONCURRENCY: "${RESEARCH_SIM_CONCURRENCY:-8}"
     healthcheck:

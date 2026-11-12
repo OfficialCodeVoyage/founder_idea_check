@@ -8,12 +8,16 @@ const isPlaywrightTestEnvironmentEnabled = isPlaywrightTestEnvironment(
 /**
  * Server environment variable schemas with descriptions.
  *
- * Descriptions are the single source of truth used by:
- * - The CLI env checklist (derived at build time)
- * - The .env.example comments
+ * The list of server variables the app validates, read by `lib/env.ts`
+ * (`createEnv`) and by `lib/env-schema.test.ts` (the turbo.json census).
+ * NOTHING IS GENERATED FROM IT: the example env file is written by hand, and
+ * the CLI's env checklist keeps its own descriptions in
+ * `packages/cli/src/helpers/config-requirements.ts::envVarDescriptions`. The
+ * `.describe()` strings here are documentation for whoever reads this file, so
+ * a new variable still has to be added to those by hand.
  *
- * Exported separately from `env.ts` so the CLI can import
- * without triggering `createEnv` runtime validation.
+ * Exported separately from `env.ts` so the census test can import it without
+ * triggering `createEnv` runtime validation.
  */
 export const serverEnvSchema = {
   // Required core

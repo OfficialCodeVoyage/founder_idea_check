@@ -9,6 +9,7 @@ import { downloadFile, isFileOwnedBy, uploadFile } from "@/lib/file-storage";
 import { keyFromFileUrl } from "@/lib/file-url";
 import { createModuleLogger } from "@/lib/logger";
 import { getBaseUrl } from "@/lib/url";
+import { fetchPublicUrl } from "@/lib/utils/public-url-fetch";
 
 interface GenerateImageProps {
   attachments?: FileUIPart[];
@@ -70,11 +71,12 @@ async function resolveImageModel(selectedModel?: string): Promise<{
  * directly, and only when the requesting user could open it themselves
  * (`lib/file-access.ts::canReadStoredFile`, asked about the turn's own chat):
  * a file they stored, or a pre-tag file that chat has held since before the
- * owner tag existed. The reference
- * comes from the client (an attachment) or from the chat's stored messages
- * (`lastGeneratedImage`), so neither is trusted on its own. Storage is read
- * directly because `/api/files/content` needs the browser's session, which
- * neither a server-side fetch nor a model provider has.
+ * owner tag existed. The reference comes from the client (an attachment) or
+ * from the chat's stored messages (`lastGeneratedImage`), so neither is
+ * trusted on its own. Storage is read directly because `/api/files/content`
+ * needs the browser's session, which neither a server-side fetch nor a model
+ * provider has. Any other URL is client-supplied too, so it is fetched only
+ * from public addresses (`lib/utils/public-url-fetch.ts::fetchPublicUrl`).
  */
 async function fetchImageBuffer(
   url: string,
@@ -92,9 +94,11 @@ async function fetchImageBuffer(
     const file = await downloadFile(key);
     return Buffer.from(await file.arrayBuffer());
   }
-  const response = await fetch(new URL(url, getBaseUrl()));
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const response = await fetchPublicUrl(new URL(url, getBaseUrl()));
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Reference image download failed (${response.status})`);
+  }
+  return Buffer.from(response.data);
 }
 
 async function collectEditImages({

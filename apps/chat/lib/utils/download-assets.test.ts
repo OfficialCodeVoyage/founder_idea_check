@@ -10,6 +10,24 @@ const { canReadStoredFile, downloadFile } = vi.hoisted(() => ({
 
 vi.mock("@/lib/file-access", () => ({ canReadStoredFile }));
 
+// Downloads of external URLs go through the stubbed global fetch here; the
+// public-address guard itself is exercised by the "refuses" cases below.
+vi.mock("@/lib/utils/public-url-fetch", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/utils/public-url-fetch")>();
+  return {
+    ...actual,
+    fetchPublicUrl: vi.fn(async (url: URL) => {
+      const response = await fetch(url);
+      return {
+        status: response.status,
+        mediaType: response.headers.get("content-type") || undefined,
+        data: new Uint8Array(await response.arrayBuffer()),
+      };
+    }),
+  };
+});
+
 vi.mock("@/lib/url", () => ({
   getBaseUrl: () => "https://chat.example",
 }));
@@ -26,6 +44,7 @@ vi.mock("@/lib/file-storage", async () => {
   };
 });
 
+import { RefusedUrlError } from "@/lib/utils/public-url-fetch";
 import {
   type DownloadImplementation,
   replaceFilePartUrlByBinaryDataInMessages as replaceForOwner,
@@ -59,6 +78,49 @@ describe("replaceFilePartUrlByBinaryDataInMessages", () => {
     downloadFile.mockReset();
     canReadStoredFile.mockReset();
     vi.unstubAllGlobals();
+  });
+
+  it("refuses private, loopback, metadata and non-http URLs before connecting", async () => {
+    const { fetchPublicUrl } = await vi.importActual<
+      typeof import("@/lib/utils/public-url-fetch")
+    >("@/lib/utils/public-url-fetch");
+    for (const url of [
+      "http://127.0.0.1/a.png",
+      "http://10.1.2.3/a.png",
+      "http://169.254.169.254/latest/meta-data/",
+      "http://[::1]/a.png",
+      "http://[::ffff:127.0.0.1]/a.png",
+      "http://[fd00:ec2::254]/a.png",
+      "http://user:pass@example.com/a.png",
+      "ftp://example.com/a.png",
+    ]) {
+      await assert.rejects(fetchPublicUrl(new URL(url)), RefusedUrlError, url);
+    }
+  });
+
+  it("turns a refused download into a text part instead of failing the turn", async () => {
+    const result = await replaceFilePartUrlByBinaryDataInMessages(
+      [
+        {
+          role: "user",
+          content: [
+            {
+              type: "file",
+              data: "http://169.254.169.254/latest/meta-data/",
+              mediaType: "text/plain",
+            },
+          ],
+        },
+      ],
+      () => Promise.reject(new RefusedUrlError("non-public address"))
+    );
+
+    assert.deepEqual(result[0]?.content, [
+      {
+        type: "text",
+        text: "[Attachment omitted: this link cannot be downloaded (non-public address, too large, or too many redirects).]",
+      },
+    ]);
   });
 
   it("inlines a pre-tag file only when the turn's chat makes it readable", async () => {

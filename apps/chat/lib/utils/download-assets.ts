@@ -10,6 +10,7 @@ import { canReadStoredFile } from "@/lib/file-access";
 import { downloadFile, isFileOwnedBy } from "@/lib/file-storage";
 import { FILE_CONTENT_PATH, keyFromFileUrl } from "@/lib/file-url";
 import { getBaseUrl } from "@/lib/url";
+import { fetchPublicUrl, RefusedUrlError } from "@/lib/utils/public-url-fetch";
 
 // Minimal utilities to download assets from URL-based parts and inline them.
 
@@ -102,18 +103,36 @@ async function defaultDownload({
     }
   }
 
-  const response = await fetch(url);
+  // Any other URL is client-supplied: fetched only from public addresses,
+  // with a deadline and a byte cap (lib/utils/public-url-fetch.ts).
+  const response = await fetchPublicUrl(url);
   if (response.status === 404) {
     return null;
   }
-  if (!response.ok) {
+  if (response.status < 200 || response.status >= 300) {
     throw new Error(
       `Failed to download asset: ${url.toString()} (${response.status})`
     );
   }
-  const contentType = response.headers.get("content-type") || undefined;
-  const arrayBuffer = await response.arrayBuffer();
-  return { mediaType: contentType, data: new Uint8Array(arrayBuffer) };
+  return { mediaType: response.mediaType, data: response.data };
+}
+
+const REFUSED_URL =
+  "[Attachment omitted: this link cannot be downloaded (non-public address, too large, or too many redirects).]";
+
+/** A refused download becomes a text part; any other failure propagates. */
+async function downloadOrRefuse(
+  downloadImplementation: DownloadImplementation,
+  url: URL
+): Promise<AssetDownloadResult | RefusedAsset> {
+  try {
+    return await downloadImplementation({ url });
+  } catch (error) {
+    if (error instanceof RefusedUrlError) {
+      return { refused: REFUSED_URL };
+    }
+    throw error;
+  }
 }
 
 function toHttpUrl(value: unknown): URL | null {
@@ -173,7 +192,7 @@ async function downloadAssetsFromModelMessages(
       url,
       data:
         (await refuseApplicationFile(url, viewer)) ??
-        (await downloadImplementation({ url })),
+        (await downloadOrRefuse(downloadImplementation, url)),
     }))
   );
   return Object.fromEntries(

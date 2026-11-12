@@ -477,7 +477,7 @@ describe("describeGateVerdict — a fail-closed BLOCK is not a gap list", () => 
 /**
  * THE SEVEN STORED VERDICTS, IN THEIR REAL SHAPE.
  *
- * Read back out of ProjectPhaseAttempt for project 01a0279c. `decideGate`
+ * Read back out of ProjectPhaseAttempt for a QA project. `decideGate`
  * writes "<summary>: <every gap joined by '; '>." — so the card printed the
  * gaps inside the reason AND again as a list.
  */

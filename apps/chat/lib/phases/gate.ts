@@ -324,7 +324,7 @@ export function decideGate(
   // not-evaluable rule sits above the unmet rule. So a SINGLE criterion
   // flipping between "not-evaluable" and "unmet" moved the headline between
   // "1 of 8" and "5 of 8" while five other criteria sat unmet and unmentioned
-  // underneath it. Live, project 01a0279c, the founder saw 5→1→1→1→5→5→1 and
+  // underneath it. Live, on a QA project, the founder saw 5→1→1→1→5→5→1 and
   // read it as four criteria closing and re-opening twice. Nothing of the kind
   // happened: that series is `validation-score` alone changing label. The true
   // count of not-met criteria was 8→8→8→7→7→6→7 — slow monotone progress with

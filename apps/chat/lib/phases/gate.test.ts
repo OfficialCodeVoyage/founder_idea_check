@@ -481,7 +481,7 @@ describe("evaluateGate — the injected seam", () => {
 /**
  * THE DEADLOCK, AND THE INVARIANT THAT ENDS IT.
  *
- * Live evidence, 2026-08-21: project 01a0279c sat on `problem-validation` for
+ * Live evidence, 2026-08-21: a QA project sat on `problem-validation` for
  * SEVEN attempts, BLOCK every time, and attempt 7's own nextQuestion asked the
  * founder "what evidence-backed 1-5 scores do frequency, intensity, workarounds
  * and willingness to pay receive?" — four typed integers away from PASS, on

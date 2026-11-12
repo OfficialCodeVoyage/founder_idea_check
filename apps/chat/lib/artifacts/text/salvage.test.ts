@@ -12,7 +12,7 @@ import {
 /**
  * The real incident, reproduced in shape and size.
  *
- * Part cd2238be-2f59-4c97-b487-fee0012d9fab holds 26,731 characters of
+ * The incident's `Part` row held 26,731 characters of
  * `tool_input` JSON: a 26,305-character markdown protocol whose last line is a
  * table row that stops mid-sentence, inside the INTENSITY rubric at score 3.
  * `buildTruncatedInputJson` rebuilds a payload with those proportions so the

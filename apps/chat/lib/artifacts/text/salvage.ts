@@ -1,8 +1,8 @@
 /**
  * WHAT TO DO WITH A `createTextDocument` CALL WHOSE INPUT STREAM DIED.
  *
- * Observed live on 2026-08-21, and still sitting in the database as
- * `Part` cd2238be-2f59-4c97-b487-fee0012d9fab: `tool_state = 'input-streaming'`,
+ * Observed live on 2026-08-21 in a local QA database, as a `Part` row with
+ * `tool_state = 'input-streaming'`,
  * `tool_input` 26,731 characters, `tool_output` 0 bytes, `tool_errorText` NULL,
  * and no `Document` row anywhere. The content ends mid-table-row inside the
  * INTENSITY rubric, at score 3. THE FOUNDER HAD TO NOTICE AND REPORT IT — the

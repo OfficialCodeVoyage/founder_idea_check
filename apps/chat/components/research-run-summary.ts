@@ -2,6 +2,7 @@ import type {
   LaneOutcome,
   LaneReport,
   ResearchUpdate,
+  SearchResultItem,
 } from "@/tools/platform/research-updates-schema";
 
 /**
@@ -94,17 +95,44 @@ export function describeResearchRun(
     return { searched: false, note: ALL_SKIPPED };
   }
 
-  const sources = webUpdates.reduce(
-    (total, update) => total + (update.results?.length ?? 0),
-    0
-  );
-
   return {
     searched: true,
     searches: webUpdates.length,
-    sources,
+    sources: uniqueSources(webUpdates).length,
     elapsed: measureElapsed(updates),
   };
+}
+
+/**
+ * EVERY SOURCE A RUN FOUND, ONE ENTRY PER URL, first occurrence first.
+ *
+ * Two readers need the same list and used to compute it differently. The run
+ * header ("Researched for 95 seconds, 6 searches, 100 sources") summed the
+ * result lists of every search step, so a page two steps both returned counted
+ * twice; the Sources chip next to it (`SourcesAnnotations`) listed each url
+ * once and said 96. One permalink is one source, and the same page counted
+ * twice reads as two pieces of evidence, so both now read it from here.
+ *
+ * `toSearchResults` in tools/platform/deep-research/sidecar-search.ts already
+ * dedupes inside one step; this is the second dedupe, where the steps (and the
+ * parallel researchers) meet. A step that was skipped carries no results and
+ * contributes nothing.
+ */
+export function uniqueSources(
+  updates: readonly ResearchUpdate[]
+): SearchResultItem[] {
+  const byUrl = new Map<string, SearchResultItem>();
+  for (const update of updates) {
+    if (update.type !== "web") {
+      continue;
+    }
+    for (const result of update.results ?? []) {
+      if (!byUrl.has(result.url)) {
+        byUrl.set(result.url, result);
+      }
+    }
+  }
+  return [...byUrl.values()];
 }
 
 /**

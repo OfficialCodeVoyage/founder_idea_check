@@ -1,10 +1,8 @@
 import { memo } from "react";
 import { useMessageResearchUpdatePartsById } from "@/lib/stores/hooks-base";
-import type {
-  ResearchUpdate,
-  WebSearchUpdate,
-} from "@/tools/platform/research-updates-schema";
+import type { ResearchUpdate } from "@/tools/platform/research-updates-schema";
 import { ReasonSearchResearchProgress } from "../deep-research-progress";
+import { uniqueSources } from "../research-run-summary";
 import { Sources } from "../sources";
 
 export const SourcesAnnotations = memo(
@@ -25,18 +23,9 @@ export const SourcesAnnotations = memo(
       return null;
     }
 
-    const webSearchUpdates = researchUpdates
-      .filter<WebSearchUpdate>((u) => u.type === "web")
-      .filter((u) => u.results)
-      .flatMap((u) => u.results)
-      .filter((u) => u !== undefined);
-
-    const deDuppedSources = webSearchUpdates.filter(
-      (source, index, self) =>
-        index === self.findIndex((t) => t.url === source.url)
-    );
-
-    return <Sources sources={deDuppedSources} />;
+    // The same list the run header counts (`describeResearchRun`), so the chip
+    // and the header cannot disagree about how many sources there are.
+    return <Sources sources={uniqueSources(researchUpdates)} />;
   }
 );
 

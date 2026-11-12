@@ -143,9 +143,19 @@ function writeLaneReport(
  *
  * First occurrence wins because the sidecar has already ordered signals by its
  * own relevance, so the first is the better-scored one.
+ *
+ * `seen` IS SHARED BY THE QUERIES OF ONE STEP. A step runs up to two queries and
+ * each harvest dedupes only its own signals, so a permalink both queries
+ * returned was listed twice: React's duplicate-key warning, a run header that
+ * said "100 sources" next to a Sources chip that said "96", and the same page
+ * counted as two pieces of evidence. A later query drops a url an earlier one
+ * already listed. The same url returned by a LATER STEP is handled where the
+ * steps meet, in `uniqueSources` (components/research-run-summary.ts).
  */
-function toSearchResults(signals: readonly DemandSignal[]): SearchResult[] {
-  const seen = new Set<string>();
+function toSearchResults(
+  signals: readonly DemandSignal[],
+  seen: Set<string>
+): SearchResult[] {
   const results: SearchResult[] = [];
   for (const signal of signals) {
     if (seen.has(signal.url)) {
@@ -519,12 +529,18 @@ Avoid:
         )
       );
 
+      // One set for the step, read in query order, so the first query's
+      // results are the ones that stay. See `toSearchResults`.
+      const seenUrls = new Set<string>();
       const searches = harvests.map((harvest, index) => ({
         query: {
           query: usable[index].query,
           maxResults: usable[index].maxResults ?? DEFAULT_MAX_RESULTS,
         },
-        results: toSearchResults(rankSignals(harvest.signals, ranking)),
+        results: toSearchResults(
+          rankSignals(harvest.signals, ranking),
+          seenUrls
+        ),
       }));
 
       const allResults = searches.flatMap((search) => search.results);

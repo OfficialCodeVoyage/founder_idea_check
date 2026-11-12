@@ -214,6 +214,47 @@ describe("sidecarWebSearch", () => {
     expect(new Set(urls).size).toBe(urls.length);
   });
 
+  it("lists a url ONCE across the two queries of one step, in the streamed update too", async () => {
+    // REGRESSION (live QA): each query's harvest deduped only its own signals,
+    // so a url both queries returned was listed twice — a React duplicate-key
+    // warning, and a run header of "100 sources" next to a Sources chip of
+    // "96". The stub answers every query with the same signals, so both
+    // queries return the same two pages.
+    const { stream, written } = recordingStream();
+    const tool = sidecarWebSearch({
+      dataStream: stream,
+      writeTopLevelUpdates: false,
+      fetchImpl: fetchReturning({
+        hackernews: signalBody("hackernews", [signal()]),
+        "web-keyless": signalBody("web-keyless", [
+          signal({
+            id: "s2",
+            url: "https://example.com/post",
+            title: "A post",
+          }),
+        ]),
+      }),
+    });
+
+    const result = await runTool(tool, [
+      { query: "first wording", maxResults: 5 },
+      { query: "second wording", maxResults: 5 },
+    ]);
+
+    const urls = result.searches.flatMap((s) => s.results.map((r) => r.url));
+    expect(urls).toHaveLength(2);
+    expect(new Set(urls).size).toBe(2);
+    // The first query keeps its pages; the second has nothing new to add.
+    expect(result.searches[0].results).toHaveLength(2);
+    expect(result.searches[1].results).toHaveLength(0);
+
+    const completed = written.find(
+      (w) => w.data.type === "web" && w.data.status === "completed"
+    );
+    const streamed = completed?.data.results as { url: string }[];
+    expect(streamed.map((r) => r.url).sort()).toEqual([...urls].sort());
+  });
+
   it("only asks the two operator-enabled sources", async () => {
     const seen: string[] = [];
     const { stream } = recordingStream();

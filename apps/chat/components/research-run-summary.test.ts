@@ -7,6 +7,7 @@ import {
   describeResearchRun,
   mergeLaneReports,
   researchRunLine,
+  uniqueSources,
 } from "./research-run-summary";
 
 /**
@@ -28,7 +29,15 @@ const CALL = "call-1";
 const ANY_DIGIT = /\d/;
 const TWO_SEARCHES_LINE = /^Researched for 2 seconds, 2 searches, \d+ sources$/;
 
-function web(results: number, status: "running" | "completed"): ResearchUpdate {
+/**
+ * `step` keeps two steps' urls apart: a run counts one source per url, so two
+ * steps built with the same `step` return the same pages.
+ */
+function web(
+  results: number,
+  status: "running" | "completed",
+  step = 0
+): ResearchUpdate {
   return {
     type: "web",
     toolCallId: CALL,
@@ -36,7 +45,7 @@ function web(results: number, status: "running" | "completed"): ResearchUpdate {
     status,
     queries: ["demand"],
     results: Array.from({ length: results }, (_, i) => ({
-      url: `https://example.com/${i}`,
+      url: `https://example.com/${step}/${i}`,
       title: `Result ${i}`,
       content: "…",
       source: "web" as const,
@@ -99,8 +108,8 @@ describe("describeResearchRun", () => {
   it("counts searches and sources when both are present", () => {
     const view = describeResearchRun([
       marker("started", 0),
-      web(2, "completed"),
-      web(3, "completed"),
+      web(2, "completed", 0),
+      web(3, "completed", 1),
       marker("completed", 12_500),
     ]);
 
@@ -110,6 +119,28 @@ describe("describeResearchRun", () => {
       expect(view.sources).toBe(5);
       expect(view.elapsed).toEqual({ known: true, seconds: 12 });
     }
+  });
+
+  it("counts a page two search steps both returned ONCE", () => {
+    // REGRESSION (live QA): the header summed every step's result list and said
+    // "100 sources" beside a Sources chip that listed each url once and said
+    // "96". Steps of 3 and 5 results that share their first 3 pages found 5
+    // distinct pages, not 8.
+    const view = describeResearchRun([
+      marker("started", 0),
+      web(3, "completed", 7),
+      web(5, "completed", 7),
+      marker("completed", 4000),
+    ]);
+
+    expect(view.searched).toBe(true);
+    if (view.searched) {
+      expect(view.searches).toBe(2);
+      expect(view.sources).toBe(5);
+    }
+    expect(
+      uniqueSources([web(3, "completed", 7), web(5, "completed", 7)])
+    ).toHaveLength(5);
   });
 
   it("admits an UNKNOWN elapsed time rather than reporting 0 seconds", () => {
@@ -157,8 +188,8 @@ describe("describeResearchRun with refused steps", () => {
     // REGRESSION. The refused step used to be a `completed` web update with no
     // results, so a run of 5 searches and 3 refusals printed "8 searches".
     const view = describeResearchRun([
-      web(2, "completed"),
-      web(1, "completed"),
+      web(2, "completed", 0),
+      web(1, "completed", 1),
       skipped(),
       skipped(),
       skipped(),
@@ -256,8 +287,8 @@ describe("researchRunLine", () => {
     const line = researchRunLine(
       describeResearchRun([
         marker("started", 0),
-        web(2, "completed"),
-        web(1, "completed"),
+        web(2, "completed", 0),
+        web(1, "completed", 1),
         marker("completed", 2000),
       ])
     );

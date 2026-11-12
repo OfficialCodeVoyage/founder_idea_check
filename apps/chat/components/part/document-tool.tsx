@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, FileWarning, PlayCircle } from "lucide-react";
-import { memo, useEffect } from "react";
+import { memo, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useArtifact } from "@/hooks/use-artifact";
@@ -105,14 +105,39 @@ function DeadDocumentStream({
   // a panel that is still streaming THIS message is settled: one the founder
   // has since pointed elsewhere is left alone, and a part that arrived already
   // dead (a reload) never owned the panel at all.
+  //
+  // THE PANEL KEEPS FOLLOWING THIS CARD'S TEXT AFTER IT SETTLES. The part's
+  // input can still grow for a beat after the verdict: the chat store
+  // throttles its updates, so the status flips to `error` while the last
+  // buffered chunks are still on their way. The settle ran once, on the text
+  // of that instant, and the panel then said "237 characters" under a card that
+  // said 242. `ownedCopyRef` remembers what this card last put in the panel, and
+  // only a panel still holding exactly that is rewritten: a copy the founder
+  // has edited, a saved document, another message and another dead card in the
+  // same message (which owns a different text) are all left alone. Every pass
+  // returns `prev` when nothing differs, so this does not loop.
+  const ownedCopyRef = useRef<string | null>(null);
   useEffect(() => {
+    const copy = salvage.salvaged ? unsavedCopyFields(salvage) : null;
     setArtifact((prev) => {
-      if (prev.messageId !== messageId || prev.status !== "streaming") {
+      if (prev.status === "streaming" && prev.messageId === messageId) {
+        if (!copy) {
+          return { ...prev, status: "idle", isVisible: false };
+        }
+        ownedCopyRef.current = copy.content;
+        return { ...prev, ...copy };
+      }
+      if (
+        !copy ||
+        prev.status === "streaming" ||
+        prev.documentId !== copy.documentId ||
+        prev.content !== ownedCopyRef.current ||
+        (prev.content === copy.content && prev.title === copy.title)
+      ) {
         return prev;
       }
-      return salvage.salvaged
-        ? { ...prev, ...unsavedCopyFields(salvage) }
-        : { ...prev, status: "idle", isVisible: false };
+      ownedCopyRef.current = copy.content;
+      return { ...prev, ...copy };
     });
   }, [messageId, salvage, setArtifact]);
 
@@ -140,12 +165,11 @@ function DeadDocumentStream({
     }
     // Nothing was saved (or the server's answer has not arrived yet), so this
     // is a copy rebuilt from the message itself; the card's label and detail
-    // say it is unsaved.
-    setArtifact((prev) => ({
-      ...prev,
-      ...unsavedCopyFields(salvage),
-      isVisible: true,
-    }));
+    // say it is unsaved. It is this card's copy from here on, so the panel
+    // keeps following the card's text (see the settle effect above).
+    const copy = unsavedCopyFields(salvage);
+    ownedCopyRef.current = copy.content;
+    setArtifact((prev) => ({ ...prev, ...copy, isVisible: true }));
   };
 
   const resume = () => {

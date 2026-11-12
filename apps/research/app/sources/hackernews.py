@@ -7,8 +7,10 @@
 # the comments below, which are the reason this file was worth taking rather
 # than writing — is upstream's. Removed: the depth presets, the thread-comment
 # enrichment fan-out, and the `log.source_log` sink. Errors now raise named
-# exceptions instead of returning `{"hits": [], "error": ...}`. Added: a hit
-# whose title and text share no word with the query is dropped (`parse_hits`).
+# exceptions instead of returning `{"hits": [], "error": ...}`. Added: a hit is
+# dropped unless its title or text shares a CONTENT word with the query, where
+# stopwords, numbers and years, countries, file types, research filler and price
+# words do not count (`matches_a_content_word`, `_GENERIC_TOKENS`).
 #
 #   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/hackernews.py&since=2026-08-18" --jq '.[].commit.message'
 # ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +26,12 @@ from urllib.parse import urlencode
 from ..errors import SourceSchemaDrift
 from ..http import get_json
 from ..schema import SourceItem
-from ..text.relevance import PreparedQuery, token_overlap_relevance
+from ..text.relevance import (
+    LOW_SIGNAL_QUERY_TOKENS,
+    PreparedQuery,
+    token_overlap_relevance,
+    tokenize,
+)
 from .base import SourceDescriptor, SourceQuery
 
 DESCRIPTOR = SourceDescriptor(
@@ -107,6 +114,96 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
     return f"{ALGOLIA_SEARCH_URL}?{urlencode(params)}"
 
 
+# ── WHICH HITS ARE ON TOPIC. ─────────────────────────────────────────────────
+#
+# `optionalWords` (TRAP 2 above) lets Algolia return a story that matches a
+# SINGLE query token, and Algolia's matching is looser than our token test (typo
+# tolerance, prefixes), so a full page of hits comes back whatever the topic.
+#
+# Live QA, 2026-11-12, a parents-of-young-readers question, twice:
+#   1. Hacker News returned 51 of a run's 100 sources, among them a vet
+#      directory and a story about a politician. Dropping hits whose lexical
+#      relevance is exactly 0.0 (no query word in the title or text) removed those.
+#   2. It still returned 56 of the next run's 115, and only 3 of 55 titles shared a
+#      content word with the question. What they matched was the query's FILLER:
+#      "U.S." / "United States" (the market the founder named), years ("2023"),
+#      "pdf", "years", "prices", "report", "survey". A researcher's web-search
+#      query is full of such words, any story shares some of them, and a bare
+#      "matches one query word" test passes all of them.
+#
+# So the test is "matches a CONTENT word of the query", and the words that cannot
+# decide a topic are excluded from the overlap: stopwords (`tokenize` already
+# drops them), numbers and years, countries and regions, file types and web
+# scaffolding, research filler (report, survey, data, study, statistics), price
+# words that every commerce story shares, and time and age words. The planner's
+# own low-signal list (`LOW_SIGNAL_QUERY_TOKENS`: best, guide, review, new, people)
+# is excluded too. A word that is on the list is never evidence on its own; it
+# still counts in the relevance score of a hit that passes.
+#
+# IF THE QUERY HAS NO CONTENT WORD at all ("market size report 2024"), nothing
+# could ever pass, so the test falls back to "matches any query word" rather than
+# turning the whole lane into an empty result.
+_GENERIC_TOKENS = frozenset(
+    (
+        # Countries, regions, nationalities: the market the founder named.
+        "us", "usa", "america", "american", "americans", "states", "united",
+        "state", "uk", "britain", "british", "england", "scotland", "wales",
+        "ireland", "irish", "canada", "canadian", "australia", "australian",
+        "zealand", "india", "indian", "china", "chinese", "europe", "european",
+        "asia", "asian", "africa", "global", "worldwide", "international",
+        "national", "nationwide", "country", "countries", "world", "region",
+        "regional", "local",
+        # File types and web scaffolding from a search-engine query.
+        "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "csv", "html",
+        "htm", "txt", "www", "http", "https", "com", "org", "net", "edu", "gov",
+        "url", "site", "website", "websites", "web", "online", "internet",
+        "blog", "blogs", "article", "articles", "post", "posts", "forum",
+        "forums", "thread", "threads", "reddit", "discussion", "discussions",
+        # Research filler.
+        "report", "reports", "survey", "surveys", "data", "dataset", "datasets",
+        "study", "studies", "statistic", "statistics", "stats", "research",
+        "analysis", "analyses", "result", "results", "finding", "findings",
+        "evidence", "trend", "trends", "market", "markets", "industry",
+        "industries", "overview", "summary", "size", "share", "growth",
+        "average", "percent", "percentage", "number", "numbers", "rate",
+        "rates", "level", "levels", "million", "billion", "thousand", "annual",
+        "quarterly", "yearly", "monthly",
+        # Words every commerce story shares.
+        "price", "prices", "pricing", "cost", "costs", "complaint",
+        "complaints",
+        # Time and age words: "5-7 year old" matches any story that says "years".
+        "year", "years", "month", "months", "week", "weeks", "day", "days",
+        "time", "today", "old", "age", "ages", "aged",
+        # Who, in general.
+        "user", "users", "customer", "customers", "consumer", "consumers",
+        "person", "persons",
+    )
+) | LOW_SIGNAL_QUERY_TOKENS  # fmt: skip
+
+#: Years ("2023"), decades ("1990s") and any other bare number.
+_NUMBER = re.compile(r"^\d+s?$")
+
+
+def _is_generic(token: str) -> bool:
+    return token in _GENERIC_TOKENS or _NUMBER.match(token) is not None
+
+
+def matches_a_content_word(prepared: PreparedQuery, text: str) -> bool:
+    """PURE. Does `text` share a CONTENT word with the query? THE one place that
+    decides whether a Hacker News hit is on topic.
+
+    Tokenised with the same `tokenize` the relevance score uses, so a word that
+    counts here counts there. With no content word in the query the test is
+    "any query word"; with no query word at all (stopwords only) every hit stays,
+    as `token_overlap_relevance` already treats such a query as neutral.
+    """
+    query_tokens = prepared.q_tokens
+    if not query_tokens:
+        return True
+    content_tokens = {token for token in query_tokens if not _is_generic(token)}
+    return bool((content_tokens or query_tokens) & tokenize(text))
+
+
 def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:
     """PURE. Turns an Algolia response into SourceItems.
 
@@ -140,21 +237,16 @@ def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:
         body = _strip_html(str(hit.get("story_text") or ""))
         created = str(hit.get("created_at") or "")[:10] or None
 
-        # A HIT THAT SHARES NO WORD WITH THE QUERY IS NOT ON TOPIC. `optionalWords`
-        # (TRAP 2 above) lets Algolia return a story that matches a single token,
-        # and Algolia's matching is looser than our token test (typo tolerance,
-        # prefixes), so a page of hits always comes back, whatever the topic. Live QA
-        # (2026-11-12, a parents-of-young-readers question): Hacker News returned
-        # 51 of the run's 100 sources, among them a vet directory and a story
-        # about a politician, none with a word of the query in its title. Our own
-        # lexical score is exactly 0.0 for those, and a zero here means "no
-        # query word appears in the title or the text", not "weakly relevant".
-        # Dropped HERE, where the looseness is introduced, and not for every lane:
-        # a web-search snippet can match a query without repeating its words.
-        # An empty result is still a finding (nothing on HN matches), not an error.
-        relevance = token_overlap_relevance(prepared, f"{title} {body}")
-        if relevance == 0.0:
+        # A HIT THAT MATCHES NO REAL WORD OF THE QUERY IS NOT ON TOPIC. See
+        # `matches_a_content_word`, the one place this is decided, and the
+        # history in the comment above `_GENERIC_TOKENS`. Dropped HERE, where the
+        # looseness is introduced, and not for every lane: a web-search snippet
+        # can match a query without repeating its words. An empty result is still
+        # a finding (nothing on HN matches), not an error.
+        text = f"{title} {body}"
+        if not matches_a_content_word(prepared, text):
             continue
+        relevance = token_overlap_relevance(prepared, text)
 
         items.append(
             SourceItem(

@@ -179,6 +179,51 @@ class TestHackerNews:
         assert [item.item_id for item in items] == ["HN2"]
         assert items[0].relevance_hint > 0.0
 
+    def test_a_hit_that_matches_only_generic_query_words_is_dropped(self):
+        # REGRESSION (live QA, second run): 56 of 115 sources were Hacker News and
+        # only 3 of 55 titles shared a content word with the question. They
+        # matched the query's FILLER: the market ("U.S."/"United States"), a year,
+        # "pdf", "years", "prices", "report". Each of these scores above 0.0, so
+        # the zero-relevance drop let them through.
+        query = (
+            "U.S. parents reluctant 5-7 year old readers early literacy price "
+            "complaints pdf survey report 2023 United States statistics"
+        )
+        generic_only = [
+            "Claude becomes number one app on the United States App Store",
+            "United States Antarctic Program Field Manual (2024) [pdf]",
+            "Euphemisation of Taboo Areas (2023) [pdf]",
+            "Netflix Raising Prices for Second Time in Less Than Two Years",
+            "Four Million Children Had No Health Insurance, survey report says",
+        ]
+        payload = {
+            "hits": [
+                {"objectID": str(index), "title": title, "points": 50}
+                for index, title in enumerate(generic_only)
+            ]
+            + [
+                {
+                    "objectID": "keep",
+                    "title": "Ask HN: my 6 year old is a reluctant reader, what worked?",
+                    "points": 50,
+                }
+            ]
+        }
+        items = hackernews.parse_hits(payload, query, 10)
+        assert [item.item_id for item in items] == ["HNkeep"]
+
+    def test_a_query_with_no_content_word_still_matches_on_any_word(self):
+        # Nothing could ever pass a content-word test here, so the lane falls back
+        # to "matches any query word" instead of turning into an empty result.
+        payload = {
+            "hits": [
+                {"objectID": "1", "title": "Market size report for 2024", "points": 9},
+                {"objectID": "2", "title": "A story about gardening", "points": 9},
+            ]
+        }
+        items = hackernews.parse_hits(payload, "market size report 2024", 10)
+        assert [item.item_id for item in items] == ["HN1"]
+
     def test_drops_low_engagement_stories_client_side(self):
         payload = {"hits": [{"objectID": "1", "title": "t", "points": 1}]}
         assert hackernews.parse_hits(payload, "t", 10) == []

@@ -153,6 +153,32 @@ class TestHackerNews:
         assert "spreadsheet" in item.body
         assert "<p>" not in item.body
 
+    def test_drops_a_hit_that_shares_no_word_with_the_query(self):
+        # REGRESSION (live QA): Hacker News returned 51 of a run's 100 sources
+        # for a parents-of-readers question, among them stories with no query
+        # word anywhere. `optionalWords` makes Algolia fill a page regardless of
+        # topic; a lexical score of exactly 0.0 means nothing in the title or
+        # text matched, so the hit is not on topic.
+        payload = {
+            "hits": [
+                {
+                    "objectID": "1",
+                    "title": "Independent Vet - find locally owned vets near you",
+                    "points": 90,
+                    "created_at": "2026-07-20T10:00:00Z",
+                },
+                {
+                    "objectID": "2",
+                    "title": "Teaching my son to read: what worked for a reluctant reader",
+                    "points": 30,
+                    "created_at": "2026-07-21T10:00:00Z",
+                },
+            ]
+        }
+        items = hackernews.parse_hits(payload, "reluctant readers early literacy", 10)
+        assert [item.item_id for item in items] == ["HN2"]
+        assert items[0].relevance_hint > 0.0
+
     def test_drops_low_engagement_stories_client_side(self):
         payload = {"hits": [{"objectID": "1", "title": "t", "points": 1}]}
         assert hackernews.parse_hits(payload, "t", 10) == []

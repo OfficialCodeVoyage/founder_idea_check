@@ -7,7 +7,8 @@
 # the comments below, which are the reason this file was worth taking rather
 # than writing — is upstream's. Removed: the depth presets, the thread-comment
 # enrichment fan-out, and the `log.source_log` sink. Errors now raise named
-# exceptions instead of returning `{"hits": [], "error": ...}`.
+# exceptions instead of returning `{"hits": [], "error": ...}`. Added: a hit
+# whose title and text share no word with the query is dropped (`parse_hits`).
 #
 #   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/hackernews.py&since=2026-08-18" --jq '.[].commit.message'
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +140,22 @@ def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:
         body = _strip_html(str(hit.get("story_text") or ""))
         created = str(hit.get("created_at") or "")[:10] or None
 
+        # A HIT THAT SHARES NO WORD WITH THE QUERY IS NOT ON TOPIC. `optionalWords`
+        # (TRAP 2 above) lets Algolia return a story that matches a single token,
+        # and Algolia's matching is looser than our token test (typo tolerance,
+        # prefixes), so a page of hits always comes back, whatever the topic. Live QA
+        # (2026-11-12, a parents-of-young-readers question): Hacker News returned
+        # 51 of the run's 100 sources, among them a vet directory and a story
+        # about a politician, none with a word of the query in its title. Our own
+        # lexical score is exactly 0.0 for those, and a zero here means "no
+        # query word appears in the title or the text", not "weakly relevant".
+        # Dropped HERE, where the looseness is introduced, and not for every lane:
+        # a web-search snippet can match a query without repeating its words.
+        # An empty result is still a finding (nothing on HN matches), not an error.
+        relevance = token_overlap_relevance(prepared, f"{title} {body}")
+        if relevance == 0.0:
+            continue
+
         items.append(
             SourceItem(
                 item_id=f"HN{object_id}",
@@ -157,7 +174,7 @@ def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:
                     "score": points,
                     "num_comments": hit.get("num_comments") or 0,
                 },
-                relevance_hint=token_overlap_relevance(prepared, f"{title} {body}"),
+                relevance_hint=relevance,
                 why_relevant="Hacker News discussion",
                 snippet=(body or title)[:500],
                 metadata={"external_url": hit.get("url")},

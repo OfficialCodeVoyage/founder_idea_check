@@ -1,7 +1,8 @@
 # ADR-0001 — Keep the ChatJS stack and add a separate Python research sidecar
 
 ## Status
-Accepted — 2026-11-12. Enforced by: none yet (no module-boundary tool). This records the stack as found when the
+Accepted — 2026-11-12; the sidecar's "no auth, loopback only" part is superseded by ADR-0005. Enforced by:
+none yet (no module-boundary tool). This records the stack as found when the
 agent-operating structure was added.
 
 ## Context

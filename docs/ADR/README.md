@@ -19,7 +19,8 @@ Nygard: Status / Context / Decision ("We will…") / Consequences. One page.
 
 | # | Title | Status |
 |---|---|---|
-| [0001](0001-stack-as-found.md) | Keep the ChatJS stack and add a separate Python research sidecar | Accepted |
+| [0001](0001-stack-as-found.md) | Keep the ChatJS stack and add a separate Python research sidecar | Accepted; sidecar auth superseded by 0005 |
 | [0002](0002-postgres-pgvector-for-embeddings.md) | Keep embeddings in the one Postgres, with pgvector | Accepted |
 | [0003](0003-fact-provenance.md) | Every fact records who asserted it, and a founder cannot raise a fact's confidence | Accepted |
 | [0004](0004-gate-refusal-ledger.md) | Keep every gate verdict, in an append-only ledger keyed by time | Accepted |
+| [0005](0005-sidecar-caller-auth.md) | The research sidecar requires a shared secret, or serves loopback callers only | Accepted |

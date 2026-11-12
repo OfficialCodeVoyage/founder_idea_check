@@ -177,6 +177,18 @@ export function storageSupportsRange(): boolean {
 }
 
 export async function getFileProviderUrl(key: string): Promise<string | null> {
+  // A private store is read only through this app's own credentials, so that
+  // `lib/file-content-response.ts::createFileContentResponse` stays the only
+  // way in (README-DEV.md, "File storage"). files-sdk 2.x never signed URLs
+  // for a private Vercel Blob; 3.x does (`signedUrl.supported` is true), which
+  // would turn every read into a 307 to a bearer link that works without the
+  // access check until it expires. Never hand one out for a private store.
+  if (
+    "access" in storageProvider.options &&
+    storageProvider.options.access === "private"
+  ) {
+    return null;
+  }
   const fileService = getFiles();
   if (!fileService.capabilities.signedUrl.supported) {
     return null;

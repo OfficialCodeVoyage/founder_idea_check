@@ -141,9 +141,11 @@ services:
       # image is published by this project. See THIRD_PARTY-research.md.
       target: base
     ports:
-      # Loopback-bound like the other two. This API takes no auth and its
-      # endpoints spend money (they drive LLM calls), so it must not be
-      # reachable from the network. `apps/chat` calls it from the host.
+      # Loopback-bound like the other two. Its endpoints spend money (they
+      # drive LLM calls), and with no RESEARCH_SIDECAR_TOKEN this container
+      # serves unauthenticated callers (see RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED
+      # below), so it must not be reachable from the network. `apps/chat` calls
+      # it from the host.
       - "127.0.0.1:8099:8099"
     environment:
       # ─────────────────────────────────────────────────────────────────────
@@ -157,6 +159,23 @@ services:
       # `apps/research/app/sources/reddit_gate.py` first.
       # ─────────────────────────────────────────────────────────────────────
       RESEARCH_HOSTED: "false"
+
+      # ─────────────────────────────────────────────────────────────────────
+      # CALLER AUTH (`app/main.py::require_caller`). With RESEARCH_SIDECAR_TOKEN
+      # set — here AND in the app's environment — every spending call must
+      # carry it, and the line below has no effect.
+      #
+      # Without a token the sidecar normally serves loopback callers only. That
+      # cannot work inside a container: the host's requests arrive from the
+      # Docker bridge address, not from 127.0.0.1. So this dev stack turns the
+      # loopback check off and relies on the 127.0.0.1-only port binding above
+      # instead — the same protection Postgres and Redis get in this file.
+      #
+      # DO NOT COPY THIS LINE INTO A DEPLOYED ENVIRONMENT. Set
+      # RESEARCH_SIDECAR_TOKEN there instead.
+      # ─────────────────────────────────────────────────────────────────────
+      RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED: "true"
+      RESEARCH_SIDECAR_TOKEN: "${RESEARCH_SIDECAR_TOKEN:-}"
 
       # The default source set: Hacker News plus the keyless web ladder. Both
       # keyless, both legally boring. `arctic-shift` (the Reddit archive) and

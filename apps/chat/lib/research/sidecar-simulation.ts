@@ -1,3 +1,4 @@
+import { describeSidecarRefusal, sidecarHeaders } from "../signals/sidecar";
 import type { SimulationRunner } from "./simulation";
 
 /**
@@ -23,6 +24,8 @@ export type SidecarSimulationConfig = {
   baseUrl: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** `RESEARCH_SIDECAR_TOKEN`. See `SidecarConfig.token` in lib/signals/sidecar.ts. */
+  token?: string;
 };
 
 export function createSidecarSimulationRunner(
@@ -47,7 +50,7 @@ export function createSidecarSimulationRunner(
 
     const response = await fetchImpl(`${base}/v1/simulate`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: sidecarHeaders(config.token),
       body: JSON.stringify({
         personas: payload.personas,
         pitch: payload.pitch,
@@ -55,6 +58,17 @@ export function createSidecarSimulationRunner(
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
+
+    // The one non-200 translated here: a refusal by `require_caller` carries
+    // FastAPI's `{detail}` body, which `runSimulation` would otherwise report
+    // as contract drift. It is a configuration problem with a named remedy.
+    if (response.status === 401 || response.status === 403) {
+      return {
+        ok: false,
+        kind: "missing-credential",
+        detail: describeSidecarRefusal(response.status),
+      };
+    }
 
     return await response.json();
   };

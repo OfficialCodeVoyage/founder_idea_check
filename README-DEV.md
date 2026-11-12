@@ -116,6 +116,11 @@ A listening port is not proof that it is configured: `sources[].operator_enabled
 - **Never set `PLAYWRIGHT`, `PLAYWRIGHT_TEST_BASE_URL` or `CI_PLAYWRIGHT` outside a test run.** Any of them switches
   authentication off.
 
+`RESEARCH_SIDECAR_TOKEN` stays unset locally: the research sidecar then serves loopback
+callers only, which is the app on the same machine. Set it, to the same value in the app's
+and the sidecar's environment, as soon as the app reaches the sidecar over a network (see
+`apps/research/README.md`, Configuration).
+
 ## Run
 
 ```bash

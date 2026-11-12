@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { StreamWriter } from "@/lib/ai/types";
 import { config } from "@/lib/config";
+import { env } from "@/lib/env";
 import { createModuleLogger } from "@/lib/logger";
 import {
   type AudienceView,
@@ -492,7 +493,11 @@ Avoid:
           "RESEARCH_ENABLED_SOURCES names unrecognised source ids"
         );
       }
-      const fetcherFor = createSidecarSignalFetcher({ baseUrl, fetchImpl });
+      const fetcherFor = createSidecarSignalFetcher({
+        baseUrl,
+        fetchImpl,
+        token: env.RESEARCH_SIDECAR_TOKEN,
+      });
 
       const harvests = await Promise.all(
         usable.map((entry) =>

@@ -136,6 +136,18 @@ export const serverEnvSchema = {
     .describe(
       "Comma-separated demand-signal source ids; unset means hackernews,web-keyless"
     ),
+  /**
+   * The SAME variable apps/research reads. The app sends it as a bearer token
+   * on every sidecar call; the sidecar, when it has one, refuses any call
+   * without it. Unset on both sides is the local-dev default: the sidecar then
+   * serves loopback callers only (`apps/research/app/main.py::require_caller`).
+   */
+  RESEARCH_SIDECAR_TOKEN: z
+    .string()
+    .optional()
+    .describe(
+      "Shared secret for the research sidecar; required when the app reaches it over a network"
+    ),
   MCP_ENCRYPTION_KEY: z
     .union([z.string().length(44), z.literal("")])
     .optional()

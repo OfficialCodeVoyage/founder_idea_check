@@ -206,6 +206,42 @@ describe("createSidecarSignalFetcher", () => {
     expect("options" in seenBody).toBe(false);
   });
 
+  it("sends RESEARCH_SIDECAR_TOKEN as a bearer token, and no header without one", async () => {
+    const seen: (string | null)[] = [];
+    const fetchImpl: typeof fetch = (_input, init) => {
+      seen.push(new Headers(init?.headers).get("authorization"));
+      return Promise.resolve(
+        jsonResponse({ ok: true, source_id: "hackernews", signals: [] })
+      );
+    };
+
+    await createSidecarSignalFetcher({
+      baseUrl: "http://sidecar:8099",
+      fetchImpl,
+      token: "s3cret",
+    })(HACKERNEWS)(QUERY);
+    await createSidecarSignalFetcher({
+      baseUrl: "http://sidecar:8099",
+      fetchImpl,
+    })(HACKERNEWS)(QUERY);
+
+    expect(seen).toEqual(["Bearer s3cret", null]);
+  });
+
+  it("names RESEARCH_SIDECAR_TOKEN when the sidecar refuses the app", async () => {
+    const fetcher = createSidecarSignalFetcher({
+      baseUrl: "http://sidecar:8099",
+      fetchImpl: () => Promise.resolve(new Response("{}", { status: 401 })),
+    });
+
+    const outcome = await fetcher(HACKERNEWS)(QUERY);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.failure.kind).toBe("missing-credential");
+      expect(outcome.failure.detail).toContain("RESEARCH_SIDECAR_TOKEN");
+    }
+  });
+
   it("returns unavailable rather than throwing when the sidecar is down", async () => {
     const fetcher = createSidecarSignalFetcher({
       baseUrl: "http://sidecar:8099",

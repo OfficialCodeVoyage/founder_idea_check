@@ -167,10 +167,48 @@ export type SidecarConfig = {
   fetchImpl?: typeof fetch;
   /** Hard ceiling per source. The sidecar has its own, lower, internal budget. */
   timeoutMs?: number;
+  /**
+   * `RESEARCH_SIDECAR_TOKEN`, sent as a bearer token. Empty or absent sends no
+   * header, which a sidecar with no token of its own accepts from loopback
+   * only — see `apps/research/app/main.py::require_caller`.
+   */
+  token?: string;
 };
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 const TRAILING_SLASHES = /\/+$/;
+
+/**
+ * PURE. The request headers for any sidecar call. Shared with
+ * lib/research/sidecar-simulation.ts so both endpoints authenticate the same
+ * way, and a change to the scheme cannot reach only one of them.
+ */
+export function sidecarHeaders(
+  token: string | undefined
+): Record<string, string> {
+  const trimmed = token?.trim();
+  return trimmed
+    ? { "content-type": "application/json", authorization: `Bearer ${trimmed}` }
+    : { "content-type": "application/json" };
+}
+
+/**
+ * PURE. What to tell an operator when the sidecar refused the APP (401/403),
+ * as opposed to a source refusing the sidecar. Names the variable, because
+ * "HTTP 401" alone sends people to check the upstream source's credentials.
+ */
+export function describeSidecarRefusal(status: 401 | 403): string {
+  return status === 401
+    ? "The research sidecar requires RESEARCH_SIDECAR_TOKEN and this app sent no matching token. Set the same value in the app's and the sidecar's environment."
+    : "The research sidecar has no RESEARCH_SIDECAR_TOKEN, so it serves loopback callers only. Set the same token in the app's and the sidecar's environment to call it over a network.";
+}
+
+/** PURE. The failure detail for a non-2xx answer from the sidecar itself. */
+function describeSidecarStatus(status: number, label: string): string {
+  return status === 401 || status === 403
+    ? `${describeSidecarRefusal(status)} (HTTP ${status} for ${label}.)`
+    : `The research sidecar answered HTTP ${status} for ${label}.`;
+}
 
 /**
  * PURE. The `SignalRequest` body for one source.
@@ -245,7 +283,7 @@ export function createSidecarSignalFetcher(config: SidecarConfig) {
       try {
         response = await fetchImpl(`${base}/v1/signals/${descriptor.id}`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: sidecarHeaders(config.token),
           body: JSON.stringify(requestBody(descriptor.id, query)),
           signal,
         });
@@ -257,7 +295,7 @@ export function createSidecarSignalFetcher(config: SidecarConfig) {
         return failure(
           descriptor.id,
           classifySidecarStatus(response.status),
-          `The research sidecar answered HTTP ${response.status} for ${descriptor.label}.`
+          describeSidecarStatus(response.status, descriptor.label)
         );
       }
 

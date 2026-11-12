@@ -22,7 +22,10 @@ paths:
 - **Reddit: public-API access only.** `arctic-shift` is the one Reddit lane. A lane that reads Reddit's own
   unauthenticated endpoints routes around an access control and does not ship (two did, and were removed before
   the public release). The reasoning is `apps/research/app/sources/reddit_gate.py`; the gate machinery stays.
-- **The sidecar has no auth and its endpoints spend money:** bind it to `127.0.0.1` only (`docker-compose.yml`).
+- **The sidecar's endpoints spend money.** `/v1/signals` and `/v1/simulate` go through `app/main.py::require_caller`:
+  `RESEARCH_SIDECAR_TOKEN` set means a bearer token is required from every caller; unset means loopback callers
+  only. The compose sidecar turns the loopback check off (`RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED`) and relies on
+  its `127.0.0.1` port binding instead. Guard: `tests/test_api.py::TestCallerAuth`.
 - **Python 3.11 only** (OASIS); `mcp<2` is load-bearing. Use `apps/research/.venv`, never system Python/pytest/ruff.
 - **Vendored files are not modernised or reformatted** (`app/text/cjk.py`, `app/text/relevance.py`,
   `app/pipeline/{dedupe,entity_extract}.py`, see `pyproject.toml` per-file-ignores). `ruff format` is not enforced.

@@ -10,6 +10,8 @@ restrictive value, every time:
   - `RESEARCH_HOSTED` unset -> hosted (assume the risky deployment)
   - `RESEARCH_ENABLED_SOURCES` unset -> the two keyless defaults only
   - an unknown source id in that list -> refused, not silently ignored
+  - `RESEARCH_SIDECAR_TOKEN` unset -> only loopback callers are served
+  - `RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED` unset -> false
 """
 
 from __future__ import annotations
@@ -57,6 +59,14 @@ class Settings:
     #: Rejected ids from RESEARCH_ENABLED_SOURCES, surfaced at /v1/health so a
     #: typo does not present as a silently missing source.
     unknown_source_ids: tuple[str, ...]
+    #: The shared secret the app sends on every spending endpoint. Empty means
+    #: "no token configured", which `main.py::require_caller` answers by serving
+    #: loopback callers only. Never reported anywhere, not even as present.
+    sidecar_token: str = ""
+    #: With no token, serve ANY caller instead of loopback only. Exists for the
+    #: containerised sidecar, which sees the host's requests arrive from the
+    #: Docker bridge rather than from loopback; see docker-compose.yml.
+    allow_unauthenticated: bool = False
 
 
 def load_settings(environ: dict[str, str] | None = None) -> Settings:
@@ -91,4 +101,6 @@ def load_settings(environ: dict[str, str] | None = None) -> Settings:
         github_token=(env.get("GITHUB_TOKEN") or "").strip(),
         searxng_url=(env.get("RESEARCH_SEARXNG_URL") or "").strip(),
         unknown_source_ids=unknown,
+        sidecar_token=(env.get("RESEARCH_SIDECAR_TOKEN") or "").strip(),
+        allow_unauthenticated=_flag(env, "RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED", default=False),
     )

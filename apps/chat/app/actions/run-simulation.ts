@@ -11,6 +11,7 @@ import {
   getSimulationProfiles,
   insertSimulationRun,
 } from "@/lib/db/simulation-queries";
+import { env } from "@/lib/env";
 import type { SimulationSeedGap } from "@/lib/personas/simulation-gaps";
 import { toSimulationPersonas } from "@/lib/personas/simulation-input";
 import { createSidecarSimulationRunner } from "@/lib/research/sidecar-simulation";
@@ -114,6 +115,7 @@ export async function runProjectSimulation({
     {
       run: createSidecarSimulationRunner({
         baseUrl: config.ai.tools.deepResearch.researchSidecarUrl,
+        token: env.RESEARCH_SIDECAR_TOKEN,
       }),
     },
     {

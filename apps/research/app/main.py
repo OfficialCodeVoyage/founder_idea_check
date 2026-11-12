@@ -18,9 +18,12 @@ was never needed.
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
+import logging
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .config import Settings, load_settings
@@ -39,6 +42,131 @@ app = FastAPI(title="idea_check research sidecar", version="0.1.0")
 # the legal gate racy, and a racy legal gate is not a gate.
 SETTINGS: Settings = load_settings()
 
+log = logging.getLogger("research.sidecar")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WHO MAY SPEND THIS PROCESS'S KEYS.
+#
+# `/v1/simulate` spends `OPENAI_API_KEY` and `/v1/signals` spends `GITHUB_TOKEN`
+# (and is an open search proxy besides), so both require a caller this process
+# trusts. `/v1/health` stays open: it reports names and gate positions, never a
+# value, and it is what an operator reads to find out why a call was refused.
+#
+# THE RULE, in order:
+#   1. `RESEARCH_SIDECAR_TOKEN` set -> every caller must send
+#      `Authorization: Bearer <token>`, from loopback or not. Compared in
+#      constant time, so the response time does not leak a prefix.
+#   2. unset, `RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED` true -> any caller.
+#      Only for the containerised dev sidecar, whose published port is bound to
+#      127.0.0.1 on the host but which sees the host's requests arrive from the
+#      Docker bridge address. Never in a deployed environment.
+#   3. unset -> loopback callers only, and one warning at startup.
+#
+# THE TRADE-OFF in (3), stated once. It keeps a stranger's first run at zero
+# configuration: `uvicorn app.main:app` binds 127.0.0.1 and the app on the same
+# machine calls it from loopback, so nothing has to be generated or copied
+# between two env files before research works. What it gives up is protection
+# from other processes and users on the same host, and from a reverse proxy on
+# the same host that forwards remote traffic WITHOUT an X-Forwarded-For header
+# (uvicorn trusts that header from 127.0.0.1 by default, so a proxy that sets
+# it is seen as the remote address and refused). Any deployment where the app
+# reaches the sidecar over a network — Vercel to anywhere — cannot use (3) and
+# must set the token on both sides.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _is_loopback(host: str | None) -> bool:
+    if not host:
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        # A hostname rather than an address (Starlette's TestClient reports
+        # "testclient"). Never trusted by name: a name is not a network fact.
+        return False
+    # Python 3.11 does not count `::ffff:127.0.0.1` as loopback; a dual-stack
+    # listener reports IPv4 loopback callers in exactly that form.
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped.is_loopback
+    return address.is_loopback
+
+
+def _bearer(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    scheme, _, value = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    return value.strip() or None
+
+
+def require_caller(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> None:
+    """FastAPI dependency on every endpoint that spends. See THE RULE above.
+
+    401 for a missing or wrong token, 403 for a refused unauthenticated caller.
+    Both map to `missing-credential` in `classifySidecarStatus`, which is the
+    accurate name for either: the remedy is RESEARCH_SIDECAR_TOKEN.
+    """
+    expected = SETTINGS.sidecar_token
+    if expected:
+        presented = _bearer(authorization)
+        if presented is None or not hmac.compare_digest(
+            presented.encode("utf-8"), expected.encode("utf-8")
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="This sidecar requires RESEARCH_SIDECAR_TOKEN; the request "
+                "carried no matching bearer token.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return
+
+    if SETTINGS.allow_unauthenticated:
+        return
+
+    host = request.client.host if request.client else None
+    if not _is_loopback(host):
+        raise HTTPException(
+            status_code=403,
+            detail="RESEARCH_SIDECAR_TOKEN is not set, so this sidecar serves "
+            "loopback callers only. Set the same token in the app's and the "
+            "sidecar's environment to call it over a network.",
+        )
+
+
+def _caller_auth_mode() -> str:
+    if SETTINGS.sidecar_token:
+        return "token"
+    if SETTINGS.allow_unauthenticated:
+        return "unauthenticated"
+    return "loopback-only"
+
+
+if not SETTINGS.sidecar_token:
+    log.warning(
+        "RESEARCH_SIDECAR_TOKEN is not set: %s",
+        "serving ANY caller because RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED is on"
+        if SETTINGS.allow_unauthenticated
+        else "serving loopback callers only",
+    )
+
+
+#: The most seats one simulation may seat. MIRRORS `MAX_SIMULATION_SEATS` in
+#: `apps/chat/lib/research/simulation.ts`, which the app enforces first; this
+#: is the backstop for any other caller. Every OASIS agent is one model call per
+#: round, so this bounds what one request can spend on this process's key.
+MAX_SIMULATION_PERSONAS = 10
+
+#: MIRRORS `MAX_SIMULATION_PITCH_CHARS` in the same file. The default pitch is
+#: a stored fact, and the app caps a fact value at 2,000 characters, so a real
+#: pitch fits. Python counts code points where JavaScript counts UTF-16 units,
+#: so the app's check is never the looser of the two.
+MAX_SIMULATION_PITCH_CHARS = 2000
+
 
 class SignalRequest(BaseModel):
     query: str = Field(min_length=1)
@@ -49,8 +177,8 @@ class SignalRequest(BaseModel):
 
 
 class SimulationRequest(BaseModel):
-    personas: list[dict[str, Any]]
-    pitch: str = Field(min_length=1)
+    personas: list[dict[str, Any]] = Field(max_length=MAX_SIMULATION_PERSONAS)
+    pitch: str = Field(min_length=1, max_length=MAX_SIMULATION_PITCH_CHARS)
     rounds: int = Field(default=2, ge=1, le=10)
 
 
@@ -69,6 +197,10 @@ def health() -> dict:
     return {
         "ok": True,
         "hosted": SETTINGS.deployment.hosted,
+        # How a spending call is authorised: "token", "loopback-only" or
+        # "unauthenticated". The mode, never the token, and not even whether a
+        # token is long or short.
+        "caller_auth": _caller_auth_mode(),
         # Names only. Values never leave `config.py`.
         "credentials_present": sorted(SETTINGS.deployment.available_credentials),
         "unknown_source_ids": list(SETTINGS.unknown_source_ids),
@@ -86,7 +218,7 @@ def health() -> dict:
     }
 
 
-@app.post("/v1/signals/{source_id}")
+@app.post("/v1/signals/{source_id}", dependencies=[Depends(require_caller)])
 def fetch_signals(source_id: str, request: SignalRequest) -> dict:
     """Run ONE source and report honestly what happened."""
     if find_descriptor(source_id) is None:
@@ -178,7 +310,7 @@ def _pipeline(items: list[SourceItem], source: Any, request: SignalRequest) -> l
     return report.grounded
 
 
-@app.post("/v1/simulate")
+@app.post("/v1/simulate", dependencies=[Depends(require_caller)])
 def simulate(request: SimulationRequest) -> dict:
     """STEP 8. Runs a persona simulation and judges whether it collapsed.
 
@@ -220,8 +352,7 @@ def simulate(request: SimulationRequest) -> dict:
         blamed = (
             f"{result.agent_errors} agent action(s) failed"
             if result.agent_errors
-            else "no agent action failed, so the personas were reached and simply "
-            "posted nothing"
+            else "no agent action failed, so the personas were reached and simply posted nothing"
         )
         samples = "; ".join(result.agent_error_samples)
         produced = (

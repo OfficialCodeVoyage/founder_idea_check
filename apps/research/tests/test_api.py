@@ -21,8 +21,19 @@ def client(monkeypatch):
     monkeypatch.setenv("RESEARCH_HOSTED", "true")
     monkeypatch.delenv("RESEARCH_ENABLED_SOURCES", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("RESEARCH_SIDECAR_TOKEN", raising=False)
+    monkeypatch.delenv("RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED", raising=False)
     main = importlib.reload(importlib.import_module("app.main"))
-    return TestClient(main.app), main
+    return local_client(main), main
+
+
+def local_client(main) -> TestClient:
+    """A caller on loopback, which is what the no-token default serves.
+
+    TestClient's own default peer is the name "testclient", which
+    `require_caller` rightly refuses: a name is not a loopback address.
+    """
+    return TestClient(main.app, client=("127.0.0.1", 50000))
 
 
 def body(source_id: str = "hackernews") -> dict:
@@ -87,8 +98,9 @@ class TestSignalsContract:
     def test_a_missing_credential_is_named_as_such(self, monkeypatch):
         monkeypatch.setenv("RESEARCH_ENABLED_SOURCES", "github")
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("RESEARCH_SIDECAR_TOKEN", raising=False)
         main = importlib.reload(importlib.import_module("app.main"))
-        payload = TestClient(main.app).post("/v1/signals/github", json=body()).json()
+        payload = local_client(main).post("/v1/signals/github", json=body()).json()
         assert payload["kind"] == "missing-credential"
         assert "GITHUB_TOKEN" in payload["detail"]
 
@@ -316,3 +328,104 @@ class TestSimulateContract:
         assert payload["ok"] is False
         assert payload["kind"] == "invalid-personas"
         assert "only one persona" in payload["detail"]
+
+
+def _persona(username: str) -> dict:
+    return {
+        "username": username,
+        "bio": "b",
+        "persona": "p",
+        "age": 30,
+        "gender": "f",
+        "mbti": "XXXX",
+        "country": "UK",
+    }
+
+
+class TestCallerAuth:
+    """`require_caller`: the spending endpoints are not an open proxy."""
+
+    @staticmethod
+    def _reload(monkeypatch, *, token: str | None = None, allow: str | None = None):
+        monkeypatch.setenv("RESEARCH_HOSTED", "true")
+        monkeypatch.delenv("RESEARCH_ENABLED_SOURCES", raising=False)
+        for name, value in (
+            ("RESEARCH_SIDECAR_TOKEN", token),
+            ("RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED", allow),
+        ):
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
+        return importlib.reload(importlib.import_module("app.main"))
+
+    def test_with_no_token_a_non_loopback_caller_is_refused(self, monkeypatch):
+        main = self._reload(monkeypatch)
+        remote = TestClient(main.app, client=("203.0.113.7", 40000))
+        response = remote.post("/v1/signals/hackernews", json=body())
+        assert response.status_code == 403
+        assert "RESEARCH_SIDECAR_TOKEN" in response.json()["detail"]
+        simulate = remote.post("/v1/simulate", json={"personas": [], "pitch": "x"})
+        assert simulate.status_code == 403
+
+    def test_with_no_token_an_ipv4_mapped_loopback_caller_is_served(self, monkeypatch):
+        main = self._reload(monkeypatch)
+        mapped = TestClient(main.app, client=("::ffff:127.0.0.1", 40000))
+        assert mapped.post("/v1/signals/no-such-source", json=body()).status_code == 200
+
+    def test_a_set_token_is_required_even_from_loopback(self, monkeypatch):
+        main = self._reload(monkeypatch, token="s3cret-sidecar-token")
+        local = local_client(main)
+        assert local.post("/v1/signals/no-such-source", json=body()).status_code == 401
+        wrong = local.post(
+            "/v1/signals/no-such-source",
+            json=body(),
+            headers={"Authorization": "Bearer not-the-token"},
+        )
+        assert wrong.status_code == 401
+        right = local.post(
+            "/v1/signals/no-such-source",
+            json=body(),
+            headers={"Authorization": "Bearer s3cret-sidecar-token"},
+        )
+        assert right.status_code == 200
+
+    def test_a_set_token_lets_a_remote_caller_in(self, monkeypatch):
+        main = self._reload(monkeypatch, token="s3cret-sidecar-token")
+        remote = TestClient(
+            main.app,
+            client=("203.0.113.7", 40000),
+            headers={"Authorization": "Bearer s3cret-sidecar-token"},
+        )
+        assert remote.post("/v1/signals/no-such-source", json=body()).status_code == 200
+
+    def test_allow_unauthenticated_serves_a_non_loopback_caller_without_a_token(self, monkeypatch):
+        main = self._reload(monkeypatch, allow="true")
+        bridge = TestClient(main.app, client=("172.17.0.1", 40000))
+        assert bridge.post("/v1/signals/no-such-source", json=body()).status_code == 200
+
+    def test_health_stays_open_and_never_carries_the_token(self, monkeypatch):
+        main = self._reload(monkeypatch, token="s3cret-sidecar-token")
+        response = TestClient(main.app, client=("203.0.113.7", 40000)).get("/v1/health")
+        assert response.status_code == 200
+        assert response.json()["caller_auth"] == "token"
+        assert "s3cret-sidecar-token" not in response.text
+
+
+class TestSimulationRequestCaps:
+    def test_more_personas_than_the_cap_is_refused_before_any_run(self, client):
+        http, main = client
+        personas = [_persona(f"p{i}") for i in range(main.MAX_SIMULATION_PERSONAS + 1)]
+        response = http.post("/v1/simulate", json={"personas": personas, "pitch": "a pitch"})
+        assert response.status_code == 422
+
+    def test_a_pitch_longer_than_the_cap_is_refused(self, client):
+        http, main = client
+        response = http.post(
+            "/v1/simulate",
+            json={
+                "personas": [_persona("a"), _persona("b")],
+                "pitch": "x" * (main.MAX_SIMULATION_PITCH_CHARS + 1),
+            },
+        )
+        assert response.status_code == 422

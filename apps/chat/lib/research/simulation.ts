@@ -528,6 +528,29 @@ export type SimulationRunner = (payload: {
 
 export type SimulationDeps = { run: SimulationRunner };
 
+/**
+ * THE MOST SEATS ONE PROJECT MAY HOLD, and so the most agents one run seats.
+ * Every agent is one model call per round on the sidecar's key, so this bounds
+ * what one run can spend. Real runs use two to four seats (DATA-LAYER.md
+ * records the two-seat end-to-end run); ten leaves room for a deliberately
+ * varied room without letting a script queue hundreds.
+ *
+ * MIRRORED as `MAX_SIMULATION_PERSONAS` in apps/research/app/main.py, which
+ * refuses a larger request on its own. Change both together.
+ */
+export const MAX_SIMULATION_SEATS = 10;
+
+/**
+ * The longest pitch a run accepts, in characters. The default pitch is a stored
+ * fact (`one_liner`, `value_proposition` or `problem_statement`), and a fact
+ * value is capped at 2,000 characters whether extracted
+ * (lib/phases/types.ts::ExtractedFactSchema) or typed by the founder
+ * (app/actions/correct-fact.ts::MAX_FACT_VALUE), so a pitch proposed from a
+ * fact always fits. MIRRORED as `MAX_SIMULATION_PITCH_CHARS`
+ * in apps/research/app/main.py.
+ */
+export const MAX_SIMULATION_PITCH_CHARS = 2000;
+
 export type SimulationInput = {
   personas: readonly ProjectPersona[];
   facts: readonly { key: string; value: string }[];

@@ -4,8 +4,8 @@ import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 
 interface RedisClient {
   expire(key: string, seconds: number): Promise<unknown>;
-  get(key: string): Promise<string | null>;
   incr(key: string): Promise<number>;
+  ttl(key: string): Promise<number>;
 }
 
 interface RateLimitResult {
@@ -45,16 +45,18 @@ async function checkRateLimit({
 
   try {
     // Use individual commands instead of pipeline for compatibility
-    const currentCount = await redisClient.get(key);
-    const currentCountNum = currentCount
-      ? Number.parseInt(currentCount, 10)
-      : 0;
-
-    // Increment the counter
     const newCount = await redisClient.incr(key);
 
-    // Set expiry if this is the first increment
-    if (currentCountNum === 0) {
+    // EVERY REQUEST MAKES SURE THE WINDOW CAN END. The expiry used to be set
+    // only by the request that had read a zero count before its `incr`; if
+    // that one `expire` failed (or the process died between the two calls),
+    // the key kept counting with no TTL and the IP was refused forever once
+    // it passed the limit. Now any request that finds the key without a TTL
+    // (`ttl` answers -1) sets one, so a missed expiry is repaired by the next
+    // request — including on keys stranded before this change. `expire` is
+    // not called when a TTL exists, so the window is never pushed back.
+    // A Redis error anywhere here still fails open (the catch below).
+    if ((await redisClient.ttl(key)) < 0) {
       await redisClient.expire(key, windowSize);
     }
 

@@ -1,14 +1,53 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.*.local)",
+      "Read(./.env.development)",
+      "Read(./.env.production)",
+      "Read(./.env.test)",
+      "Read(./secrets/**)"
+    ],
+    "ask": [
+      "Bash(git push)",
+      "Bash(git push *)",
+      "Bash(rtk git push)",
+      "Bash(rtk git push *)"
+    ]
+  },
   "hooks": {
-    "PostToolUse": [
+    "SessionStart": [
       {
-        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/ai-post-codegen.sh claude",
-            "async": true,
-            "timeout": 600
+            "command": "bash -c 'f=\"$(git rev-parse --show-toplevel 2>/dev/null)/.claude/hooks/bearings-check.sh\"; [ -f \"$f\" ] && exec bash \"$f\"; exit 0'",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'f=\"$(git rev-parse --show-toplevel 2>/dev/null)/.claude/hooks/restore-state.sh\"; [ -f \"$f\" ] && exec bash \"$f\"; exit 0'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'f=\"$(git rev-parse --show-toplevel 2>/dev/null)/.claude/hooks/require-pr-on-blocker.sh\"; [ -f \"$f\" ] && exec bash \"$f\"; exit 0'",
+            "timeout": 10,
+            "onFailure": "block"
           }
         ]
       }

@@ -83,6 +83,10 @@ apps/electron/branding.json
 # Agent worktrees (ephemeral, each is its own git repo)
 .claude/worktrees/
 
+# Personal Claude Code overrides; never commit.
+.claude/settings.local.json
+CLAUDE.local.md
+
 # Local database dumps taken before risky container/volume surgery.
 # Contains real user content — never commit.
 .local-backup/

@@ -1,0 +1,7 @@
+{
+  "map": "RECONSTRUCTION.md",
+  "codebaseDir": ".planning/codebase",
+  "scopedPaths": ["apps/chat", "apps/research", "packages"],
+  "maxDays": 30,
+  "maxCommits": 150
+}

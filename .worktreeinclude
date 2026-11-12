@@ -1,0 +1,2 @@
+# Gitignored files copied into worktrees that Claude Code creates (gitignore syntax).
+.env.local

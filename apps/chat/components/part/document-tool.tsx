@@ -57,27 +57,49 @@ type DeadStream = Extract<InputStreamVerdict, { died: true }>;
 function DeadDocumentStream({
   verdict,
   isReadonly,
+  messageId,
 }: {
   verdict: DeadStream;
   isReadonly: boolean;
+  messageId: string;
 }) {
   const { setArtifact } = useArtifact();
   const { sendMessage } = useChatActions<ChatMessage>();
   const storeApi = useChatStoreApi<ChatMessage>();
-  const { salvage } = verdict;
+  const { salvage, store } = verdict;
 
   const openPartial = () => {
     if (!salvage.salvaged) {
       return;
     }
+    // Marked partial in the panel header as well as in the body: a founder
+    // who opens this and reads to the end must not be able to mistake it for
+    // a finished document at any point on the way.
+    const title = partialDocumentTitle(salvage.title);
+    const content = partialDocumentBody(salvage);
+    if (store.state === "saved") {
+      // The Document row the server wrote, under its own id and kind; the
+      // panel loads its stored content (and any later edits) by that id.
+      setArtifact((prev) => ({
+        ...prev,
+        documentId: store.documentId,
+        kind: store.kind,
+        title,
+        content,
+        messageId,
+        status: "idle",
+        isVisible: true,
+      }));
+      return;
+    }
+    // Nothing was saved (or the server's answer has not arrived yet), so this
+    // is a copy rebuilt from the message itself. The bannered body is
+    // markdown, hence `text`; the card's label and detail say it is unsaved.
     setArtifact((prev) => ({
       ...prev,
       documentId: "init",
-      // Marked partial in the panel header as well as in the body: a founder
-      // who opens this and reads to the end must not be able to mistake it for
-      // a finished document at any point on the way.
-      title: partialDocumentTitle(salvage.title),
-      content: partialDocumentBody(salvage),
+      title,
+      content,
       kind: "text",
       status: "idle",
       isVisible: true,
@@ -122,7 +144,9 @@ function DeadDocumentStream({
             variant="outline"
           >
             <FileWarning size={14} />
-            Open what was saved
+            {store.state === "saved"
+              ? "Open the saved partial document"
+              : "Open the unsaved copy"}
           </Button>
         )}
         {!isReadonly && (
@@ -219,7 +243,13 @@ function PureDocumentTool({
   // `output-error` once the server has marked it, and the generic branch would
   // reduce a recoverable 26KB document to a one-line red "Error:".
   if (verdict.died) {
-    return <DeadDocumentStream isReadonly={isReadonly} verdict={verdict} />;
+    return (
+      <DeadDocumentStream
+        isReadonly={isReadonly}
+        messageId={messageId}
+        verdict={verdict}
+      />
+    );
   }
 
   if (tool.state === "output-error" || tool.output?.status === "error") {

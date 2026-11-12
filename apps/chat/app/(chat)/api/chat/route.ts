@@ -38,9 +38,11 @@ import {
   setAnonymousSession,
 } from "@/lib/anonymous-session-server";
 import {
-  type DeadInputStreamRecord,
+  findDeadInputStreams,
   partialDocumentBody,
   partialDocumentTitle,
+  type SalvagedTextDocument,
+  type SavedPartialDocument,
   sweepDeadInputStreams,
 } from "@/lib/artifacts/text/salvage";
 import { auth } from "@/lib/auth";
@@ -856,7 +858,8 @@ async function prepareRequestContext({
  *     recoverable document. It is written as a `Document`, LABELLED PARTIAL in
  *     its title and at the top and bottom of its body. An honestly-labelled
  *     partial beats a clean discard; a partial passed off as finished would be
- *     worse than either.
+ *     worse than either. It runs FIRST, because the next two steps say
+ *     whether a document was saved and under which id.
  *  2. MARK. The part is rewritten to `output-error` carrying
  *     DEAD_INPUT_STREAM_MARKER. That is what makes it distinguishable from a
  *     call still in flight — the exact distinction whose absence hid this for a
@@ -885,21 +888,31 @@ async function rescueDeadToolInputStreams({
   chatId: string;
 }): Promise<ChatMessage> {
   const log = createModuleLogger("api:chat:dead-input-stream");
-  const swept = sweepDeadInputStreams(assistantMessage.parts);
+  const dead = findDeadInputStreams(assistantMessage.parts);
 
-  if (swept.announcement === null) {
+  if (dead.length === 0) {
     return assistantMessage;
   }
 
-  for (const death of swept.deaths) {
-    const documentId = await writePartialDocument({
-      verdict: death.verdict,
+  // Written BEFORE the parts are marked and the announcement is composed:
+  // both say whether a document was saved, and only the write knows.
+  const saved = new Map<string, SavedPartialDocument>();
+  for (const death of dead) {
+    const document = await writePartialDocument({
+      salvage: death.salvage,
       toolType: death.toolType,
       userId,
       messageId: assistantMessage.id,
       log,
     });
+    if (document) {
+      saved.set(death.toolCallId, document);
+    }
+  }
 
+  const swept = sweepDeadInputStreams(assistantMessage.parts, saved);
+
+  for (const death of swept.deaths) {
     log.error(
       {
         chatId,
@@ -910,10 +923,14 @@ async function rescueDeadToolInputStreams({
         contentChars: death.verdict.salvage.salvaged
           ? death.verdict.salvage.contentChars
           : null,
-        documentId,
+        documentId: saved.get(death.toolCallId)?.documentId ?? null,
       },
       "tool input stream ended while still streaming — marking the call failed"
     );
+  }
+
+  if (swept.announcement === null) {
+    return assistantMessage;
   }
 
   return {
@@ -928,25 +945,24 @@ async function rescueDeadToolInputStreams({
 /**
  * Write the salvaged prefix as a `Document`, or explain why it could not be.
  *
- * Returns the new document id, or null when nothing was written. NULL IS NOT
- * "EMPTY DOCUMENT": the caller logs it beside `salvaged`, so "there was nothing
- * to save" and "there was nobody to save it for" stay distinguishable from
- * "a document was saved".
+ * Returns the written document's id and kind, or null when nothing was
+ * written. NULL IS NOT "EMPTY DOCUMENT": the sweep turns it into "was NOT
+ * saved" in the marked part and in the announcement, so the founder is never
+ * told a document exists that does not.
  */
 async function writePartialDocument({
-  verdict,
+  salvage,
   toolType,
   userId,
   messageId,
   log,
 }: {
-  verdict: DeadInputStreamRecord["verdict"];
+  salvage: SalvagedTextDocument;
   toolType: string;
   userId: string | null;
   messageId: string;
   log: ReturnType<typeof createModuleLogger>;
-}): Promise<string | null> {
-  const { salvage } = verdict;
+}): Promise<SavedPartialDocument | null> {
   if (!salvage.salvaged) {
     return null;
   }
@@ -967,7 +983,7 @@ async function writePartialDocument({
       userId,
       messageId,
     });
-    return documentId;
+    return { documentId, kind: "text" };
   } catch (error) {
     // The salvage is a best effort layered on top of a failure that has
     // already happened. If it throws, the turn must still finish and the

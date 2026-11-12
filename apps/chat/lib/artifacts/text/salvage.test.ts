@@ -377,6 +377,58 @@ describe("sweepDeadInputStreams", () => {
     expect(swept.announcement).not.toBeNull();
   });
 
+  it("says 'saved' only for a call the route wrote a document for", () => {
+    const documentId = "00000000-0000-4000-8000-000000000001";
+    const swept = sweepDeadInputStreams(
+      [dead, { ...dead, toolCallId: "call_2" }],
+      new Map([["call_1", { documentId, kind: "text" as const }]])
+    );
+
+    const [savedDeath, unsavedDeath] = swept.deaths;
+    expect(savedDeath.verdict.store).toEqual({
+      state: "saved",
+      documentId,
+      kind: "text",
+    });
+    expect(savedDeath.verdict.detail).toContain("has been saved");
+    expect(unsavedDeath.verdict.store).toEqual({ state: "not-saved" });
+    expect(unsavedDeath.verdict.detail).not.toContain("has been saved");
+    expect(unsavedDeath.verdict.detail).toContain("NOT saved");
+
+    // A reloaded page reads the outcome back from the marked part alone.
+    const [savedPart, unsavedPart] = swept.parts as (typeof dead & {
+      errorText: string;
+    })[];
+    const reread = (part: typeof savedPart) =>
+      describeInputStream({
+        state: part.state,
+        streamEnded: true,
+        input: part.input,
+        errorText: part.errorText,
+      });
+    const savedAgain = reread(savedPart);
+    const unsavedAgain = reread(unsavedPart);
+    expect(savedAgain.died && savedAgain.store).toEqual({
+      state: "saved",
+      documentId,
+      kind: "text",
+    });
+    expect(unsavedAgain.died && unsavedAgain.store).toEqual({
+      state: "not-saved",
+    });
+  });
+
+  it("does not claim a save the live chat cannot know about", () => {
+    const verdict = describeInputStream({
+      state: "input-streaming",
+      streamEnded: true,
+      input: dead.input,
+      errorText: null,
+    });
+    expect(verdict.died && verdict.store).toEqual({ state: "unknown" });
+    expect(verdict.died && verdict.detail).not.toContain("has been saved");
+  });
+
   it("ignores non-tool parts that happen to carry a state field", () => {
     const swept = sweepDeadInputStreams([
       { type: "data-research", state: "input-streaming" },

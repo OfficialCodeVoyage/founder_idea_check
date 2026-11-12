@@ -30,6 +30,11 @@
  * the persisted message cannot disagree about whether a stream died.
  */
 
+import {
+  type ArtifactKind,
+  artifactKinds,
+} from "@/lib/artifacts/artifact-kind";
+
 /**
  * The prefix stamped into `tool_errorText` when the server marks a dead input
  * stream at finalize time.
@@ -42,6 +47,55 @@
  * (which now receives a tool error instead of silence) and the reader.
  */
 export const DEAD_INPUT_STREAM_MARKER = "[dead-input-stream]";
+
+/**
+ * Follows DEAD_INPUT_STREAM_MARKER in `tool_errorText` when, and only when, the
+ * route actually wrote the salvaged prefix as a `Document`:
+ * `[dead-input-stream] [partial-document:<kind>:<documentId>] <detail>`.
+ *
+ * Same reasoning as the marker itself: `Part` has no column for it, and the
+ * output-error part is the one place a reloaded page reads the outcome back
+ * from. A marker with no tag means the server decided and saved nothing.
+ */
+const SAVED_DOCUMENT_TAG = /^ \[partial-document:([a-z]+):([^\]\s]+)\]/;
+
+/**
+ * WHETHER THE SALVAGED PREFIX WAS WRITTEN AS A DOCUMENT.
+ *
+ * Three states because three are real. The server knows `saved` or
+ * `not-saved` once it has tried; the live chat, which renders the dead card
+ * the moment the stream stops, knows neither until the page is reloaded and
+ * the marked part comes back. Saying "saved" from there would be a guess.
+ */
+export type PartialDocumentStore =
+  | {
+      readonly state: "saved";
+      readonly documentId: string;
+      readonly kind: ArtifactKind;
+    }
+  | { readonly state: "not-saved" }
+  | { readonly state: "unknown" };
+
+/** A document the route wrote for a dead call: its id and the kind it was written as. */
+export type SavedPartialDocument = {
+  readonly documentId: string;
+  readonly kind: ArtifactKind;
+};
+
+function isArtifactKind(value: string): value is ArtifactKind {
+  return (artifactKinds as readonly string[]).includes(value);
+}
+
+/** Read back what the server recorded in a marked part's `errorText`. */
+function readStoreFromErrorText(errorText: string): PartialDocumentStore {
+  const tag = errorText
+    .slice(DEAD_INPUT_STREAM_MARKER.length)
+    .match(SAVED_DOCUMENT_TAG);
+  if (tag && isArtifactKind(tag[1])) {
+    return { state: "saved", kind: tag[1], documentId: tag[2] };
+  }
+  return { state: "not-saved" };
+}
 
 /**
  * A `\uXXXX` escape whose hex digits did not all arrive, anchored at the end.
@@ -117,6 +171,8 @@ export type InputStreamVerdict =
       /** A ready-made message the founder can send to resume the document. */
       readonly continueRequest: string;
       readonly salvage: SalvagedTextDocument;
+      /** Whether what was salvaged was written as a `Document`. `detail` follows it. */
+      readonly store: PartialDocumentStore;
     };
 
 const NOT_AN_OBJECT =
@@ -311,16 +367,32 @@ export function salvageTextDocumentInput(input: unknown): SalvagedTextDocument {
 
 const HEADLINE = "This document never finished being written";
 
+/**
+ * The sentence about where the salvage went. It is only ever as strong as
+ * `store`: "has been saved" is said only for a document the route wrote.
+ */
+function whereItWent(store: PartialDocumentStore): string {
+  switch (store.state) {
+    case "saved":
+      return "What arrived has been saved as a PARTIAL document — it is labelled partial in its title and at the top and bottom of its body, because a partial passed off as finished would be worse than losing it.";
+    case "not-saved":
+      return "What arrived was NOT saved as a document. It survives only in this message, and the copy you can open here is unsaved and labelled partial.";
+    default:
+      return "What arrived is kept in this message. Reload the chat to see whether it was also saved as a document; until then, the copy you can open here is unsaved and labelled partial.";
+  }
+}
+
 function deadDetail(
   salvage: SalvagedTextDocument,
-  toolType: string | undefined
+  toolType: string | undefined,
+  store: PartialDocumentStore
 ): string {
   if (!salvage.salvaged) {
     return `The model started ${whatWasBeingWritten(toolType)} and the stream carrying its input stopped before it finished, so the call never ran. ${salvage.why}`;
   }
   return [
     `The model started writing a document and the stream carrying it stopped after ${salvage.contentChars.toLocaleString("en-US")} characters.`,
-    "What arrived has been saved as a PARTIAL document — it is labelled partial in its title and at the top and bottom of its body, because a partial passed off as finished would be worse than losing it.",
+    whereItWent(store),
     `It stops after: “${salvage.stoppedAfter}”`,
   ].join(" ");
 }
@@ -347,7 +419,8 @@ function continueRequest(
  *
  * `output-error` carrying the marker is recognised as the same failure so that
  * a page reloaded after the server marked the part renders the salvage card
- * rather than a bare red "Error:" line.
+ * rather than a bare red "Error:" line. Such a part also says whether a
+ * document was written for it; an unmarked stranded part does not know.
  */
 export function describeInputStream({
   state,
@@ -355,6 +428,7 @@ export function describeInputStream({
   input,
   errorText,
   toolType,
+  saved,
 }: {
   state: string;
   streamEnded: boolean;
@@ -366,6 +440,12 @@ export function describeInputStream({
    * so a dead non-document call is described as what it actually was.
    */
   toolType?: string;
+  /**
+   * The server's own answer, for the sweep: the document it wrote, or null
+   * when it wrote none. Omitted by the renderer, which reads the answer back
+   * from a marked part's `errorText` instead.
+   */
+  saved?: SavedPartialDocument | null;
 }): InputStreamVerdict {
   const markedDead =
     state === "output-error" &&
@@ -377,13 +457,44 @@ export function describeInputStream({
   }
 
   const salvage = salvageTextDocumentInput(input);
+  const store = storeFor({
+    salvage,
+    saved,
+    markedErrorText: markedDead ? errorText : null,
+  });
   return {
     died: true,
     headline: HEADLINE,
-    detail: deadDetail(salvage, toolType),
+    detail: deadDetail(salvage, toolType, store),
     continueRequest: continueRequest(salvage, toolType),
     salvage,
+    store,
   };
+}
+
+function storeFor({
+  salvage,
+  saved,
+  markedErrorText,
+}: {
+  salvage: SalvagedTextDocument;
+  saved: SavedPartialDocument | null | undefined;
+  markedErrorText: string | null | undefined;
+}): PartialDocumentStore {
+  // Nothing salvaged means nothing could have been written, whatever a caller
+  // or a stored string claims.
+  if (!salvage.salvaged) {
+    return { state: "not-saved" };
+  }
+  if (saved !== undefined) {
+    return saved === null
+      ? { state: "not-saved" }
+      : { state: "saved", ...saved };
+  }
+  if (markedErrorText) {
+    return readStoreFromErrorText(markedErrorText);
+  }
+  return { state: "unknown" };
 }
 
 const PARTIAL_PREFIX = "[PARTIAL — stream died]";
@@ -473,31 +584,93 @@ export type DeadStreamSweep<P> = {
   readonly announcement: string | null;
 };
 
+function deadVerdictFor(
+  part: PartLike,
+  saved: SavedPartialDocument | null
+): InputStreamVerdict {
+  const isToolPart =
+    part.type.startsWith("tool-") && typeof part.toolCallId === "string";
+  if (!isToolPart) {
+    return { died: false };
+  }
+  return describeInputStream({
+    state: typeof part.state === "string" ? part.state : "",
+    streamEnded: true,
+    input: part.input,
+    errorText: null,
+    toolType: part.type,
+    saved,
+  });
+}
+
+/** A dead call before anything has been written for it. */
+export type DeadInputStream = {
+  readonly toolType: string;
+  readonly toolCallId: string;
+  readonly salvage: SalvagedTextDocument;
+};
+
+/**
+ * THE FIRST HALF OF THE ROUTE'S RESCUE: WHICH CALLS DIED, AND WHAT SURVIVED.
+ *
+ * Kept apart from `sweepDeadInputStreams` because the sentence the sweep
+ * writes says whether a document was saved, and that is only known after the
+ * route has tried to save one from this list.
+ */
+export function findDeadInputStreams(
+  parts: readonly PartLike[]
+): DeadInputStream[] {
+  const found: DeadInputStream[] = [];
+  for (const part of parts) {
+    const verdict = deadVerdictFor(part, null);
+    if (verdict.died) {
+      found.push({
+        toolType: part.type,
+        toolCallId: part.toolCallId as string,
+        salvage: verdict.salvage,
+      });
+    }
+  }
+  return found;
+}
+
+function errorTextFor(
+  verdict: Extract<InputStreamVerdict, { died: true }>
+): string {
+  const { store } = verdict;
+  const tag =
+    store.state === "saved"
+      ? ` [partial-document:${store.kind}:${store.documentId}]`
+      : "";
+  return `${DEAD_INPUT_STREAM_MARKER}${tag} ${verdict.detail}`;
+}
+
 /**
  * FIND EVERY TOOL CALL THAT DIED MID-INPUT AND MAKE IT LOOK LIKE ONE.
  *
  * Called from the route inside `onFinish`, which is the only moment that knows
  * the stream is over — before that point `input-streaming` is a legitimate,
  * temporary state and marking it would be the opposite lie.
+ *
+ * `saved` maps a dead call's `toolCallId` to the document the route wrote for
+ * it. A call missing from it was not saved, and its part and announcement say
+ * so; the saved document's id and kind are stamped on its part so the card can
+ * open that row after a reload.
  */
 export function sweepDeadInputStreams<P extends PartLike>(
-  parts: readonly P[]
+  parts: readonly P[],
+  saved: ReadonlyMap<string, SavedPartialDocument> = new Map()
 ): DeadStreamSweep<P> {
   const deaths: DeadInputStreamRecord[] = [];
   const rewritten: P[] = [];
 
   for (const part of parts) {
-    const isToolPart =
-      part.type.startsWith("tool-") && typeof part.toolCallId === "string";
-    const verdict = isToolPart
-      ? describeInputStream({
-          state: typeof part.state === "string" ? part.state : "",
-          streamEnded: true,
-          input: part.input,
-          errorText: null,
-          toolType: part.type,
-        })
-      : ({ died: false } as const);
+    const verdict = deadVerdictFor(
+      part,
+      typeof part.toolCallId === "string"
+        ? (saved.get(part.toolCallId) ?? null)
+        : null
+    );
 
     if (!verdict.died) {
       rewritten.push(part);
@@ -512,7 +685,7 @@ export function sweepDeadInputStreams<P extends PartLike>(
     rewritten.push({
       ...part,
       state: "output-error",
-      errorText: `${DEAD_INPUT_STREAM_MARKER} ${verdict.detail}`,
+      errorText: errorTextFor(verdict),
     });
   }
 

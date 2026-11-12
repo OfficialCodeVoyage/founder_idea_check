@@ -27,6 +27,7 @@ export function SidebarTopRow() {
               alt={config.appName}
               className="h-5 w-5"
               height={20}
+              loading="eager"
               src="/icon.svg"
               width={20}
             />
@@ -44,6 +45,7 @@ export function SidebarTopRow() {
             alt={config.appName}
             className="h-5 w-5 transition-opacity duration-150 group-hover/sidebar:opacity-0"
             height={20}
+            loading="eager"
             src="/icon.svg"
             width={20}
           />

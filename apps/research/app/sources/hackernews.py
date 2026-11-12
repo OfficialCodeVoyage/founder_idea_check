@@ -8,9 +8,10 @@
 # than writing — is upstream's. Removed: the depth presets, the thread-comment
 # enrichment fan-out, and the `log.source_log` sink. Errors now raise named
 # exceptions instead of returning `{"hits": [], "error": ...}`. Added: a hit is
-# dropped unless its title or text shares a CONTENT word with the query, where
-# stopwords, numbers and years, countries, file types, research filler and price
-# words do not count (`matches_a_content_word`, `_GENERIC_TOKENS`).
+# dropped unless its title or text shares a CONTENT word with the query (or two
+# distinct weak words), where stopwords, numbers and years, countries, file types,
+# research filler and broad tech words do not count (`matches_a_content_word`,
+# `_NEVER_TOKENS`).
 #
 #   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/hackernews.py&since=2026-08-18" --jq '.[].commit.message'
 # ─────────────────────────────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 # SINGLE query token, and Algolia's matching is looser than our token test (typo
 # tolerance, prefixes), so a full page of hits comes back whatever the topic.
 #
-# Live QA, 2026-11-12, a parents-of-young-readers question, twice:
+# Live QA, 2026-11-12, a parents-of-young-readers question, three times:
 #   1. Hacker News returned 51 of a run's 100 sources, among them a vet
 #      directory and a story about a politician. Dropping hits whose lexical
 #      relevance is exactly 0.0 (no query word in the title or text) removed those.
@@ -130,20 +131,44 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 #      "pdf", "years", "prices", "report", "survey". A researcher's web-search
 #      query is full of such words, any story shares some of them, and a bare
 #      "matches one query word" test passes all of them.
+#   3. With that filler out, 38 of a run's 96 sources were still Hacker News, and
+#      18 of the 38 passed: the researcher's query for an AI-personalised
+#      children's books product held "AI", "app", "early" and "screen", and
+#      "Traceforce - security monitoring for AI apps", "Google, Microsoft and xAI
+#      agree to share early AI models" and three AI coding-agent tools matched on
+#      those. Only 3 of the 38 were about children's reading.
 #
-# So the test is "matches a CONTENT word of the query", and the words that cannot
-# decide a topic are excluded from the overlap: stopwords (`tokenize` already
-# drops them), numbers and years, countries and regions, file types and web
-# scaffolding, research filler (report, survey, data, study, statistics), price
-# words that every commerce story shares, and time and age words. The planner's
-# own low-signal list (`LOW_SIGNAL_QUERY_TOKENS`: best, guide, review, new, people)
-# is excluded too. A word that is on the list is never evidence on its own; it
-# still counts in the relevance score of a hit that passes.
+# So the words of a query fall into three kinds, and only the last decides:
 #
-# IF THE QUERY HAS NO CONTENT WORD at all ("market size report 2024"), nothing
-# could ever pass, so the test falls back to "matches any query word" rather than
-# turning the whole lane into an empty result.
-_GENERIC_TOKENS = frozenset(
+#   NEVER   a word that says where, when, in what file, how big, who in general or
+#           how to search, or that is a broad tech or descriptor word any story can
+#           contain (`_FILLER_TOKENS`, `_BROAD_TOKENS` and the planner's
+#           `LOW_SIGNAL_QUERY_TOKENS`), and every number and year. It never
+#           qualifies a hit, alone or as one half of a pair.
+#   WEAK    a word that names something but is too common to decide a topic by
+#           itself: "code", "review", "price", "comparison", "rate", "data"
+#           (`_WEAK_TOKENS`). One of them is not evidence; two DIFFERENT ones in
+#           the same hit are ("code review", "price comparison").
+#   CONTENT every other word. One is enough.
+#
+# A hit is on topic when it shares one CONTENT word with the query, or two
+# distinct WEAK words. Words are compared on a crude stem (`_stem`: a trailing
+# plural "s"), on BOTH sides, so "tool" matches "tools" and "APIs" matches "api".
+#
+# THE TRADE-OFF, stated so nobody re-derives it: a story that shares only two
+# weak words with a query can still be off topic (a story about airline fares
+# that says "price" and "cost", for a query about the price of tutoring). Counting
+# weak words in pairs buys back "Show HN: price comparison for flights" for the
+# query "price comparison tool", which a one-word rule dropped, and costs a few
+# such coincidences. The research filler and the age words stay NEVER on purpose:
+# they are what let "Netflix Raising Prices for Second Time in Less Than Two
+# Years" (price + years) and "...survey report says" through in QA run 2.
+#
+# IF THE QUERY HAS NO CONTENT WORD at all ("market size report 2024", "AI tools"),
+# nothing could ever pass, so the test falls back to its WEAK words when it has
+# any ("market"), and to any query word when it has none, rather than turning
+# the whole lane into an empty result.
+_FILLER_TOKENS = frozenset(
     (
         # Countries, regions, nationalities: the market the founder named.
         "us", "usa", "america", "american", "americans", "states", "united",
@@ -152,56 +177,125 @@ _GENERIC_TOKENS = frozenset(
         "zealand", "india", "indian", "china", "chinese", "europe", "european",
         "asia", "asian", "africa", "global", "worldwide", "international",
         "national", "nationwide", "country", "countries", "world", "region",
-        "regional", "local",
+        "regional",
         # File types and web scaffolding from a search-engine query.
         "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "csv", "html",
         "htm", "txt", "www", "http", "https", "com", "org", "net", "edu", "gov",
-        "url", "site", "website", "websites", "web", "online", "internet",
+        "url", "site", "website", "websites", "web", "internet",
         "blog", "blogs", "article", "articles", "post", "posts", "forum",
         "forums", "thread", "threads", "reddit", "discussion", "discussions",
         # Research filler.
-        "report", "reports", "survey", "surveys", "data", "dataset", "datasets",
+        "report", "reports", "survey", "surveys",
         "study", "studies", "statistic", "statistics", "stats", "research",
         "analysis", "analyses", "result", "results", "finding", "findings",
-        "evidence", "trend", "trends", "market", "markets", "industry",
-        "industries", "overview", "summary", "size", "share", "growth",
-        "average", "percent", "percentage", "number", "numbers", "rate",
-        "rates", "level", "levels", "million", "billion", "thousand", "annual",
-        "quarterly", "yearly", "monthly",
-        # Words every commerce story shares.
-        "price", "prices", "pricing", "cost", "costs", "complaint",
-        "complaints",
+        "evidence", "trend", "trends", "overview", "summary", "size", "share",
+        "growth", "average", "percent", "percentage", "number", "numbers",
+        "level", "levels", "million", "billion", "thousand", "annual",
+        "quarterly", "yearly", "monthly", "complaint", "complaints",
         # Time and age words: "5-7 year old" matches any story that says "years".
+        # Month names are here because a date in a query ("March 2026") is a
+        # date and not a topic ("PFAS contamination in the U.S. (March 5, 2026)").
         "year", "years", "month", "months", "week", "weeks", "day", "days",
-        "time", "today", "old", "age", "ages", "aged",
+        "today", "old", "age", "ages", "aged", "january", "february", "march",
+        "april", "may", "june", "july", "august", "september", "october",
+        "november", "december",
         # Who, in general.
         "user", "users", "customer", "customers", "consumer", "consumers",
         "person", "persons",
     )
-) | LOW_SIGNAL_QUERY_TOKENS  # fmt: skip
+)  # fmt: skip
+
+#: Broad tech and descriptor words. A story about almost anything mentions "AI"
+#: or "an app" these days, so they say nothing about a topic. Singular on purpose:
+#: `_kind` also looks a word up by its stem, so "apps" and "agents" are covered.
+#: "artificial" and "intelligence" are here because `relevance.tokenize` expands
+#: "ai" into them, on the query and on the hit alike.
+_BROAD_TOKENS = frozenset(
+    (
+        "ai", "artificial", "intelligence", "app", "application", "tool",
+        "software", "platform", "model", "agent", "online", "digital", "early",
+        "screen", "tech", "technology", "startup", "product", "service",
+        "solution", "system", "device",
+    )
+)  # fmt: skip
+
+#: Words that name something but are too common to decide a topic alone; two
+#: different ones in one hit do (see the comment above). Most of them are also in
+#: the planner's `LOW_SIGNAL_QUERY_TOKENS`, which `_NEVER_TOKENS` takes them out of.
+_WEAK_TOKENS = frozenset(
+    (
+        "code", "compare", "comparison", "review", "reviews", "rate", "rates",
+        "prompt", "prompts", "prompting", "tutorial", "tutorials", "animation",
+        "animations", "prediction", "predictions", "probability",
+        "probabilities", "chance", "chances", "odds", "price", "prices",
+        "pricing", "cost", "costs", "data", "dataset", "datasets", "market",
+        "markets", "industry", "industries", "time", "local",
+    )
+)  # fmt: skip
+
+_NEVER_TOKENS = (_FILLER_TOKENS | _BROAD_TOKENS | LOW_SIGNAL_QUERY_TOKENS) - _WEAK_TOKENS
 
 #: Years ("2023"), decades ("1990s") and any other bare number.
 _NUMBER = re.compile(r"^\d+s?$")
 
+_NEVER = "never"
+_WEAK = "weak"
+_CONTENT = "content"
 
-def _is_generic(token: str) -> bool:
-    return token in _GENERIC_TOKENS or _NUMBER.match(token) is not None
+
+def _stem(token: str) -> str:
+    """PURE. A crude, predictable stem: a trailing plural "s" comes off.
+
+    Not from a word of three letters or fewer ("ios", "aws", "css") or one ending
+    in "ss" or "us" ("business", "status"). The same rule runs on the query and on
+    the hit, so a word that is not a plural ("analysis" becomes "analysi") still
+    matches itself; what the rule must do is turn "APIs" into "api". "ies" and
+    "es" plurals are left alone, so "batteries" does not match "battery": a miss
+    is the cautious direction here, and a cleverer stemmer is one more thing to
+    get wrong.
+    """
+    if len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us")):
+        return token[:-1]
+    return token
+
+
+def _kind(token: str) -> str:
+    """PURE. Which of NEVER, WEAK and CONTENT a query word is (see above)."""
+    stem = _stem(token)
+    if _NUMBER.match(token) or token in _NEVER_TOKENS or stem in _NEVER_TOKENS:
+        return _NEVER
+    if token in _WEAK_TOKENS or stem in _WEAK_TOKENS:
+        return _WEAK
+    return _CONTENT
 
 
 def matches_a_content_word(prepared: PreparedQuery, text: str) -> bool:
-    """PURE. Does `text` share a CONTENT word with the query? THE one place that
-    decides whether a Hacker News hit is on topic.
+    """PURE. Is `text` on topic for the query? THE one place that decides whether
+    a Hacker News hit is.
 
-    Tokenised with the same `tokenize` the relevance score uses, so a word that
-    counts here counts there. With no content word in the query the test is
-    "any query word"; with no query word at all (stopwords only) every hit stays,
-    as `token_overlap_relevance` already treats such a query as neutral.
+    On topic means it shares one CONTENT word with the query, or two distinct WEAK
+    words (the history is in the comment above `_FILLER_TOKENS`). Tokenised with
+    the same `tokenize` the relevance score uses, so a word that counts here counts
+    there, and compared on `_stem`. With no CONTENT word in the query the test is
+    "any WEAK word", and with no WEAK word either "any query word"; with no query
+    word at all (stopwords only) every hit stays, as `token_overlap_relevance`
+    already treats such a query as neutral.
     """
     query_tokens = prepared.q_tokens
     if not query_tokens:
         return True
-    content_tokens = {token for token in query_tokens if not _is_generic(token)}
-    return bool((content_tokens or query_tokens) & tokenize(text))
+    in_hit = {_stem(token) for token in tokenize(text)}
+    content: set[str] = set()
+    weak: set[str] = set()
+    for token in query_tokens:
+        kind = _kind(token)
+        if kind == _CONTENT:
+            content.add(_stem(token))
+        elif kind == _WEAK:
+            weak.add(_stem(token))
+    if content:
+        return bool(content & in_hit) or len(weak & in_hit) >= 2
+    return bool((weak or {_stem(token) for token in query_tokens}) & in_hit)
 
 
 def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:
@@ -239,7 +333,7 @@ def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:
 
         # A HIT THAT MATCHES NO REAL WORD OF THE QUERY IS NOT ON TOPIC. See
         # `matches_a_content_word`, the one place this is decided, and the
-        # history in the comment above `_GENERIC_TOKENS`. Dropped HERE, where the
+        # history in the comment above `_FILLER_TOKENS`. Dropped HERE, where the
         # looseness is introduced, and not for every lane: a web-search snippet
         # can match a query without repeating its words. An empty result is still
         # a finding (nothing on HN matches), not an error.

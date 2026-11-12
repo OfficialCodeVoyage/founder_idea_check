@@ -224,6 +224,91 @@ class TestHackerNews:
         items = hackernews.parse_hits(payload, "market size report 2024", 10)
         assert [item.item_id for item in items] == ["HN1"]
 
+    @staticmethod
+    def _kept_titles(query, titles):
+        payload = {
+            "hits": [
+                {"objectID": str(index), "title": title, "points": 50}
+                for index, title in enumerate(titles)
+            ]
+        }
+        return [item.title for item in hackernews.parse_hits(payload, query, 50)]
+
+    def test_a_hit_that_shares_two_distinct_weak_words_is_on_topic(self):
+        # REGRESSION (code review of the filter above). "code", "review", "price",
+        # "comparison" and "rate" are on the generic lists, so a hit that matched
+        # only those was dropped, with no stemming either: "tool" did not match
+        # "tools". On-topic stories for developer queries came back empty.
+        cases = [
+            ("code review tools", "Show HN: A code review tool for pull requests"),
+            ("code review tools", "Ask HN: How do you do code review in a small team?"),
+            ("price comparison tool", "Show HN: price comparison for flights"),
+            ("rate limiting api gateway", "Show HN: rate limiter for APIs"),
+        ]
+        for query, title in cases:
+            kept = self._kept_titles(query, [title])
+            assert len(kept) == 1, (query, title)
+
+        # With a content word in the query, two distinct weak words still carry a
+        # hit that has none of it, and one weak word does not.
+        kept = self._kept_titles(
+            "code review automation",
+            [
+                "How do you do code review in a small team?",
+                "A code formatter written in Rust",
+            ],
+        )
+        assert kept == ["How do you do code review in a small team?"]
+
+    def test_a_word_matches_its_plural_on_both_sides(self):
+        assert self._kept_titles("migrations", ["Zero-downtime migration tooling"]) != []
+        assert self._kept_titles("migration", ["Zero-downtime migrations"]) != []
+        # Only a trailing "s" is stemmed: a different word stays a different word.
+        assert self._kept_titles("migrations", ["Migrating a monolith"]) == []
+
+    def test_broad_tech_words_never_qualify_a_hit_alone_or_in_a_pair(self):
+        # REGRESSION (live QA, third run): the query for an AI-personalised
+        # children's books product held "AI", "app", "early" and "screen", and 18
+        # of 38 Hacker News titles passed; only 3 were about children's reading.
+        query = "AI personalised children's books app for parents of early readers screen time"
+        off_topic = [
+            "Traceforce (YC S26) - Company-wide security monitoring for AI apps",
+            "Google, Microsoft and xAI agree to share early AI models with U.S.",
+            "Meta's New Muse AI App Tops Charts, Draws Strong Early Reviews",
+            "Lazyagent - TUI for to watch all your AI coding agents",
+            "Wordie - Spaced repetition vocab app built around sentences not quizzes",
+        ]
+        on_topic = [
+            "Open-source early-reading reader with phonics help",
+            "A book recommender for my kids",
+            "Parents are trying to cut back on screen time",
+        ]
+        assert self._kept_titles(query, off_topic + on_topic) == on_topic
+
+        # A broad word does not complete a pair either: "tool" plus one weak word.
+        kept = self._kept_titles(
+            "kids code review tools",
+            ["A tool that reviews how my team uses its tools", "A code review bot"],
+        )
+        assert kept == ["A code review bot"]
+
+    def test_a_date_or_the_market_named_in_the_question_never_qualifies_a_hit(self):
+        # The original QA failures, for a children's-personalised-books question
+        # answered "United States". "U.S." is no token at all, so each of these
+        # matched on a word the query only carried as filler.
+        query = (
+            "personalised children's books for early readers United States March 2026 "
+            "2023 pdf survey statistics app"
+        )
+        titles = [
+            "Claude becomes number one app on the U.S. App Store",
+            "PFAS contamination in the U.S. (March 5, 2026)",
+            "Euphemisation of Taboo Areas (2023) [pdf]",
+            "United States Antarctic Program Field Manual (2024) [pdf]",
+            "Personalised bedtime stories for my kids",
+        ]
+        assert self._kept_titles(query, titles) == ["Personalised bedtime stories for my kids"]
+
     def test_drops_low_engagement_stories_client_side(self):
         payload = {"hits": [{"objectID": "1", "title": "t", "points": 1}]}
         assert hackernews.parse_hits(payload, "t", 10) == []
@@ -870,9 +955,7 @@ class TestArcticShiftLaneResilience:
         # The second subreddit is not asked straight after the first.
         assert arctic_shift._SUBREDDIT_SPACING_SECONDS in clock.slept
 
-    def test_a_429_starts_a_cooldown_that_keeps_the_next_search_off_the_archive(
-        self, monkeypatch
-    ):
+    def test_a_429_starts_a_cooldown_that_keeps_the_next_search_off_the_archive(self, monkeypatch):
         # STOP EARLY ON A 429, for the lane and not only for the call: the other
         # query of the same step, and the run's later searches, must not ask an
         # archive that has just said it is receiving too many requests.

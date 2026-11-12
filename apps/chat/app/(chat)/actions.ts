@@ -1,5 +1,10 @@
-"use server";
-
+// Server-only, deliberately NOT "use server": a server action is an HTTP
+// endpoint any client can POST to, and this one spends model money with no
+// session check. Its callers (`app/(chat)/api/chat/route.ts` and
+// `api/chat/prepare/route.ts`) are route handlers that run it only after
+// resolving a signed-in user; anonymous chats are not persisted and get no
+// title.
+import "server-only";
 import { generateText } from "ai";
 import { getLanguageModel } from "@/lib/ai/providers";
 import type { ChatMessage } from "@/lib/ai/types";

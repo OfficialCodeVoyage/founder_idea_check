@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
-import { createElement } from "react";
+import { createElement, StrictMode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { AbstractThread } from "../src/abstract-thread";
 import { getMessageText } from "../src/message-utils";
@@ -249,6 +249,34 @@ describe("useThread", () => {
 
 		expect(transport.reconnects).toBe(1);
 		hook.unmount();
+	});
+
+	test("resumes once even when Strict Mode runs the resume effect twice", async () => {
+		const transport = new ResumeTransport();
+		const thread = new Thread({
+			messages: [user("user-1"), assistant("assistant-1")],
+			transport,
+		});
+		let renderer: ReactTestRenderer | undefined;
+
+		act(() => {
+			renderer = create(
+				createElement(
+					StrictMode,
+					null,
+					createElement(HookHarness, {
+						onRender: () => {},
+						options: { resume: true, thread },
+					}),
+				),
+			);
+		});
+		await act(async () => {
+			await Bun.sleep(0);
+		});
+
+		expect(transport.reconnects).toBe(1);
+		act(() => renderer?.unmount());
 	});
 
 	test("keeps status immediate while throttling message snapshots", async () => {

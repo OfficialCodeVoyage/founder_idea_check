@@ -201,8 +201,20 @@ export function useThread<TMessage extends UIMessage = UIMessage>(
 	const error = useThreadField(thread, "error");
 	const treeStatus = useThreadField(thread, "treeStatus");
 
+	// Resume once per `resume` becoming true, not once per effect run. React
+	// Strict Mode runs effects twice on mount in development, and two
+	// overlapping resumes of one chat break the AI SDK: the first to finish
+	// clears the chat's active response and the second then reads
+	// `activeResponse.state` of undefined. A ref survives the simulated remount.
+	const resumedRef = useRef(false);
 	useEffect(() => {
-		if (options.resume) threadRef.current?.resumeStream();
+		if (!options.resume) {
+			resumedRef.current = false;
+			return;
+		}
+		if (resumedRef.current) return;
+		resumedRef.current = true;
+		threadRef.current?.resumeStream();
 	}, [options.resume]);
 
 	const setMessages = useCallback<UseChatHelpers<TMessage>["setMessages"]>(

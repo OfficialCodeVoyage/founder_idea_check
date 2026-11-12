@@ -1,7 +1,7 @@
 "use client";
 
 import { DefaultChatTransport } from "ai";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useSaveMessageMutation } from "@/hooks/chat-sync-hooks";
 import { useCompleteDataPart } from "@/hooks/use-complete-data-part";
@@ -35,11 +35,15 @@ export function ChatSync({ id }: { id: string }) {
   const lastMessage = threadInitialMessages.at(-1);
   const lastMessageRef = useRef(lastMessage);
   lastMessageRef.current = lastMessage;
-  const isLastMessagePartial = isResumableActiveStreamId(
-    lastMessage?.metadata?.activeStreamId
-  );
+  const activeStreamId = lastMessage?.metadata?.activeStreamId;
+  // What would be resumed: this message's stream. A different key (a sibling
+  // that is still streaming becoming the last message) is a different resume.
+  const resumeKey =
+    lastMessage && isResumableActiveStreamId(activeStreamId)
+      ? `${lastMessage.id}:${activeStreamId}`
+      : null;
 
-  useChat<ChatMessage>({
+  const { resumeStream } = useChat<ChatMessage>({
     experimental_throttle: 100,
     id,
     // TODO: this is a special "snapshot" value in the store that is only updated
@@ -51,7 +55,6 @@ export function ChatSync({ id }: { id: string }) {
       addMessageToTree(message);
       saveChatMessage({ message, chatId: id });
     },
-    resume: isLastMessagePartial,
     transport: new DefaultChatTransport({
       api: "/api/chat",
       fetch: fetchWithErrorHandlers as typeof fetch,
@@ -95,6 +98,34 @@ export function ChatSync({ id }: { id: string }) {
       toast.error(message, description ? { description } : undefined);
     },
   });
+
+  // RESUME EACH STREAM ONCE, NOT ONCE PER EFFECT RUN.
+  //
+  // This replaces useChat's own `resume` option, whose effect calls
+  // `resumeStream()` every time React runs it. React Strict Mode runs every
+  // effect twice on mount in development, so each mid-stream reload sent two
+  // identical GETs to /api/chat/<id>/stream. The AI SDK's `makeRequest` cannot
+  // overlap with itself: the first request to finish clears `activeResponse`,
+  // and the second then reads `activeResponse.state` in its `finally` and
+  // throws "Cannot read properties of undefined (reading 'state')", which
+  // lights the Next dev issue badge. That read is inside the SDK, so the fix is
+  // to never start two resumes of the same stream.
+  //
+  // A ref survives Strict Mode's simulated remount, so the second run sees the
+  // first one's key and returns. A different key still resumes, and the key
+  // clears when nothing is resumable so a stream that comes back resumes again.
+  const resumedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (resumeKey === null) {
+      resumedKeyRef.current = null;
+      return;
+    }
+    if (resumedKeyRef.current === resumeKey) {
+      return;
+    }
+    resumedKeyRef.current = resumeKey;
+    resumeStream();
+  }, [resumeKey, resumeStream]);
 
   useCompleteDataPart();
 

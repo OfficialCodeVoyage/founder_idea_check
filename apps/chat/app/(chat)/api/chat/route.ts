@@ -871,7 +871,8 @@ async function prepareRequestContext({
  *     DEAD_INPUT_STREAM_MARKER. That is what makes it distinguishable from a
  *     call still in flight — the exact distinction whose absence hid this for a
  *     whole session. It also un-hides the failure from the MODEL:
- *     `convertToModelMessages` (ai@6.0.219, dist/index.mjs:8876) DROPS
+ *     `convertToModelMessages` (ai@6.0.219, its `isToolUIPart` branch skips a
+ *     part whose state is `input-streaming`) DROPS
  *     `input-streaming` parts entirely, so on the next turn the assistant had
  *     no idea it had ever tried; an `output-error` part reaches it as a real
  *     tool error it can act on.

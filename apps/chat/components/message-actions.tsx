@@ -95,7 +95,8 @@ function PureMessageActions({
           // repo's reference copy implementation and it did guard on empty and
           // did await — but `useCopyToClipboard` from usehooks-ts CATCHES the
           // rejection, `console.warn`s it, and returns `false`
-          // (usehooks-ts/dist/index.js:60). The boolean was dropped, so a
+          // (usehooks-ts@3.1.1, `useCopyToClipboard`'s `copy` callback, the
+          // "Copy failed" branch). The boolean was dropped, so a
           // denied permission or an unfocused document still produced "Copied
           // to clipboard!". The outcome is now read and reported.
           const outcome = await copyArtifactToClipboard({

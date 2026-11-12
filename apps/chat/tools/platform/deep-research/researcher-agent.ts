@@ -64,7 +64,8 @@ export async function runResearcher(
     }),
     tools,
     // EXPLICIT, and it must stay explicit. ToolLoopAgent defaults stopWhen to
-    // stepCountIs(20) (ai@6.0.219, dist/index.js:8641), so omitting this does
+    // stepCountIs(20) (ai@6.0.219, the `stopWhen` fallback in ToolLoopAgent's
+    // call arguments), so omitting this does
     // not mean one pass — it means up to twenty model round trips per topic,
     // times max_concurrent_research_units, times the supervisor's iterations.
     // The supervisor next door has always bounded itself; this agent was

@@ -175,7 +175,8 @@ const config = defineConfig({
          * Hard step ceiling for ONE researcher agent's tool loop, per topic.
          *
          * This must be set explicitly. `ToolLoopAgent` in ai@6.0.219 defaults
-         * `stopWhen` to `stepCountIs(20)` (`ai/dist/index.js:8641`), so omitting
+         * `stopWhen` to `stepCountIs(20)` (its `stopWhen` fallback when the
+         * settings carry none), so omitting
          * it does not mean "one pass" — it means up to twenty model round trips
          * per topic, multiplied by `maxConcurrentResearchUnits` and again by the
          * supervisor's iterations. The supervisor has always been bounded

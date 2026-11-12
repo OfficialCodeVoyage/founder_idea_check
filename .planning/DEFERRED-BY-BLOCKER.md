@@ -33,6 +33,12 @@ script would otherwise block every shell command on a branch that predates the h
 the guard is absent, not failing closed, on such a branch.
 **Clearing condition:** none planned; revisit if the guard is ever relied on as a security boundary.
 
+### SWEEP-F4 — One test edit landed after the QA-batch review round
+**Raised:** 2026-11-12, `release/public-prep-261112`, review gate at the private-backup push. **Status:** OPEN
+`packages/cli/src/helpers/scaffold.test.ts` changed after the `/code-review` round over the QA batch: one expected
+value moved from `bun@1.3.1` to `bun@1.3.14` to follow the root `packageManager` pin. Test-only, no runtime code.
+**Clearing condition:** covered by the `/code-review` round over the full release diff before the public push.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

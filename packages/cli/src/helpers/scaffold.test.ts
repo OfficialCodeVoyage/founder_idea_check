@@ -200,7 +200,7 @@ describe("scaffoldFromTemplate", () => {
 			overrides?: Record<string, string>;
 		};
 
-		expect(packageJson.packageManager).toBe("bun@1.3.1");
+		expect(packageJson.packageManager).toBe("bun@1.3.14");
 		expect(packageJson.dependencies["@better-auth/core"]).toBe("1.5.6");
 		expect(packageJson.dependencies["@better-auth/electron"]).toBe("1.5.6");
 		expect(packageJson.dependencies["better-auth"]).toBe("1.5.6");

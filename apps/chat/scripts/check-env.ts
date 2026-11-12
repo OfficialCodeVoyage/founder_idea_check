@@ -18,6 +18,7 @@ import {
   aiToolEnvRequirements,
   authEnvRequirements,
   gatewayEnvRequirements,
+  getMissingDeepResearchBackend,
   getMissingRequirement,
   isRequirementSatisfied,
 } from "../lib/config-requirements";
@@ -314,6 +315,15 @@ function validateAiTools(env: NodeJS.ProcessEnv): ValidationError[] {
         feature: `ai.tools.${tool}`,
         missing: [missing],
       });
+    }
+  }
+
+  // Not in the table above: its backend can be a config key, not only a variable.
+  const deepResearch = config.ai.tools.deepResearch;
+  if (deepResearch.enabled) {
+    const missing = getMissingDeepResearchBackend(deepResearch, env);
+    if (missing) {
+      errors.push({ feature: "ai.tools.deepResearch", missing: [missing] });
     }
   }
 

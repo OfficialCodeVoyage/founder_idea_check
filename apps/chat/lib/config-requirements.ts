@@ -51,10 +51,6 @@ export const aiToolEnvRequirements: Partial<
     options: [["TAVILY_API_KEY"], ["FIRECRAWL_API_KEY"]],
     description: "TAVILY_API_KEY or FIRECRAWL_API_KEY",
   },
-  deepResearch: {
-    options: [["TAVILY_API_KEY"], ["FIRECRAWL_API_KEY"]],
-    description: "TAVILY_API_KEY or FIRECRAWL_API_KEY",
-  },
   mcp: {
     options: [["MCP_ENCRYPTION_KEY"]],
     description: "MCP_ENCRYPTION_KEY",
@@ -68,6 +64,40 @@ export const aiToolEnvRequirements: Partial<
       "VERCEL_OIDC_TOKEN (auto on Vercel) or VERCEL_TEAM_ID + VERCEL_PROJECT_ID + VERCEL_TOKEN",
   },
 };
+
+/**
+ * Deep research's one real requirement: A SEARCH BACKEND, which is any of the
+ * apps/research sidecar, Tavily or Firecrawl.
+ *
+ * It is not an entry in `aiToolEnvRequirements` because the sidecar's address
+ * is the config key `researchSidecarUrl`, not an environment variable. The
+ * entry that stood there said "TAVILY_API_KEY or FIRECRAWL_API_KEY" and was
+ * written before the sidecar existed, so a clean checkout with the shipped
+ * `chat.config.ts` (sidecar URL set, no cloud key) failed `prebuild` on a
+ * requirement the research tool does not have.
+ *
+ * Mirrors `getSearchApi` in tools/platform/deep-research/configuration.ts:
+ * a non-empty `researchSidecarUrl` is a backend by itself, otherwise a Tavily
+ * or Firecrawl key is. With none of them the tool registers as unavailable and
+ * says so (research-availability.ts), so naming it here is a build-time
+ * courtesy, not the only thing standing between the founder and a silent
+ * failure.
+ */
+const deepResearchCloudKeyRequirement: EnvRequirement = {
+  options: [["TAVILY_API_KEY"], ["FIRECRAWL_API_KEY"]],
+};
+
+export function getMissingDeepResearchBackend(
+  deepResearch: { researchSidecarUrl: string },
+  env: NodeJS.ProcessEnv
+): string | null {
+  if (deepResearch.researchSidecarUrl) {
+    return null;
+  }
+  return isRequirementSatisfied(deepResearchCloudKeyRequirement, env)
+    ? null
+    : "researchSidecarUrl in chat.config.ts (the apps/research sidecar), TAVILY_API_KEY or FIRECRAWL_API_KEY";
+}
 
 export const authEnvRequirements: Record<
   keyof AuthenticationConfig,

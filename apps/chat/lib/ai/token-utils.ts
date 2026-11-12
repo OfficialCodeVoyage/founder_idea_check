@@ -5,9 +5,38 @@ import { RecursiveCharacterTextSplitter } from "./text-splitter";
 const MinChunkSize = 140;
 const encoder = getEncoding("o200k_base");
 
-/** Slice length for a whitespace-free run; see `encodedLength`. */
-const MAX_UNBROKEN_RUN = 64;
-const LONG_UNBROKEN_RUN = new RegExp(`\\S{${MAX_UNBROKEN_RUN + 1},}`, "g");
+/** Characters per `encode` call; see `encodedLength`. */
+const MAX_CHUNK_CHARS = 1024;
+/** How far back from a chunk's end a space is looked for to cut before. */
+const CHUNK_BOUNDARY_SEARCH = 128;
+/**
+ * Longest slice of one run handed to `encode`, in UTF-8 bytes, since the
+ * merge works on bytes. 64 keeps identifiers, paths and URLs whole in nearly
+ * every case.
+ */
+const MAX_RUN_BYTES = 64;
+/**
+ * The runs o200k's pre-tokenizer can make one long piece of: non-whitespace,
+ * whitespace, and the `[\r\n/]*` tail it lets follow punctuation (its
+ * ` ?[^\s\p{L}\p{N}]+[\r\n/]*` branch), which mixes the two. Any longer than
+ * `MAX_RUN_BYTES` characters is sliced.
+ */
+const LONG_RUN = new RegExp(
+  ["\\S", "\\s", "[\\r\\n/]"]
+    .map((run) => `${run}{${MAX_RUN_BYTES + 1},}`)
+    .join("|"),
+  "g"
+);
+const WHITESPACE = /\s/;
+/** Characters counted exactly; the rest of a longer text is a floor. */
+const MAX_EXACT_CHARS = 100_000;
+/**
+ * The floor for characters past `MAX_EXACT_CHARS`. English prose runs about
+ * 4.5 characters per o200k token, code fewer and Chinese about one, so 8 is
+ * under the real count for text of every kind; only a long repeat of one
+ * character packs more characters into a token.
+ */
+const FLOOR_CHARS_PER_TOKEN = 8;
 
 /**
  * The tokens `encoder` makes of `text`, with special-token markers such as
@@ -22,50 +51,109 @@ const LONG_UNBROKEN_RUN = new RegExp(`\\S{${MAX_UNBROKEN_RUN + 1},}`, "g");
  * characters it is (`<|`, `endoftext`, `|>`), never as a control token, so a
  * count can no longer throw on what a message says.
  *
- * LONG RUNS WITHOUT WHITESPACE ARE ENCODED IN SLICES. js-tiktoken's byte-pair
- * merge is quadratic in the length of one pre-tokenized piece, and a run of
- * letters with no space or punctuation is one piece: 10,000 such characters
- * took 3.4 to 4.4 s, 20,000 took 13.9 to 15.1 s and 40,000 took 61 s on
- * js-tiktoken 1.0.21, synchronously, on the request's thread (pasted base-32,
- * a DNA string, a model looping on one letter). Every whitespace-free run
- * longer than `MAX_UNBROKEN_RUN` is therefore cut into slices of that length
- * and each slice encoded on its own, which bounds the cost per character.
- * Ordinary prose has no such run and is encoded in one call, exactly as
- * before; a sliced run can gain or lose about one token per cut (under 1% on
- * 40,000 random letters), since a real token is rarely that long.
+ * NO TEXT REACHES `encode` IN A PIECE LONG ENOUGH TO STALL IT. js-tiktoken's
+ * byte-pair merge is quadratic in the length of one pre-tokenized piece, and
+ * a run of letters, or of spaces, is one piece: 40,000 letters took 61 to 73 s
+ * on js-tiktoken 1.0.21, synchronously, on the request's thread (pasted
+ * base-32, a DNA string, a model looping on one character). So the cost is
+ * bounded three ways:
+ *  - inside a chunk, every run the pre-tokenizer could make one long piece of
+ *    (`LONG_RUN`) is encoded in slices of at most `MAX_RUN_BYTES` UTF-8
+ *    bytes, so no piece is longer than about twice that;
+ *  - whatever the text holds, no `encode` call gets more than
+ *    `MAX_CHUNK_CHARS`: the text is encoded in chunks of at most that, each
+ *    cut before a space that follows a non-space within the last
+ *    `CHUNK_BOUNDARY_SEARCH` characters when there is one (a cut there leaves
+ *    every piece as one call would make it), else at the length, never inside
+ *    a surrogate pair. A piece shape missed above costs at most one chunk's
+ *    worth of quadratic work per chunk;
+ *  - only the first `MAX_EXACT_CHARS` characters are counted exactly; the
+ *    rest, which no prompt part in this app reaches in normal use, adds
+ *    `FLOOR_CHARS_PER_TOKEN` characters per token.
+ * Ordinary prose has few runs that long, so its count barely moves (+0.2%
+ * over the repo's own docs and code); a sliced run can gain or lose about one
+ * token per cut, since a real token is rarely that long.
  */
 function encodedLength(text: string): number {
+  const exactEnd = surrogateSafeEnd(
+    text,
+    Math.min(text.length, MAX_EXACT_CHARS)
+  );
   let tokens = 0;
   let start = 0;
-  for (const run of text.matchAll(LONG_UNBROKEN_RUN)) {
-    tokens += encodePlain(text.slice(start, run.index));
+  while (start < exactEnd) {
+    const end = chunkEnd(text, start, exactEnd);
+    tokens += encodeChunk(text.slice(start, end));
+    start = end;
+  }
+  return tokens + Math.ceil((text.length - exactEnd) / FLOOR_CHARS_PER_TOKEN);
+}
+
+function chunkEnd(text: string, start: number, limit: number): number {
+  const hardEnd = start + MAX_CHUNK_CHARS;
+  if (hardEnd >= limit) {
+    return limit;
+  }
+  for (let i = hardEnd; i > hardEnd - CHUNK_BOUNDARY_SEARCH; i--) {
+    if (text[i] === " " && !WHITESPACE.test(text[i - 1] ?? " ")) {
+      return i;
+    }
+  }
+  return surrogateSafeEnd(text, hardEnd);
+}
+
+function encodeChunk(chunk: string): number {
+  let tokens = 0;
+  let start = 0;
+  for (const run of chunk.matchAll(LONG_RUN)) {
+    tokens += encodePlain(chunk.slice(start, run.index));
     tokens += encodeInSlices(run[0]);
     start = run.index + run[0].length;
   }
-  return tokens + encodePlain(text.slice(start));
+  return tokens + encodePlain(chunk.slice(start));
 }
 
 function encodePlain(text: string): number {
   return text.length > 0 ? encoder.encode(text, [], []).length : 0;
 }
 
+/** Encodes `run` in slices of at most `MAX_RUN_BYTES` UTF-8 bytes each. */
 function encodeInSlices(run: string): number {
   let tokens = 0;
   let start = 0;
-  while (start < run.length) {
-    let end = Math.min(start + MAX_UNBROKEN_RUN, run.length);
-    // Never split a surrogate pair: half an emoji would encode as U+FFFD.
-    if (end < run.length && isHighSurrogate(run.charCodeAt(end - 1))) {
-      end += 1;
+  let bytes = 0;
+  let i = 0;
+  while (i < run.length) {
+    const code = run.charCodeAt(i);
+    const isPair = code >= 0xd8_00 && code <= 0xdb_ff && i + 1 < run.length;
+    const width = utf8Width(code, isPair);
+    if (bytes + width > MAX_RUN_BYTES && i > start) {
+      tokens += encodePlain(run.slice(start, i));
+      start = i;
+      bytes = 0;
     }
-    tokens += encodePlain(run.slice(start, end));
-    start = end;
+    bytes += width;
+    i += isPair ? 2 : 1;
   }
-  return tokens;
+  return tokens + encodePlain(run.slice(start));
 }
 
-function isHighSurrogate(code: number): boolean {
-  return code >= 0xd8_00 && code <= 0xdb_ff;
+function utf8Width(code: number, isSurrogatePair: boolean): number {
+  if (isSurrogatePair) {
+    return 4;
+  }
+  if (code < 0x80) {
+    return 1;
+  }
+  return code < 0x8_00 ? 2 : 3;
+}
+
+/** `end`, or one past it when a cut there would split a surrogate pair. */
+function surrogateSafeEnd(text: string, end: number): number {
+  const code = text.charCodeAt(end - 1);
+  return end < text.length && code >= 0xd8_00 && code <= 0xdb_ff
+    ? end + 1
+    : end;
 }
 
 /**

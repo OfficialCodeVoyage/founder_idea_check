@@ -882,9 +882,7 @@ export abstract class AbstractThread<TMessage extends UIMessage = UIMessage> {
 	) {
 		this.#runs.assertHasCapacity(run.spec.parentMessageId);
 		run.chat.refreshPath();
-		const finished = run.chat
-			.resumeStream(options)
-			.finally(() => this.publish());
+		const finished = run.chat.resume(options).finally(() => this.publish());
 		run.finished = finished;
 		this.publish();
 		await finished;

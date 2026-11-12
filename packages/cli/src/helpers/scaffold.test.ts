@@ -206,10 +206,10 @@ describe("scaffoldFromTemplate", () => {
 		expect(packageJson.packageManager).toBe(
 			repoRootPackageJson.packageManager,
 		);
-		expect(packageJson.dependencies["@better-auth/core"]).toBe("1.5.6");
-		expect(packageJson.dependencies["@better-auth/electron"]).toBe("1.5.6");
-		expect(packageJson.dependencies["better-auth"]).toBe("1.5.6");
-		expect(packageJson.overrides?.["@better-auth/core"]).toBe("1.5.6");
+		expect(packageJson.dependencies["@better-auth/core"]).toBe("1.6.34");
+		expect(packageJson.dependencies["@better-auth/electron"]).toBe("1.6.34");
+		expect(packageJson.dependencies["better-auth"]).toBe("1.6.34");
+		expect(packageJson.overrides?.["@better-auth/core"]).toBe("1.6.34");
 	});
 
 	it("rewrites the generated web app to be npm-friendly", async () => {

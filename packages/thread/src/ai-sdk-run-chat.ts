@@ -112,13 +112,20 @@ class ThreadRunState<TMessage extends UIMessage>
 export class ThreadRunChat<
 	TMessage extends UIMessage,
 > extends AbstractChat<TMessage> {
+	readonly #resumeProbe: { foundNoStream: boolean };
 	readonly #state: ThreadRunState<TMessage>;
 
 	constructor(host: ThreadRunHost<TMessage>, spec: ThreadRunSpec) {
 		const responseMessageId = host.generateMessageId();
 		const state = new ThreadRunState(host, spec);
+		const resumeProbe = { foundNoStream: false };
 		const transport: ChatTransport<TMessage> = {
-			reconnectToStream: (options) => host.transport.reconnectToStream(options),
+			reconnectToStream: async (options) => {
+				const stream = await host.transport.reconnectToStream(options);
+				resumeProbe.foundNoStream = stream === null;
+				return stream;
+			},
+			resumeStreamIsReplay: host.transport.resumeStreamIsReplay,
 			sendMessages: (options) => {
 				return host.transport.sendMessages({
 					...options,
@@ -131,7 +138,9 @@ export class ThreadRunChat<
 		};
 		super({
 			dataPartSchemas: host.dataPartSchemas,
-			generateId: () => responseMessageId,
+			// `ai` builds a resumed response from empty state under this id, so a run
+			// rebuilt around an existing assistant must reuse that assistant's id.
+			generateId: () => spec.messageId ?? responseMessageId,
 			id: host.id,
 			messageMetadataSchema: host.messageMetadataSchema,
 			onData: (event) => host.onData?.(event),
@@ -153,11 +162,27 @@ export class ThreadRunChat<
 			state,
 			transport,
 		});
+		this.#resumeProbe = resumeProbe;
 		this.#state = state;
 	}
 
 	refreshPath() {
 		this.#state.refreshPath();
+	}
+
+	/**
+	 * `resumeStream` that finds no stream ends in status "ready" with the run's
+	 * error cleared (`ai` 6.0.302 and later). A failed run keeps its error until
+	 * the caller clears it, so put the error back when nothing was resumed.
+	 */
+	async resume(options?: ChatRequestOptions) {
+		const error = this.error;
+		this.#resumeProbe.foundNoStream = false;
+		await this.resumeStream(options);
+		if (error && this.#resumeProbe.foundNoStream) {
+			this.#state.error = error;
+			this.#state.status = "error";
+		}
 	}
 
 	start(options?: ChatRequestOptions) {

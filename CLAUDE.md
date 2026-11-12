@@ -26,8 +26,8 @@ validated project to a coding agent. It is a fork of ChatJS (Apache-2.0, see `NO
 - Models come from OpenAI through `apps/chat/chat.config.ts` (`gpt-5.6-terra` for chat and the gate judge,
   `gpt-5.6-luna` for titles, extraction and research).
 - Pins with a reason: Python `<3.12` and `mcp<2` (OASIS, `apps/research/pyproject.toml`); `ultracite@7.4.3`
-  (an unpinned `bunx ultracite` pulls a newer major); the `@better-auth/core` override in the root `package.json`
-  (its recorded reason is out of date; change it only as a dependency task).
+  (an unpinned `bunx ultracite` pulls a newer major); `@better-auth/core` in `apps/chat/package.json`, which must
+  equal the version `better-auth` declares (a root `overrides` entry that forced an older core broke `import "better-auth"`).
 
 ### Commands
 ```bash

@@ -87,7 +87,7 @@ describe("create command", () => {
         "@vercel/blob"
       ]
     ).toBeUndefined();
-    expect(packageJson.overrides?.["@better-auth/core"]).toBe("1.5.6");
+    expect(packageJson.overrides?.["@better-auth/core"]).toBe("1.6.34");
   });
 
   it("treats storage config as an explicit storage request", async () => {

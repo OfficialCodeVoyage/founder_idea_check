@@ -57,8 +57,7 @@ function PureParallelResponseCards({ messageId }: { messageId: string }) {
 
   const cardSlots = useMemo(() => {
     if (
-      !message ||
-      message.role !== "user" ||
+      message?.role !== "user" ||
       !message.metadata.parallelGroupId ||
       typeof message.metadata.selectedModel === "string"
     ) {

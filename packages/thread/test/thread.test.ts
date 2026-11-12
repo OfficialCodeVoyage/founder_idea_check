@@ -561,7 +561,7 @@ describe("Thread", () => {
 		await Promise.all([resumed, run.finished]);
 	});
 
-	test("refreshes the canonical message path before resuming", async () => {
+	test("rebuilds the stored response from the replayed stream when resuming", async () => {
 		const transport = new ControlledTransport();
 		const chat = new Thread({ transport });
 		const run = await chat.startRun({ message: user("user-1") });
@@ -580,6 +580,9 @@ describe("Thread", () => {
 
 		const resumed = chat.resumeRun(run.id);
 		await Bun.sleep(0);
+		// A resumed stream replays the response from its `start` chunk; `ai`
+		// rebuilds the message from it instead of appending to the stored one.
+		reconnect.enqueue({ messageId: "assistant-1", type: "start" });
 		reconnect.enqueue({ id: "resumed", type: "text-start" });
 		reconnect.enqueue({ delta: "resumed", id: "resumed", type: "text-delta" });
 		reconnect.enqueue({ id: "resumed", type: "text-end" });
@@ -588,7 +591,7 @@ describe("Thread", () => {
 		await resumed;
 
 		expect(getMessageText(requireMessage(chat.getMessage("assistant-1")))).toBe(
-			"edited resumed",
+			"resumed",
 		);
 	});
 

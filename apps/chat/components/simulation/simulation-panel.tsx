@@ -39,9 +39,11 @@ const RAN_BUT_EMPTY = new Set(["no-reactions", "too-few-reactions"]);
 
 /**
  * What the panel says about a failed run, in the three cases the action
- * distinguishes. Which kinds are free is `SIMULATION_NEVER_STARTED_KINDS`,
- * the same set `simulationReachedModel` charges by, so the sentence about
- * credits cannot drift from the charge.
+ * distinguishes. Which kinds are always free is
+ * `SIMULATION_NEVER_STARTED_KINDS`, the same set `simulationReachedModel`
+ * waives by, so the sentence about credits cannot drift from the charge. A
+ * run that came back empty is refunded only when every agent call failed, so
+ * its sentence says nothing about credits.
  */
 function describeFailure(kind: string): {
   headline: string;

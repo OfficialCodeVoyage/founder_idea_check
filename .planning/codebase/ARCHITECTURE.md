@@ -170,7 +170,8 @@ N+1's system prompt.
 4. `executeChatRequest` inserts an empty assistant placeholder with an `activeStreamId`, installs a throttled cancel
    check (`getMessageCanceledAt`, once per second), builds the stream with `createChatStream`, and returns it as SSE,
    wrapped by `resumable-stream` when `REDIS_URL` is set (`getStreamContext`; the GET resume handler is
-   `apps/chat/app/(chat)/api/chat/[id]/stream/route.ts`).
+   `apps/chat/app/(chat)/api/chat/[id]/stream/route.ts`), or plain when `resumable-stream` fails before it takes the
+   stream, so the turn is still read and charged.
 5. `createChatStream` composes the system prompt in `getSystemPrompt`: `systemPrompt()` (`apps/chat/lib/ai/prompts.ts`), the
    project's instructions, then `buildPhaseSystemBlock` (`apps/chat/lib/phases/runtime.ts`: persona prompt, current phase prompt
    from `apps/chat/prompts/`, ranked fact block, gate directive). Anonymous chats and chats whose owner does not own
@@ -268,15 +269,18 @@ N+1's system prompt.
 ### Simulation
 
 1. The simulation screen calls `runProjectSimulation` (`apps/chat/app/actions/run-simulation.ts`): session, project
-   ownership, pitch bounds, `canSpend`, persona versions and founder-filled seats, `toSimulationPersonas`
-   (`apps/chat/lib/personas/simulation-input.ts`).
+   ownership, pitch bounds, persona versions and founder-filled seats, `toSimulationPersonas`
+   (`apps/chat/lib/personas/simulation-input.ts`), the seat cap, then `reserveCredits` (`apps/chat/lib/db/credits.ts`), which
+   deducts the estimate (`estimateSimulationCostCents`) atomically while the balance is positive, or refuses with
+   `insufficient-credits`.
 2. `runSimulation` (`apps/chat/lib/research/simulation.ts`) validates seats and calls the injected runner
    `createSidecarSimulationRunner` (`apps/chat/lib/research/sidecar-simulation.ts`): `POST /v1/simulate`, 300 s ceiling.
 3. The sidecar imports OASIS lazily inside `run_simulation` (`apps/research/app/simulation/oasis_runner.py`); absence is
    the named failure `oasis-not-installed`. Fewer than two reactions is a named failure, not a verdict.
-4. The app judges with `judgeSimulation` (not-assessed arm has no `usable` field), `insertSimulationRun` records a run
-   that happened (`usable` null when nothing was measured), `deductCredits` charges an estimate
-   (`estimateSimulationCostCents`), and `revalidatePath` refreshes the screen. Output is hard-wired
+4. The app judges with `judgeSimulation` (not-assessed arm has no `usable` field). `addCredits` refunds the reserve when
+   `simulationReachedModel` is false: a kind in `SIMULATION_NEVER_STARTED_KINDS`, or a `no-reactions` run in which every
+   expected agent call failed. `insertSimulationRun` then records a run that happened (`usable` null when nothing was
+   measured), whatever was refunded, and `revalidatePath` refreshes the screen. Output is hard-wired
    `usableAsEvidence: false`.
 
 ### Canvas and export reads (no model call)
@@ -519,7 +523,8 @@ the session itself. The sidecar authenticates callers with `RESEARCH_SIDECAR_TOK
 (`apps/research/app/main.py::require_caller`, `docs/ADR/0005-sidecar-caller-auth.md`).
 **Configuration:** `apps/chat/chat.config.ts` validated by `apps/chat/lib/config-schema.ts`, read through `apps/chat/lib/config.ts`; env
 through `apps/chat/lib/env.ts` from `apps/chat/lib/env-schema.ts`; sidecar env in `apps/research/app/config.py`.
-**Cost:** `CostAccumulator` per turn and per post-turn pass; `canSpend` before a turn and before a simulation.
+**Cost:** `CostAccumulator` per turn and per post-turn pass, `canSpend` before a turn; a simulation reserves its estimate
+before the run and is refunded only when `simulationReachedModel` is false (reserve, run, refund).
 
 ## Where docs and code disagree
 

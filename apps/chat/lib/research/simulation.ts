@@ -685,7 +685,9 @@ export function estimateSimulationCostCents({
 
 /**
  * FAILURE KINDS THAT PROVABLY HAPPEN BEFORE ANY MODEL CALL, and the only
- * failures whose charge is waived. Each is named by where it is raised:
+ * kinds whose charge is always waived (`simulationReachedModel` also waives a
+ * `no-reactions` run in which every agent call failed). Each is named by
+ * where it is raised:
  *
  *   - `disabled` (`createSidecarSimulationRunner`, no sidecar URL) and
  *     `missing-credential` (the sidecar refused the app with 401/403): the

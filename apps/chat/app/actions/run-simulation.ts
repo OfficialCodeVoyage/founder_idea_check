@@ -158,7 +158,7 @@ export async function runProjectSimulation({
     };
   }
 
-  // CHARGED UP FRONT, REFUNDED ONLY WHEN THE RUN NEVER STARTED.
+  // CHARGED UP FRONT, REFUNDED ONLY WHEN `simulationReachedModel` IS FALSE.
   //
   // The same gate as a chat turn (a positive balance), but taken atomically
   // with the charge: `reserveCredits` deducts only while the balance is
@@ -169,9 +169,13 @@ export async function runProjectSimulation({
   // The charge was once deducted after the run's row was written, so a run
   // whose insert failed (a database error, the project deleted mid-run) had
   // spent the operator's key and was free. The insert's success now decides
-  // nothing about money: the only refund is for an outcome that provably
-  // never reached the model (`simulationReachedModel`, by
-  // `SIMULATION_NEVER_STARTED_KINDS`). The amount is an estimate — see
+  // nothing about money: the only refund is for an outcome that made no
+  // successful model call, which `simulationReachedModel` reports as false in
+  // two cases. A kind in `SIMULATION_NEVER_STARTED_KINDS` was refused before
+  // any model call. A `no-reactions` run did start and is recorded below, but
+  // when the sidecar counts at least `seats × rounds` failed agent actions,
+  // every call it made to the provider failed (the sidecar-with-no-model-key
+  // case), so it is refunded too. The amount is an estimate — see
   // `estimateSimulationCostCents`. Both take this run's own seat and round
   // counts.
   const size = { seats: seeded.personas.length, rounds: DEFAULT_ROUNDS };

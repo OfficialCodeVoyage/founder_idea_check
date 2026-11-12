@@ -151,8 +151,10 @@ in the last section.
   cap. `apps/chat/app/(chat)/api/chat/prepare/route.ts` requires a 2¢ balance before the title but has no
   `MAX_INPUT_TOKENS` check, no rate limit and stores the unvalidated message body. Simulation is charged by a flat estimate
   (`apps/chat/lib/research/simulation.ts::estimateSimulationCostCents`, 0.1 cent per seat-round) because the sidecar reports no
-  usage; it is reserved before the run and refunded only for a kind in `SIMULATION_NEVER_STARTED_KINDS`
-  (`apps/chat/app/actions/run-simulation.ts`).
+  usage; it is reserved before the run (`reserveCredits`) and refunded only when
+  `apps/chat/lib/research/simulation.ts::simulationReachedModel` is false (`apps/chat/app/actions/run-simulation.ts`):
+  a kind in `SIMULATION_NEVER_STARTED_KINDS`, or a `no-reactions` run whose sidecar counted at least `seats × rounds`
+  failed agent actions, i.e. every provider call failed. That run is still recorded.
 - Risk: registration is open to any account of an enabled provider and there is no email or domain allow-list in
   `apps/chat/lib/auth.ts`; each account starts with `UserCredit.credits` = 50 cents (`apps/chat/lib/db/schema.ts`).
 - Recommendations: restrict `selectedModelId` to `config.ai` allow-listed ids on the server; treat an unpriced model as a
@@ -185,9 +187,12 @@ in the last section.
 
 **5. Residual of `/api/dev-login` (fixed on this branch):** `apps/chat/app/api/dev-login/route.ts` refuses unless
 `NODE_ENV` is `development`, `Host` is loopback and `X-Forwarded-For` is loopback. Both headers can be forged, so the real
-control is the `next dev --hostname localhost` bind in `apps/chat/package.json` and `apps/chat/scripts/dev-local.sh`. It mints a
-30-day session for `dev@localhost`. A bare `next dev` on a shared network plus forged headers would sign a caller in. The code
-comment says to re-check after a Next.js major upgrade, because the guard reads a header Next sets from the socket.
+control is the `next dev --hostname localhost` bind. It mints a 30-day session for `dev@localhost`. The route also answers 404
+unless `IC_DEV_SERVER_LOCALHOST_ONLY=1`, which only `apps/chat/scripts/next-dev-localhost.sh` sets, together with that bind
+(it is what `dev-local.sh` and the chat `dev` / `dev:inspect` scripts run, and it refuses a hostname argument). A bare
+`next dev` on a shared network lacks the marker, so forged headers no longer sign a caller in there; the residual is a server
+started through that script whose bind is moved some other way, or the marker set by hand. The code comment says to re-check
+after a Next.js major upgrade, because the header checks read a header Next sets from the socket.
 
 **6. MCP outbound connections would be unguarded if enabled (latent):** `mcp.enabled` is `false`, and `assertMcpEnabled`
 in `apps/chat/trpc/routers/mcp.router.ts` refuses every procedure. If a deployer turns it on, `create` accepts any `z.string().url()`
@@ -386,9 +391,12 @@ beyond each side's own tests.
 - **Dev server and `/api/dev-login` on the LAN:** see Security 5; the bind is the control.
 - **Sidecar caller auth** (`apps/research/app/main.py::require_caller`, ADR-0005): unset token trusts loopback callers; the compose
   dev stack deliberately turns the loopback check off; a token must reach both sides by hand.
-- **Uncharged simulation and post-turn calls** (`apps/chat/app/actions/run-simulation.ts`, `apps/chat/app/(chat)/api/chat/route.ts`):
-  charged afterwards, by estimate for simulation, and without a pre-check; the title and `prepare` calls remain (Security 2). The
-  follow-up suggestion call and the fact-ranking query embedding are now in the turn's accumulator.
+- **Simulation and post-turn calls (formerly uncharged; fixed)** (`apps/chat/app/actions/run-simulation.ts`,
+  `apps/chat/app/(chat)/api/chat/route.ts`): a simulation reserves its estimate before the run and is refunded only when
+  `simulationReachedModel` is false (Security 2). The post-turn passes are charged on their own accumulator in a `finally`, after
+  the turn and without a pre-check, by design. The title is charged (on the turn's accumulator, or on its own from `prepare`);
+  the follow-up suggestion call and the fact-ranking query embedding are in the turn's accumulator. What remains is Security 2:
+  no reserve before a chat turn, and an unpriced model is charged as zero.
 
 ## Tooling
 

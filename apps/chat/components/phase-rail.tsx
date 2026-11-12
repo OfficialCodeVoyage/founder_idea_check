@@ -122,7 +122,7 @@ export function PhaseRail({
           never opens the tooltip that explains it.
         */}
         {rail.pending ? (
-          <span aria-live="polite" className="shrink-0 italic opacity-70">
+          <span aria-live="polite" className="shrink-0 italic">
             {rail.pending.marker}
           </span>
         ) : null}

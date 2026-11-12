@@ -4,12 +4,12 @@ import Link from "next/link";
 import { HandoffExportDialog } from "@/components/export/handoff-export-dialog";
 import { usePhaseGate } from "@/components/phase/phase-gate-provider";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Progress } from "@/components/ui/progress";
 import { describeRail, type RailStatus } from "@/lib/phases/rail";
 import { cn } from "@/lib/utils";
 
@@ -100,26 +100,50 @@ export function PhaseRail({
         the badge and the links, where they have always been.
       */}
       <div className="order-last flex min-w-0 basis-full items-center gap-3 sm:order-none sm:basis-auto">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="truncate">{rail.detail}</span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-sm">
-            <p className="font-medium">
-              {data.reason ?? "The gate has not run yet."}
-            </p>
+        {/*
+          A DISCLOSURE, NOT A TOOLTIP. The detail is the gate's first named gap
+          and it is as long as the gate wrote it, so on a 36px strip it is
+          ellipsized at most widths: below `sm` it gets a row of its own and
+          still runs out at 390px, and between 640px and 767px it shares the
+          row with the progress bar and two links. It used to be completed in
+          a hover tooltip, which a touch screen never opens and a keyboard
+          user could not focus. A button opens a popover on tap, Enter and
+          Space, so the whole sentence is reachable at any width without giving
+          the strip a variable height (`MainChatPanel`'s `contentHeight`
+          subtracts it). The full detail is also the button's accessible name,
+          whatever the ellipsis hides.
+        */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              className="min-w-0 cursor-pointer rounded px-1 py-0.5 text-left hover:bg-accent hover:text-accent-foreground"
+              type="button"
+            >
+              <span className="block truncate">{rail.detail}</span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-[min(24rem,calc(100vw-2rem))] text-xs"
+          >
+            <p className="font-medium">{rail.detail}</p>
+            {data.reason && data.reason !== rail.detail ? (
+              <p className="mt-1 text-muted-foreground">{data.reason}</p>
+            ) : null}
             {data.nextQuestion ? (
-              <p className="mt-1 opacity-80">Next: {data.nextQuestion}</p>
+              <p className="mt-1 text-muted-foreground">
+                Next: {data.nextQuestion}
+              </p>
             ) : null}
             {rail.pending ? (
-              <p className="mt-1 opacity-80">{rail.pending.note}</p>
+              <p className="mt-1 text-muted-foreground">{rail.pending.note}</p>
             ) : null}
-          </TooltipContent>
-        </Tooltip>
+          </PopoverContent>
+        </Popover>
         {/*
-          Shown at EVERY breakpoint, deliberately. It is the only non-hover
-          signal that the badge may describe an earlier turn, and a touch device
-          never opens the tooltip that explains it.
+          Shown at EVERY breakpoint, deliberately. It is the only signal that
+          the badge may describe an earlier turn that does not need the
+          disclosure above to be opened first.
         */}
         {rail.pending ? (
           <span aria-live="polite" className="shrink-0 italic">

@@ -102,12 +102,12 @@ function GapList({ view }: { view: AssessedView }) {
           EVERY gap, not `missing.at(0)`. The rail shows one because it has one
           line; this is the surface that exists so the rest are not invisible.
 
-          Keyed by the gap text: `missing` is a set of distinct criterion
-          descriptions from one verdict, so duplicates would themselves be a
-          defect worth seeing rather than a key to paper over.
+          Keyed by criterion id, not by gap text: every criterion the judge
+          left without a gap shares one fallback sentence, so text keys
+          collided. See `gapKeys`.
         */}
-        {view.gaps.map((gap) => (
-          <li className="flex gap-2 text-sm" key={gap}>
+        {view.gaps.map((gap, index) => (
+          <li className="flex gap-2 text-sm" key={view.gapKeys[index]}>
             <span aria-hidden="true" className="opacity-50">
               —
             </span>

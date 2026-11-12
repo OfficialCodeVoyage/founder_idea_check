@@ -353,6 +353,15 @@ export type GateVerdictView =
        */
       gaps: readonly string[];
       /**
+       * One stable, unique key per entry of `gaps`, for rendering.
+       *
+       * NOT the gap text: every criterion the judge left without a gap shares
+       * the one `NO_GAP_NAMED` sentence, so text keys collide. The criterion
+       * id when the verdict's obstacle names one per gap (the gate builds the
+       * two lists from the same evaluations, in the same order), else `#<index>`.
+       */
+      gapKeys: readonly string[];
+      /**
        * WHAT TO PRINT ABOVE THE LIST so the gaps are said exactly once.
        *
        * `reason` below is still the gate's own sentence, whole and unedited.
@@ -468,6 +477,16 @@ function splitHeadline(
     : { kind: "instead-of-list", text: reason };
 }
 
+function keysForGaps(
+  gaps: readonly string[],
+  obstacle: GateObstacle | null | undefined
+): string[] {
+  const ids = obstacle?.criterionIds ?? [];
+  const aligned =
+    ids.length === gaps.length && new Set(ids).size === ids.length;
+  return gaps.map((_gap, index) => (aligned ? ids[index] : `#${index}`));
+}
+
 /** PURE. The verdict card, from the state the router already returns. */
 export function describeGateVerdict(input: DescribeRailInput): GateVerdictView {
   const pending =
@@ -510,6 +529,7 @@ export function describeGateVerdict(input: DescribeRailInput): GateVerdictView {
     status,
     label: LABEL[status],
     gaps,
+    gapKeys: keysForGaps(gaps, input.obstacle),
     headline: splitHeadline(gaps, input.reason ?? null),
     coverage,
     noGapNote,

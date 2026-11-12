@@ -388,6 +388,23 @@ describe("describeGateVerdict — the card shows the WHOLE refusal", () => {
     );
   });
 
+  it("keys gaps by criterion id, so two gapless criteria do not collide", () => {
+    const noGap =
+      "the judge marked this criterion unsatisfied but named no specific gap";
+    const byId = verdict({
+      decision: "BLOCK",
+      missing: [noGap, noGap],
+      obstacle: {
+        kind: "evidence-missing",
+        criterionIds: ["target-user", "problem-statement"],
+      },
+    });
+    const byIndex = verdict({ decision: "BLOCK", missing: [noGap, noGap] });
+    assert(byId.assessed && byIndex.assessed);
+    expect(byId.gapKeys).toEqual(["target-user", "problem-statement"]);
+    expect(new Set(byIndex.gapKeys).size).toBe(2);
+  });
+
   it("surfaces the pending marker on BOTH arms", () => {
     // A stale verdict must say so whether or not one exists yet, otherwise the
     // card silently presents an earlier turn's judgement as this turn's.

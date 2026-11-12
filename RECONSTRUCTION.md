@@ -70,7 +70,9 @@ dirs only, fix drifted rows here, commit, then `bash .claude/hooks/bearings-stam
    not in this repo. Take later upstream changes as squashed commits: a real merge would import upstream's history.
 2. Public commit times are blurred to 12:xx UTC on the real calendar day; never read anything into a commit's time.
 3. The migration journal's `when` values for 0045–0053 were set to noon UTC on their real day; their order is kept.
-   Upstream's 0033/0034 are out of time order in upstream itself. Both are harmless; do not "fix" either.
+   A fresh database is unaffected. A database migrated with `db:migrate` past 0045 under the old values could skip or
+   re-run some of them; no such database exists outside the original development machine. Upstream's 0033/0034 are out
+   of time order in upstream itself. Do not "fix" either.
 4. The local dev database was built with `db:push`, so its migration ledger lags the schema. Never `db:migrate` it.
 5. Stored file keys before 2026-11-12 carry no owner tag; they are readable only in chats that held them before that
    day (`OWNER_TAG_ROLLOUT` in `apps/chat/lib/file-storage.ts`).

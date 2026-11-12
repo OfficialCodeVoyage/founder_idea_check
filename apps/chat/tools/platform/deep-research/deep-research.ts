@@ -22,6 +22,7 @@ const BASE_DESCRIPTION = `Conducts deep, autonomous research based on a conversa
 
 
 Important:
+- This tool takes no arguments: call it with an empty input. It reads the whole conversation and derives the research subject from it, so do not ask the user for a prompt or query to pass to it. If it fails, report what the tool said instead of blaming a missing prompt.
 - If a message with role tool and toolname "deepResearch" is found in the conversation history, and this tool has an output with format "clarifying_questions", you must call this tool again to continue the research process.
 - If research is successful, a report will be created by this tool and displayed to the user. No need to repeat it in your answer.
 

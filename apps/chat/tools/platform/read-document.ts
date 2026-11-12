@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import type { StreamWriter } from "@/lib/ai/types";
-import { getDocumentById } from "@/lib/db/queries";
+import { getOwnedDocumentById } from "@/lib/db/queries";
 import type { ToolSession } from "./types";
 
 interface ReadDocumentProps {
@@ -25,17 +25,20 @@ Avoid:
       documentId: z.string().describe("The ID of the document to read"),
     }),
     execute: async ({ documentId }) => {
-      const document = await getDocumentById({ id: documentId });
+      // Owner-scoped in the query (`lib/db/queries.ts::firstVersionOwner`).
+      // This used to read the NEWEST version and compare its writer, so a
+      // version appended by another user made that user the "owner" here and
+      // locked the real owner out; it also answered "Unauthorized" for a
+      // foreign id, which told the caller the id exists. Both now read as
+      // "not found".
+      const userId = session.user?.id;
+      const document = userId
+        ? await getOwnedDocumentById({ id: documentId, userId })
+        : undefined;
 
       if (!document) {
         return {
           error: "Document not found",
-        };
-      }
-
-      if (document.userId !== session.user?.id) {
-        return {
-          error: "Unauthorized access to document",
         };
       }
 

@@ -1,6 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { getDocumentById, saveDocument } from "@/lib/db/queries";
+import { getOwnedDocumentById, saveDocument } from "@/lib/db/queries";
 import { sheetGuidelines } from "./sheet-guidelines";
 import type { DocumentToolContext, DocumentToolResult } from "./types";
 
@@ -30,9 +30,14 @@ Avoid:
     }),
 
     async execute({ documentId, title, content }): Promise<DocumentToolResult> {
-      const document = await getDocumentById({ id: documentId });
+      // Owner-scoped for the reason given in `editTextDocumentTool`: the model
+      // picks `documentId`, and "not yours" must read exactly like "missing".
+      const userId = session.user?.id;
+      const document = userId
+        ? await getOwnedDocumentById({ id: documentId, userId })
+        : undefined;
 
-      if (!document) {
+      if (!(userId && document)) {
         return { status: "error", error: "Document not found" };
       }
 
@@ -40,16 +45,14 @@ Avoid:
         return { status: "error", error: "Document is not a spreadsheet" };
       }
 
-      if (session.user?.id) {
-        await saveDocument({
-          id: documentId,
-          title,
-          content,
-          kind: "sheet",
-          userId: session.user.id,
-          messageId,
-        });
-      }
+      await saveDocument({
+        id: documentId,
+        title,
+        content,
+        kind: "sheet",
+        userId,
+        messageId,
+      });
 
       return {
         status: "success",

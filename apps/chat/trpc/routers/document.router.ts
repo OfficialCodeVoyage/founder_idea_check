@@ -2,8 +2,8 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { ArtifactKind } from "@/lib/artifacts/artifact-kind";
 import {
-  getDocumentById,
   getDocumentsById,
+  getOwnedDocumentById,
   getPublicDocumentsById,
   saveDocument,
 } from "@/lib/db/queries";
@@ -15,7 +15,7 @@ import {
 
 export const documentRouter = createTRPCRouter({
   getDocuments: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string().uuid() }))
     .query(async ({ input, ctx }) => {
       const documents = await getDocumentsById({
         id: input.id,
@@ -33,7 +33,7 @@ export const documentRouter = createTRPCRouter({
     }),
 
   getPublicDocuments: publicProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string().uuid() }))
     .query(async ({ input }) => {
       const documents = await getPublicDocumentsById({ id: input.id });
 
@@ -50,20 +50,30 @@ export const documentRouter = createTRPCRouter({
   saveDocument: protectedProcedure
     .input(
       z.object({
-        id: z.string(),
+        id: z.string().uuid(),
         content: z.string(),
         title: z.string(),
         kind: z.custom<ArtifactKind>(),
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const lastDocument = await getDocumentById({ id: input.id });
+      // Owner-scoped, and the same NOT_FOUND for "someone else's" as for
+      // "missing": an unscoped read here let any signed-in user append a
+      // version to a document whose id they saw in a shared chat. The rule
+      // is `lib/db/queries.ts::firstVersionOwner`.
+      const lastDocument = await getOwnedDocumentById({
+        id: input.id,
+        userId: ctx.user.id,
+      });
 
       if (!lastDocument) {
-        throw new Error("Document not found");
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Document not found",
+        });
       }
 
-      const _document = await saveDocument({
+      await saveDocument({
         id: input.id,
         content: input.content,
         title: input.title,

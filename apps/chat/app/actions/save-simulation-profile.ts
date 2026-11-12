@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { getDocumentById, getProjectById } from "@/lib/db/queries";
+import { getOwnedDocumentById, getProjectById } from "@/lib/db/queries";
 import {
   deleteSimulationProfile,
   getSimulationProfiles,
@@ -89,10 +89,12 @@ async function requireOwnedProjectAndPersona({
     return false;
   }
 
-  const persona = await getDocumentById({ id: personaDocumentId });
+  // Owner-scoped in the query (`lib/db/queries.ts::firstVersionOwner`). The
+  // unscoped read judged the NEWEST version's writer, so a version another
+  // user had appended to this id decided who could seat simulation profiles.
+  const persona = await getOwnedDocumentById({ id: personaDocumentId, userId });
   return !!(
     persona &&
-    persona.userId === userId &&
     persona.projectId === projectId &&
     persona.kind === PERSONA_DOCUMENT_KIND
   );

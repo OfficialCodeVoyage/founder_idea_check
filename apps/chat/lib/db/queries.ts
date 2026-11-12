@@ -10,7 +10,9 @@ import {
   isNull,
   or,
   type SQL,
+  sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type {
   Attachment,
   ChatMessage,
@@ -739,19 +741,45 @@ export async function saveDocument({
   }
 }
 
-async function _getDocumentsById({ id }: { id: string }) {
-  try {
-    const documents = await db
-      .select()
-      .from(document)
-      .where(eq(document.id, id))
-      .orderBy(asc(document.createdAt));
+/**
+ * THE OWNER OF A DOCUMENT IS THE USER OF ITS FIRST VERSION. One rule, applied
+ * by every read and write that takes a document id from a caller.
+ *
+ * A document is a stack of versions sharing one id, and each version row
+ * carries the `userId` of whoever wrote it. Before this rule the readers
+ * disagreed: `getDocumentsById` judged ownership from the OLDEST row, the AI
+ * read tool from the NEWEST, and the tRPC `saveDocument` plus the three AI edit
+ * tools never judged at all — they appended a version under the caller's id to
+ * any id they were given. Document ids are visible to anyone who opens a
+ * shared chat, so any signed-in user could append to another user's document,
+ * and the newest-row reader then treated the writer as the owner and locked
+ * the real owner out.
+ *
+ * The first version is the only row nobody else can have written: a later
+ * version is appended only after `getOwnedDocumentById` has found the caller to
+ * be this user. Rows other users appended before the rule existed are still in
+ * the table; `writtenByOwner` drops them from every read, so they are neither
+ * shown as the owner's content nor become the "latest" version an edit builds
+ * on.
+ */
+function firstVersionOwner(id: string): SQL {
+  const firstVersion = alias(document, "first_version");
+  return sql`(${db
+    .select({ userId: firstVersion.userId })
+    .from(firstVersion)
+    .where(eq(firstVersion.id, id))
+    .orderBy(asc(firstVersion.createdAt))
+    .limit(1)})`;
+}
 
-    return documents;
-  } catch (error) {
-    console.error("Failed to get document by id from database", error);
-    throw error;
-  }
+/** The versions of `id` that its owner wrote. */
+function writtenByOwner(id: string): SQL | undefined {
+  return and(eq(document.id, id), eq(document.userId, firstVersionOwner(id)));
+}
+
+/** The owner's versions of `id` — none at all unless `userId` IS the owner. */
+function ownedBy(id: string, userId: string): SQL | undefined {
+  return and(writtenByOwner(id), eq(document.userId, userId));
 }
 
 export async function getDocumentsById({
@@ -762,49 +790,37 @@ export async function getDocumentsById({
   userId?: string;
 }) {
   try {
-    // First, get the document and check ownership
-    const documents = await _getDocumentsById({ id });
+    if (userId) {
+      const owned = await db
+        .select()
+        .from(document)
+        .where(ownedBy(id, userId))
+        .orderBy(asc(document.createdAt));
 
-    if (documents.length === 0) {
+      if (owned.length > 0) {
+        return owned;
+      }
+    }
+
+    // Not the owner, or no such document: only the public path is left.
+    const [firstVersion] = await db
+      .select({ messageId: document.messageId })
+      .from(document)
+      .where(eq(document.id, id))
+      .orderBy(asc(document.createdAt))
+      .limit(1);
+
+    // Visibility is derived by joining Message -> Chat. A project-scoped
+    // artifact (persona) has a NULL messageId and therefore no chat to
+    // inherit visibility from, and Project carries no visibility column.
+    // Returning [] is the fail-closed answer, and it is stated here rather
+    // than left to an innerJoin silently dropping the row — "not public" and
+    // "has no message" are different facts and must not look identical.
+    if (!firstVersion || firstVersion.messageId === null) {
       return [];
     }
 
-    const [doc] = documents;
-
-    if (!userId || doc.userId !== userId) {
-      // Visibility is derived by joining Message -> Chat. A project-scoped
-      // artifact (persona) has a NULL messageId and therefore no chat to
-      // inherit visibility from, and Project carries no visibility column.
-      // Returning [] is the fail-closed answer, and it is stated here rather
-      // than left to an innerJoin silently dropping the row — "not public" and
-      // "has no message" are different facts and must not look identical.
-      if (doc.messageId === null) {
-        return [];
-      }
-
-      // Need to check if chat is public
-      const documentsWithVisibility = await db
-        .select({
-          id: document.id,
-          createdAt: document.createdAt,
-          title: document.title,
-          content: document.content,
-          kind: document.kind,
-          userId: document.userId,
-          messageId: document.messageId,
-          projectId: document.projectId,
-          chatVisibility: chat.visibility,
-        })
-        .from(document)
-        .innerJoin(message, eq(document.messageId, message.id))
-        .innerJoin(chat, eq(message.chatId, chat.id))
-        .where(and(eq(document.id, id), eq(chat.visibility, "public")))
-        .orderBy(asc(document.createdAt));
-
-      return documentsWithVisibility;
-    }
-
-    return documents;
+    return await getPublicDocumentsById({ id });
   } catch (error) {
     console.error(
       "Failed to get documents by id with visibility from database"
@@ -819,6 +835,10 @@ export async function getPublicDocumentsById({ id }: { id: string }) {
     // source of public visibility, so a NULL-messageId row is never public.
     // The innerJoin below already yields [] for those; this comment exists so
     // that behaviour reads as a decision rather than an accident.
+    //
+    // `writtenByOwner`: a version another user appended before writes were
+    // gated carries THEIR message id, so it can sit in THEIR public chat. It is
+    // not part of the owner's document and is not served as such.
     const documents = await db
       .select({
         id: document.id,
@@ -833,7 +853,7 @@ export async function getPublicDocumentsById({ id }: { id: string }) {
       .from(document)
       .innerJoin(message, eq(document.messageId, message.id))
       .innerJoin(chat, eq(message.chatId, chat.id))
-      .where(and(eq(document.id, id), eq(chat.visibility, "public")))
+      .where(and(writtenByOwner(id), eq(chat.visibility, "public")))
       .orderBy(asc(document.createdAt));
 
     return documents;
@@ -882,17 +902,31 @@ export async function getPersonaDocumentsByProjectId({
   }
 }
 
-export async function getDocumentById({ id }: { id: string }) {
+/**
+ * The newest version of `id` that its owner wrote, or undefined when the
+ * document does not exist OR `userId` is not its owner — one answer for both,
+ * so a caller cannot tell "someone else's" from "no such id". Every write that
+ * appends a version to an existing id must come through here first; see
+ * `firstVersionOwner` for the rule.
+ */
+export async function getOwnedDocumentById({
+  id,
+  userId,
+}: {
+  id: string;
+  userId: string;
+}) {
   try {
     const [selectedDocument] = await db
       .select()
       .from(document)
-      .where(eq(document.id, id))
-      .orderBy(desc(document.createdAt));
+      .where(ownedBy(id, userId))
+      .orderBy(desc(document.createdAt))
+      .limit(1);
 
     return selectedDocument;
   } catch (error) {
-    console.error("Failed to get document by id from database");
+    console.error("Failed to get owned document by id from database");
     throw error;
   }
 }

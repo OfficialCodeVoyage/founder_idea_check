@@ -5,7 +5,7 @@ import { createTRPCRouter, protectedProcedure } from "@/trpc/init";
 
 export const voteRouter = createTRPCRouter({
   getVotes: protectedProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(z.object({ chatId: z.string().uuid() }))
     .query(async ({ input, ctx }) => {
       const chat = await getChatById({ id: input.chatId });
 
@@ -23,8 +23,8 @@ export const voteRouter = createTRPCRouter({
   voteMessage: protectedProcedure
     .input(
       z.object({
-        chatId: z.string(),
-        messageId: z.string(),
+        chatId: z.string().uuid(),
+        messageId: z.string().uuid(),
         type: z.enum(["up", "down"]),
       })
     )

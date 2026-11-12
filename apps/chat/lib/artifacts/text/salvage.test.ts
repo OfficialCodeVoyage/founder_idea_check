@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { validateToolPart } from "@/lib/utils/message-part-validators";
 import {
+  continueAction,
   DEAD_INPUT_STREAM_MARKER,
   describeInputStream,
+  findServerAnswer,
   hasInputStreamEnded,
   isDeadStreamAnnouncement,
   partialDocumentBody,
@@ -544,6 +546,47 @@ describe("sweepDeadInputStreams", () => {
     expect(unsavedAgain.died && unsavedAgain.store).toEqual({
       state: "not-saved",
     });
+    // The server has answered, so the reloaded card continues from its exact
+    // text, saved or not.
+    expect(savedAgain.died && continueAction(savedAgain.store)).toBe(
+      "continue"
+    );
+    expect(unsavedAgain.died && continueAction(unsavedAgain.store)).toBe(
+      "continue"
+    );
+  });
+
+  it("finds the server's answer to a live dead card only once the call is no longer mid-stream", () => {
+    // The live card's "Reload to see the saved copy" reads the persisted chat.
+    // The route marks the call when its turn ends, up to a second after a Stop,
+    // so a read made at once can still find it `input-streaming`: not an answer.
+    const live = {
+      id: "msg_1",
+      parts: [{ type: "text" }, { ...dead }],
+    };
+    const answered = {
+      id: "msg_1",
+      parts: [
+        { type: "text" },
+        { ...dead, state: "output-error", errorText: DEAD_INPUT_STREAM_MARKER },
+      ],
+    };
+    const other = { id: "msg_2", parts: [{ ...dead }] };
+
+    expect(findServerAnswer([live], "msg_1", "call_1")).toBeNull();
+    expect(findServerAnswer([other, answered], "msg_1", "call_1")).toBe(
+      answered
+    );
+    // A call that finished server-side is an answer too (the document completed).
+    const finished = {
+      id: "msg_1",
+      parts: [{ ...dead, state: "output-available" }],
+    };
+    expect(findServerAnswer([finished], "msg_1", "call_1")).toBe(finished);
+    // A message or a call the persisted chat does not hold is no answer.
+    expect(findServerAnswer([answered], "msg_9", "call_1")).toBeNull();
+    expect(findServerAnswer([answered], "msg_1", "call_9")).toBeNull();
+    expect(findServerAnswer([], "msg_1", "call_1")).toBeNull();
   });
 
   it("does not claim a save the live chat cannot know about", () => {
@@ -555,6 +598,9 @@ describe("sweepDeadInputStreams", () => {
     });
     expect(verdict.died && verdict.store).toEqual({ state: "unknown" });
     expect(verdict.died && verdict.detail).not.toContain("has been saved");
+    // The live card must not offer to continue from its own (maybe shorter) last
+    // line: it sends the founder to the server's answer first.
+    expect(verdict.died && continueAction(verdict.store)).toBe("reload-first");
   });
 
   it("tells a stranded part no reload can explain that it was not saved", () => {
@@ -571,6 +617,8 @@ describe("sweepDeadInputStreams", () => {
     expect(verdict.died && verdict.store).toEqual({ state: "not-saved" });
     expect(verdict.died && verdict.detail).toContain("NOT saved");
     expect(verdict.died && verdict.detail).not.toContain("Reload the chat");
+    // Nothing a reload could add, so the card keeps its Continue button.
+    expect(verdict.died && continueAction(verdict.store)).toBe("continue");
   });
 
   it("keeps the reload hint for a turn that just died in this tab", () => {

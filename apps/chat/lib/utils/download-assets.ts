@@ -6,6 +6,7 @@ import type {
   TextPart,
 } from "ai";
 import { FilesError } from "files-sdk";
+import { canReadStoredFile } from "@/lib/file-access";
 import { downloadFile, isFileOwnedBy } from "@/lib/file-storage";
 import { FILE_CONTENT_PATH, keyFromFileUrl } from "@/lib/file-url";
 import { getBaseUrl } from "@/lib/url";
@@ -33,17 +34,27 @@ const NOT_YOUR_FILE =
 const UNMANAGED_APP_FILE =
   "[Attachment omitted: this file link is not a valid stored-file link.]";
 
+/** Who the turn is for: the signed-in caller and the chat the turn is in. */
+export interface TurnViewer {
+  /** The caller's own chat (the chat route checks it is theirs), if any. */
+  chatId: string | null;
+  /** Null on an anonymous turn, which inlines no stored file at all. */
+  userId: string | null;
+}
+
 /**
  * A chat turn's file parts come from the client, so a URL on this app's file
- * route is inlined only when its key is a managed key the caller stored
- * (`lib/file-storage.ts::isFileOwnedBy`). Anything else on that route — an
- * untagged key, someone else's key, any key on an anonymous turn — is refused
- * and replaced with a text part saying so, never fetched.
+ * route is inlined only when the caller could open that file themselves
+ * (`lib/file-access.ts::canReadStoredFile`, asked about the turn's own chat):
+ * a key the caller stored, or a pre-tag untagged key that chat references.
+ * Anything else on that route — someone else's key, a malformed link, any key
+ * on an anonymous turn — is refused and replaced with a text part saying so,
+ * never fetched. A key the caller stored is decided without a lookup.
  */
-function refuseApplicationFile(
+async function refuseApplicationFile(
   url: URL,
-  ownerId: string | null
-): RefusedAsset | null {
+  viewer: TurnViewer
+): Promise<RefusedAsset | null> {
   const isApplicationFileRoute =
     url.origin === new URL(getBaseUrl()).origin &&
     url.pathname === FILE_CONTENT_PATH;
@@ -54,10 +65,18 @@ function refuseApplicationFile(
   if (!key) {
     return { refused: UNMANAGED_APP_FILE };
   }
-  if (!(ownerId && isFileOwnedBy(key, ownerId))) {
+  if (!viewer.userId) {
     return { refused: NOT_YOUR_FILE };
   }
-  return null;
+  if (isFileOwnedBy(key, viewer.userId)) {
+    return null;
+  }
+  const readable = await canReadStoredFile({
+    key,
+    viewerId: viewer.userId,
+    chatId: viewer.chatId,
+  });
+  return readable ? null : { refused: NOT_YOUR_FILE };
 }
 
 async function defaultDownload({
@@ -123,7 +142,7 @@ function toHttpUrl(value: unknown): URL | null {
  */
 async function downloadAssetsFromModelMessages(
   messages: ModelMessage[],
-  ownerId: string | null,
+  viewer: TurnViewer,
   downloadImplementation: DownloadImplementation
 ): Promise<Record<string, AssetDownloadResult | RefusedAsset>> {
   const urlSet = new Set<string>();
@@ -152,7 +171,7 @@ async function downloadAssetsFromModelMessages(
     urls.map(async (url) => ({
       url,
       data:
-        refuseApplicationFile(url, ownerId) ??
+        (await refuseApplicationFile(url, viewer)) ??
         (await downloadImplementation({ url })),
     }))
   );
@@ -215,12 +234,12 @@ function mapImagePart(
  */
 export async function replaceFilePartUrlByBinaryDataInMessages(
   messages: ModelMessage[],
-  ownerId: string | null,
+  viewer: TurnViewer,
   downloadImplementation: DownloadImplementation = defaultDownload
 ): Promise<ModelMessage[]> {
   const downloaded = await downloadAssetsFromModelMessages(
     messages,
-    ownerId,
+    viewer,
     downloadImplementation
   );
 

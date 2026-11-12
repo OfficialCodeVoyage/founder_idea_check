@@ -48,6 +48,7 @@ export async function createCoreChatAgent({
   selectedModelId,
   explicitlyRequestedTools,
   userId,
+  chatId,
   isAnonymous = false,
   abortSignal,
   requestDeadlineAt,
@@ -65,6 +66,12 @@ export async function createCoreChatAgent({
   selectedModelId: AppModelId;
   explicitlyRequestedTools: ToolName[] | null;
   userId: string | null;
+  /**
+   * The chat this turn belongs to, which the caller has checked is the user's
+   * own. Stored files are read through it (`lib/file-access.ts`); omitted by
+   * callers with no stored chat (evals), which then read only the user's own.
+   */
+  chatId?: string;
   isAnonymous?: boolean;
   abortSignal?: AbortSignal;
   /**
@@ -115,11 +122,14 @@ export async function createCoreChatAgent({
     convertDataPart: (_part): undefined => undefined,
   });
 
-  // Replace file URLs with binary data. Only this user's own stored files are
-  // inlined; an anonymous turn (userId null) inlines none.
+  // Replace file URLs with binary data. Only files this user could open
+  // themselves are inlined (their own, or a pre-tag file this chat references:
+  // lib/file-access.ts::canReadStoredFile); an anonymous turn (userId null)
+  // inlines none.
+  const fileViewer = { userId, chatId: isAnonymous ? null : (chatId ?? null) };
   const contextForLLM = await replaceFilePartUrlByBinaryDataInMessages(
     modelMessages,
-    userId
+    fileViewer
   );
 
   // Get MCP tools if connectors are configured
@@ -140,6 +150,7 @@ export async function createCoreChatAgent({
     lastGeneratedImage,
     costAccumulator,
     requestDeadlineAt,
+    chatId: fileViewer.chatId,
   });
 
   // Merge base tools with MCP tools

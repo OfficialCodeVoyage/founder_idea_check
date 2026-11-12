@@ -10,11 +10,14 @@ export function ContextBar({
   uploadQueue,
   onRemoveAction,
   className,
+  chatId,
 }: {
   attachments: Attachment[];
   uploadQueue: string[];
   onRemoveAction: (attachment: Attachment) => void;
   className?: string;
+  /** See `AttachmentList`: an edited message's older files load through it. */
+  chatId?: string;
 }) {
   const hasBarContent = attachments.length > 0 || uploadQueue.length > 0;
 
@@ -27,6 +30,7 @@ export function ContextBar({
       {(attachments.length > 0 || uploadQueue.length > 0) && (
         <AttachmentList
           attachments={attachments}
+          chatId={chatId}
           onRemoveAction={onRemoveAction}
           testId="attachments-preview"
           uploadQueue={uploadQueue}

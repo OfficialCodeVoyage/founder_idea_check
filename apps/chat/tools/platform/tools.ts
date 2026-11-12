@@ -34,6 +34,7 @@ export function getTools({
   contextForLLM,
   costAccumulator,
   requestDeadlineAt,
+  chatId = null,
 }: {
   dataStream: StreamWriter;
   session: ToolSession;
@@ -45,6 +46,8 @@ export function getTools({
   costAccumulator: CostAccumulator;
   /** See `createCoreChatAgent`. Only deep research reads it. */
   requestDeadlineAt?: number;
+  /** The user's own chat this turn is in; see `createCoreChatAgent`. */
+  chatId?: string | null;
 }) {
   const documentToolProps = {
     session,
@@ -114,6 +117,7 @@ export function getTools({
             selectedModel,
             costAccumulator,
             ownerId: session.user?.id,
+            chatId,
           }),
         }
       : {}),

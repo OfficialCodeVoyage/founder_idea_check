@@ -69,6 +69,7 @@ const PureUserMessage = ({
             >
               <AttachmentList
                 attachments={getAttachmentsFromMessage(message)}
+                chatId={chatId}
                 onImageClick={handleImageClick}
                 testId="message-attachments"
               />
@@ -99,6 +100,7 @@ const PureUserMessage = ({
               >
                 <AttachmentList
                   attachments={getAttachmentsFromMessage(message)}
+                  chatId={chatId}
                   onImageClick={handleImageClick}
                   testId="message-attachments"
                 />

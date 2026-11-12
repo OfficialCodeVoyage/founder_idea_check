@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { HoverCardTrigger } from "@/components/ui/hover-card";
 import { useImageLoadError } from "@/hooks/use-image-load-error";
 import type { Attachment } from "@/lib/ai/types";
-import { getFileImageProps } from "@/lib/file-url";
+import { fileUrlInChat, getFileImageProps } from "@/lib/file-url";
 import { cn } from "@/lib/utils";
 
 function AttachmentIcon({
@@ -249,6 +249,7 @@ export function AttachmentList({
   variant = "card",
   testId = "attachments",
   className,
+  chatId,
 }: {
   attachments: Attachment[];
   uploadQueue?: string[];
@@ -257,6 +258,12 @@ export function AttachmentList({
   variant?: "card" | "pill";
   testId?: string;
   className?: string;
+  /**
+   * The chat these attachments are shown in. Stored files are then loaded
+   * through it (lib/file-url.ts::fileUrlInChat), so a viewer of a shared chat
+   * is served them. Display only: `onRemoveAction` gets the stored attachment.
+   */
+  chatId?: string;
 }) {
   if (attachments.length === 0 && uploadQueue.length === 0) {
     return null;
@@ -269,7 +276,10 @@ export function AttachmentList({
     >
       {attachments.map((attachment) => (
         <AttachmentItem
-          attachment={attachment}
+          attachment={{
+            ...attachment,
+            url: fileUrlInChat(attachment.url, chatId),
+          }}
           key={attachment.url}
           onImageClick={onImageClick}
           onRemove={

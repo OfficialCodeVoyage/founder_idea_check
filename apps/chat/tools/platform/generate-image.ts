@@ -4,6 +4,7 @@ import { type AppModelId, getAppModelDefinition } from "@/lib/ai/app-models";
 import { getImageModel, getMultimodalImageModel } from "@/lib/ai/providers";
 import { config } from "@/lib/config";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
+import { canReadStoredFile } from "@/lib/file-access";
 import { downloadFile, isFileOwnedBy, uploadFile } from "@/lib/file-storage";
 import { keyFromFileUrl } from "@/lib/file-url";
 import { createModuleLogger } from "@/lib/logger";
@@ -11,6 +12,8 @@ import { getBaseUrl } from "@/lib/url";
 
 interface GenerateImageProps {
   attachments?: FileUIPart[];
+  /** The user's own chat this turn is in; reference images are read through it. */
+  chatId?: string | null;
   costAccumulator?: CostAccumulator;
   lastGeneratedImage?: { imageUrl: string; name: string } | null;
   /** The signed-in user; generated images are stored under this owner. */
@@ -64,15 +67,25 @@ async function resolveImageModel(selectedModel?: string): Promise<{
 
 /**
  * Reads an edit-reference image. A file this app stores is read from storage
- * directly, and only when the requesting user stored it
- * (`lib/file-storage.ts::isFileOwnedBy`): `/api/files/content` needs the
- * browser's session, which neither a server-side fetch nor a model provider
- * has.
+ * directly, and only when the requesting user could open it themselves
+ * (`lib/file-access.ts::canReadStoredFile`, asked about the turn's own chat):
+ * a file they stored, or a pre-tag file that chat references. The reference
+ * comes from the client (an attachment) or from the chat's stored messages
+ * (`lastGeneratedImage`), so neither is trusted on its own. Storage is read
+ * directly because `/api/files/content` needs the browser's session, which
+ * neither a server-side fetch nor a model provider has.
  */
-async function fetchImageBuffer(url: string, ownerId: string): Promise<Buffer> {
+async function fetchImageBuffer(
+  url: string,
+  ownerId: string,
+  chatId: string | null
+): Promise<Buffer> {
   const key = keyFromFileUrl(url);
   if (key) {
-    if (!isFileOwnedBy(key, ownerId)) {
+    const readable =
+      isFileOwnedBy(key, ownerId) ||
+      (await canReadStoredFile({ key, viewerId: ownerId, chatId }));
+    if (!readable) {
       throw new Error("Reference image not found");
     }
     const file = await downloadFile(key);
@@ -87,16 +100,18 @@ async function collectEditImages({
   imageParts,
   lastGeneratedImage,
   ownerId,
+  chatId,
 }: {
   imageParts: FileUIPart[];
   lastGeneratedImage: { imageUrl: string; name: string } | null;
   ownerId: string;
+  chatId: string | null;
 }): Promise<Buffer[]> {
   return await Promise.all([
     ...(lastGeneratedImage
-      ? [fetchImageBuffer(lastGeneratedImage.imageUrl, ownerId)]
+      ? [fetchImageBuffer(lastGeneratedImage.imageUrl, ownerId, chatId)]
       : []),
-    ...imageParts.map((p) => fetchImageBuffer(p.url, ownerId)),
+    ...imageParts.map((p) => fetchImageBuffer(p.url, ownerId, chatId)),
   ]);
 }
 
@@ -151,6 +166,7 @@ async function runGenerateImageTraditional({
   startMs,
   costAccumulator,
   ownerId,
+  chatId,
 }: {
   mode: ImageMode;
   prompt: string;
@@ -159,6 +175,7 @@ async function runGenerateImageTraditional({
   startMs: number;
   costAccumulator?: CostAccumulator;
   ownerId: string;
+  chatId: string | null;
 }): Promise<{ imageUrl: string; prompt: string }> {
   if (!config.ai.tools.image.enabled) {
     throw new Error("Image generation is not enabled");
@@ -185,6 +202,7 @@ async function runGenerateImageTraditional({
       imageParts,
       lastGeneratedImage,
       ownerId,
+      chatId,
     });
     promptInput = { text: prompt, images: inputImages };
   } else {
@@ -246,6 +264,7 @@ async function runGenerateImageMultimodal({
   startMs,
   costAccumulator,
   ownerId,
+  chatId,
 }: {
   modelId: string;
   mode: ImageMode;
@@ -255,6 +274,7 @@ async function runGenerateImageMultimodal({
   startMs: number;
   costAccumulator?: CostAccumulator;
   ownerId: string;
+  chatId: string | null;
 }): Promise<{ imageUrl: string; prompt: string }> {
   // Build messages with image context if in edit mode. Images are sent as
   // bytes: the provider cannot fetch a session-protected /api/files URL.
@@ -274,6 +294,7 @@ async function runGenerateImageMultimodal({
       imageParts,
       lastGeneratedImage,
       ownerId,
+      chatId,
     });
     for (const image of images) {
       userContent.push({ type: "image", image });
@@ -375,6 +396,7 @@ export const generateImageTool = ({
   selectedModel,
   costAccumulator,
   ownerId,
+  chatId = null,
 }: GenerateImageProps = {}) =>
   tool({
     description: `Generate an image from a user-provided prompt.
@@ -432,6 +454,7 @@ The assistant must not add new subjects, claims, branding, or alter the tone or 
             startMs,
             costAccumulator,
             ownerId,
+            chatId,
           });
         }
 
@@ -444,6 +467,7 @@ The assistant must not add new subjects, claims, branding, or alter the tone or 
           startMs,
           costAccumulator,
           ownerId,
+          chatId,
         });
       } catch (error) {
         const resolvedError = await resolveError(error);

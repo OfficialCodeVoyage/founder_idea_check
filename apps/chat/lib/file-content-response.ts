@@ -1,12 +1,12 @@
 import { FilesError } from "files-sdk";
+import { canReadStoredFile } from "./file-access";
 import {
   downloadFile,
   getFileMetadata,
   getFileProviderUrl,
-  isFileOwnedBy,
   storageSupportsRange,
 } from "./file-storage";
-import { keyFromFileUrl } from "./file-url";
+import { fileRequestFromUrl } from "./file-url";
 
 const RANGE_HEADER = /^bytes=(?:(\d+)-(\d*)|-(\d+))$/;
 
@@ -34,20 +34,28 @@ function parseRange(value: string, size: number) {
 }
 
 /**
- * Serves a stored file to the signed-in user who stored it. `userId` comes from
- * the caller's session (`app/(chat)/api/files/content/route.ts`); a key whose
- * owner tag is not that user's answers 404, the same as a missing file, so the
- * response does not reveal whether someone else's key exists.
+ * Serves a stored file to a viewer `lib/file-access.ts::canReadStoredFile`
+ * allows: its owner, or a viewer of the chat named by the link's `chatId`
+ * (`lib/file-url.ts::fileUrlInChat`) when that chat's owner shared it there.
+ * `viewerId` comes from the caller's session
+ * (`app/(chat)/api/files/content/route.ts`) and is null when signed out. A
+ * signed-out request with no chat to check answers 401; any refused key
+ * answers 404, the same as a missing file, so the response does not reveal
+ * whether someone else's key exists.
  */
 export async function createFileContentResponse(
   request: Request,
-  userId: string
+  viewerId: string | null
 ) {
-  const key = keyFromFileUrl(request.url);
-  if (!key) {
+  const fileRequest = fileRequestFromUrl(request.url);
+  if (!fileRequest) {
     return new Response("Invalid file URL", { status: 400 });
   }
-  if (!isFileOwnedBy(key, userId)) {
+  const { key, chatId } = fileRequest;
+  if (!(viewerId || chatId)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  if (!(await canReadStoredFile({ key, viewerId, chatId }))) {
     return new Response("Not found", { status: 404 });
   }
 

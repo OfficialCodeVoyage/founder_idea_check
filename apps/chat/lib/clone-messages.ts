@@ -1,7 +1,11 @@
 import type { FileUIPart } from "ai";
 import type { ChatMessage } from "./ai/types";
 import { FILE_STORAGE_PREFIX } from "./constants";
-import { downloadFile, uploadFile } from "./file-storage";
+import {
+  downloadFile,
+  isFileSharedByChatOwner,
+  uploadFile,
+} from "./file-storage";
 import { keyFromFileUrl } from "./file-url";
 import { generateUUID } from "./utils";
 
@@ -235,9 +239,54 @@ function cloneDocuments<
   return clonedDocuments;
 }
 
+/** Who the copy is for and whose chat it is copied from. */
+interface CloneOwners {
+  /** The user the cloned chat belongs to; copies are stored under them. */
+  ownerId: string;
+  /** The owner of the source chat. */
+  sourceOwnerId: string;
+}
+
+/**
+ * Copies one stored file into the cloner's storage and returns the copy's
+ * link, or null when the link is not copied (and stays as it was).
+ *
+ * The cloner may only read the source chat's files that its owner put there
+ * (`lib/file-storage.ts::isFileSharedByChatOwner`). Message parts are
+ * client-supplied, so a public chat could otherwise launder someone else's
+ * file: paste their key into your own chat, share it, clone it, and the copy
+ * is yours. A key the source owner did not store is left alone; it is not
+ * readable in the clone either (`lib/file-access.ts::canReadStoredFile`).
+ */
+async function copyStoredFile(
+  url: string,
+  /** The copy's name; null names it after the source key (keeps its extension). */
+  filename: string | null,
+  owners: CloneOwners
+): Promise<string | null> {
+  const key = keyFromFileUrl(url);
+  if (!key) {
+    // External files are not managed by this instance; the link is kept.
+    return null;
+  }
+  if (!isFileSharedByChatOwner(key, owners.sourceOwnerId)) {
+    console.warn("Stored file is not the source chat owner's; not copied");
+    return null;
+  }
+
+  const storedFile = await downloadFile(key);
+  const uploadedFile = await uploadFile(
+    filename ?? key,
+    Buffer.from(await storedFile.arrayBuffer()),
+    storedFile.type,
+    owners.ownerId
+  );
+  return uploadedFile.url;
+}
+
 async function cloneFileUIPart(
   part: FileUIPart,
-  ownerId: string
+  owners: CloneOwners
 ): Promise<FileUIPart> {
   try {
     // Skip if no URL is provided
@@ -245,18 +294,6 @@ async function cloneFileUIPart(
       console.warn("Attachment has no URL, skipping clone");
       return part;
     }
-
-    // Skip external files that are not managed by this ChatJS instance.
-    const key = keyFromFileUrl(part.url);
-    if (!key) {
-      console.warn(
-        "Attachment is not a managed file, skipping clone:",
-        part.url
-      );
-      return part;
-    }
-
-    const storedFile = await downloadFile(key);
 
     // Extract just the base filename without any path components
     let filename = part.filename || "attachment";
@@ -271,17 +308,8 @@ async function cloneFileUIPart(
       filename = filename.replace(FILE_STORAGE_PREFIX, "");
     }
 
-    const uploadedFile = await uploadFile(
-      filename,
-      Buffer.from(await storedFile.arrayBuffer()),
-      storedFile.type,
-      ownerId
-    );
-
-    return {
-      ...part,
-      url: uploadedFile.url,
-    };
+    const url = await copyStoredFile(part.url, filename, owners);
+    return url ? { ...part, url } : part;
   } catch (error) {
     console.error("Failed to clone attachment:", error);
     // Return original attachment as fallback to avoid breaking the cloning process
@@ -289,9 +317,48 @@ async function cloneFileUIPart(
   }
 }
 
+/**
+ * Generated images and videos live in tool outputs, not file parts. Their
+ * links carry the source owner's tag, so a clone that kept them would show
+ * broken media, and an image edit in the clone would resolve
+ * `lastGeneratedImage` to a file the cloner cannot read
+ * (`tools/platform/generate-image.ts::fetchImageBuffer`). They are copied like
+ * attachments.
+ */
+async function cloneGeneratedMediaPart(
+  part: ChatMessage["parts"][number],
+  owners: CloneOwners
+): Promise<ChatMessage["parts"][number]> {
+  try {
+    if (
+      part.type === "tool-generateImage" &&
+      part.state === "output-available" &&
+      part.output?.imageUrl
+    ) {
+      const imageUrl = await copyStoredFile(part.output.imageUrl, null, owners);
+      return imageUrl
+        ? { ...part, output: { ...part.output, imageUrl } }
+        : part;
+    }
+    if (
+      part.type === "tool-generateVideo" &&
+      part.state === "output-available" &&
+      part.output?.videoUrl
+    ) {
+      const videoUrl = await copyStoredFile(part.output.videoUrl, null, owners);
+      return videoUrl
+        ? { ...part, output: { ...part.output, videoUrl } }
+        : part;
+    }
+  } catch (error) {
+    console.error("Failed to clone generated media:", error);
+  }
+  return part;
+}
+
 export async function cloneAttachmentsInMessages<
   T extends { parts: ChatMessage["parts"] },
->(messages: T[], ownerId: string): Promise<T[]> {
+>(messages: T[], owners: CloneOwners): Promise<T[]> {
   const clonedMessages: T[] = [];
 
   for (const message of messages) {
@@ -300,10 +367,10 @@ export async function cloneAttachmentsInMessages<
 
       for (const part of message.parts) {
         if (part.type === "file") {
-          const clonedPart = await cloneFileUIPart(part, ownerId);
+          const clonedPart = await cloneFileUIPart(part, owners);
           clonedParts.push(clonedPart);
         } else {
-          clonedParts.push(part);
+          clonedParts.push(await cloneGeneratedMediaPart(part, owners));
         }
       }
 

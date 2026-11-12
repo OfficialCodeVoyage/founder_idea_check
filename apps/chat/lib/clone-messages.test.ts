@@ -2,9 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it, vi } from "vitest";
 import type { ChatMessage } from "./ai/types";
 
+const SOURCE_OWNER = "user-1";
+const SOURCE_OWNER_KEY = "Ab3_xY9-kLmN0pQr.l_u0a2bkphKLFKsBI4q5Tue9.png";
+
 const fileStorage = vi.hoisted(() => ({
   downloadFile: vi.fn(),
   uploadFile: vi.fn(),
+  // The source owner stored only the key that starts with their tag.
+  isFileSharedByChatOwner: (key: string, ownerId: string) =>
+    ownerId === "user-1" && key.startsWith("Ab3_xY9-kLmN0pQr."),
 }));
 
 vi.mock("@/lib/config", () => ({
@@ -245,23 +251,91 @@ describe("cloneAttachmentsInMessages", () => {
               type: "file",
               filename: "attachment.txt",
               mediaType: "text/plain",
-              url: "https://old-chat.example/api/files/content?key=Ab3_xY9-kLmN0pQr.l_u0a2bkphKLFKsBI4q5Tue9.png",
+              url: `https://old-chat.example/api/files/content?key=${SOURCE_OWNER_KEY}`,
             },
           ],
         },
       ],
-      "user-2"
+      { ownerId: "user-2", sourceOwnerId: SOURCE_OWNER }
     );
 
-    assert.deepEqual(fileStorage.downloadFile.mock.calls, [
-      ["Ab3_xY9-kLmN0pQr.l_u0a2bkphKLFKsBI4q5Tue9.png"],
-    ]);
+    assert.deepEqual(fileStorage.downloadFile.mock.calls, [[SOURCE_OWNER_KEY]]);
     assert.equal(fileStorage.uploadFile.mock.calls[0]?.[0], "attachment.txt");
     assert.equal(fileStorage.uploadFile.mock.calls[0]?.[2], "text/plain");
     assert.equal(fileStorage.uploadFile.mock.calls[0]?.[3], "user-2");
     assert.equal(
       message.parts[0]?.type === "file" ? message.parts[0].url : null,
       "https://chat.example/api/files/content?key=cloned-key"
+    );
+  });
+
+  it("copies generated images out of tool outputs under the cloner", async () => {
+    fileStorage.downloadFile.mockReset().mockResolvedValue({
+      arrayBuffer: async () => new Uint8Array([1]).buffer,
+      type: "image/png",
+    });
+    fileStorage.uploadFile.mockReset().mockResolvedValue({
+      url: "/api/files/content?key=cloned-image",
+    });
+
+    const [message] = await cloneAttachmentsInMessages(
+      [
+        {
+          parts: [
+            {
+              type: "tool-generateImage",
+              toolCallId: "call-1",
+              state: "output-available",
+              input: { prompt: "a cat" },
+              output: {
+                imageUrl: `/api/files/content?key=${SOURCE_OWNER_KEY}`,
+                prompt: "a cat",
+              },
+            },
+          ],
+        },
+      ] as Array<{ parts: ChatMessage["parts"] }>,
+      { ownerId: "user-2", sourceOwnerId: SOURCE_OWNER }
+    );
+
+    assert.deepEqual(fileStorage.downloadFile.mock.calls, [[SOURCE_OWNER_KEY]]);
+    assert.equal(fileStorage.uploadFile.mock.calls[0]?.[3], "user-2");
+    const part = message.parts[0];
+    assert.equal(
+      part?.type === "tool-generateImage" && part.state === "output-available"
+        ? part.output.imageUrl
+        : null,
+      "/api/files/content?key=cloned-image"
+    );
+  });
+
+  it("does not copy a stored file the source chat's owner did not store", async () => {
+    fileStorage.downloadFile.mockReset();
+    fileStorage.uploadFile.mockReset();
+    const foreignUrl =
+      "/api/files/content?key=Zz9_zZ9-zZzZzZzZ.l_u0a2bkphKLFKsBI4q5Tue9.png";
+
+    const [message] = await cloneAttachmentsInMessages(
+      [
+        {
+          parts: [
+            {
+              type: "file",
+              filename: "pasted.png",
+              mediaType: "image/png",
+              url: foreignUrl,
+            },
+          ],
+        },
+      ],
+      { ownerId: "user-2", sourceOwnerId: SOURCE_OWNER }
+    );
+
+    assert.equal(fileStorage.downloadFile.mock.calls.length, 0);
+    assert.equal(fileStorage.uploadFile.mock.calls.length, 0);
+    assert.equal(
+      message.parts[0]?.type === "file" ? message.parts[0].url : null,
+      foreignUrl
     );
   });
 });

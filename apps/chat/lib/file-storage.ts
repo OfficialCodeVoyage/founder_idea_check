@@ -5,6 +5,7 @@ import { FILE_STORAGE_PREFIX } from "./constants";
 import {
   FILE_CONTENT_PATH,
   FILE_OWNER_TAG_LENGTH,
+  isFileStorageKey,
   keyFromFileUrl,
   ownerTagFromFileKey,
 } from "./file-url";
@@ -49,6 +50,32 @@ export function fileOwnerTag(userId: string): string {
 
 export function isFileOwnedBy(key: string, userId: string): boolean {
   return ownerTagFromFileKey(key) === fileOwnerTag(userId);
+}
+
+/**
+ * Whether a reference to `key` inside a chat owned by `chatOwnerId` counts as
+ * the file's owner sharing it with that chat's viewers. Only the chat's owner
+ * (and the assistant answering them) writes that chat's messages, but those
+ * messages are client-supplied, so a reference alone proves nothing: anyone can
+ * paste someone else's key into their own chat. A tagged key therefore counts
+ * only when its tag is the chat owner's.
+ *
+ * A legacy untagged key (`lib/file-url.ts::LEGACY_STORAGE_KEY`) names no owner,
+ * so any chat that references one vouches for it. RESIDUAL, stated plainly: a
+ * signed-in user who learns a pre-tag file's key can paste it into a chat of
+ * their own and then read it there (and so can viewers of that chat if it is
+ * shared). New files are always tagged, so this only covers files stored
+ * before the tag existed.
+ */
+export function isFileSharedByChatOwner(
+  key: string,
+  chatOwnerId: string
+): boolean {
+  const tag = ownerTagFromFileKey(key);
+  if (tag === null) {
+    return isFileStorageKey(key);
+  }
+  return tag === fileOwnerTag(chatOwnerId);
 }
 
 function createStorageKey(filename: string, ownerId: string): string {

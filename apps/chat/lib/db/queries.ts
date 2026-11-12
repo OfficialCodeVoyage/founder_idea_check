@@ -8,6 +8,7 @@ import {
   gte,
   inArray,
   isNull,
+  or,
   type SQL,
 } from "drizzle-orm";
 import type {
@@ -1312,6 +1313,47 @@ function collectFilePartUrls(
   for (const p of fileParts) {
     if (p.file_url) {
       urls.push(p.file_url);
+    }
+  }
+  return urls;
+}
+
+/**
+ * Every stored-file link one chat's messages hold: file parts, and the media
+ * links in generateImage / generateVideo tool outputs. Read by
+ * `lib/file-access.ts::canReadStoredFile` to decide whether a chat really
+ * contains a file. Bounded to one chat's file and media parts.
+ */
+export async function getFileUrlsByChatId({
+  chatId,
+}: {
+  chatId: string;
+}): Promise<string[]> {
+  const mediaTools: ToolName[] = ["generateImage", "generateVideo"];
+  const rows = await db
+    .select({ file_url: part.file_url, tool_output: part.tool_output })
+    .from(part)
+    .innerJoin(message, eq(part.messageId, message.id))
+    .where(
+      and(
+        eq(message.chatId, chatId),
+        or(eq(part.type, "file"), inArray(part.tool_name, mediaTools))
+      )
+    );
+
+  const urls: string[] = [];
+  for (const row of rows) {
+    if (row.file_url) {
+      urls.push(row.file_url);
+    }
+    const output = row.tool_output as {
+      imageUrl?: unknown;
+      videoUrl?: unknown;
+    } | null;
+    for (const url of [output?.imageUrl, output?.videoUrl]) {
+      if (typeof url === "string") {
+        urls.push(url);
+      }
     }
   }
   return urls;

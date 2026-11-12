@@ -743,6 +743,7 @@ function PureMultimodalInput({
 
           <ContextBar
             attachments={attachments}
+            chatId={chatId}
             className="w-full"
             onRemoveAction={removeAttachment}
             uploadQueue={uploadQueue}

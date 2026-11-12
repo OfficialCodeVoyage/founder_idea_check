@@ -5,6 +5,8 @@ import { useState } from "react";
 import { ImageActions, ImageModal } from "@/components/image-modal";
 import { useImageLoadError } from "@/hooks/use-image-load-error";
 import type { ChatMessage } from "@/lib/ai/types";
+import { fileUrlInChat } from "@/lib/file-url";
+import { useChatId } from "@/lib/stores/base";
 
 export type GenerateImageTool = Extract<
   ChatMessage["parts"][number],
@@ -13,7 +15,12 @@ export type GenerateImageTool = Extract<
 
 export function GenerateImage({ tool }: { tool: GenerateImageTool }) {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const imageUrl = tool.output?.imageUrl;
+  const chatId = useChatId();
+  // Shown through this chat so a viewer of a shared chat is served the image
+  // (lib/file-url.ts::fileUrlInChat); the stored output keeps the plain link.
+  const imageUrl = tool.output?.imageUrl
+    ? fileUrlInChat(tool.output.imageUrl, chatId)
+    : undefined;
   const { handleImageError, imageUnavailable } = useImageLoadError(imageUrl);
 
   if (tool.state === "input-available") {
@@ -56,13 +63,13 @@ export function GenerateImage({ tool }: { tool: GenerateImageTool }) {
                   className="h-auto w-full max-w-full"
                   height={512}
                   onError={handleImageError}
-                  src={output.imageUrl}
+                  src={imageUrl}
                   width={512}
                 />
               </button>
               <ImageActions
                 className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100"
-                imageUrl={output.imageUrl}
+                imageUrl={imageUrl}
               />
             </>
           )}
@@ -76,7 +83,7 @@ export function GenerateImage({ tool }: { tool: GenerateImageTool }) {
 
       <ImageModal
         imageName={output.prompt}
-        imageUrl={output.imageUrl}
+        imageUrl={imageUrl ?? ""}
         isOpen={dialogOpen}
         onClose={() => setDialogOpen(false)}
       />

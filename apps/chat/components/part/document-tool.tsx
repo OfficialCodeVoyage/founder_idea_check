@@ -1,13 +1,12 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   FileWarning,
   PlayCircle,
   RefreshCw,
 } from "lucide-react";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useArtifact } from "@/hooks/use-artifact";
@@ -16,7 +15,6 @@ import {
   type ClientCopy,
   continueAction,
   describeInputStream,
-  findServerAnswer,
   hasInputStreamEnded,
   type InputStreamVerdict,
   partialDocumentBody,
@@ -25,7 +23,6 @@ import {
 import { config } from "@/lib/config";
 import {
   useChatActions,
-  useChatId,
   useChatStatus,
   useChatStoreApi,
 } from "@/lib/stores/base";
@@ -34,13 +31,11 @@ import {
   useMessageMetadataById,
 } from "@/lib/stores/hooks-base";
 import { useIsLastArtifact } from "@/lib/stores/hooks-message-parts";
-import { useAddMessageToTree } from "@/lib/stores/hooks-threads";
 import {
   type DocumentToolType,
   getToolKind,
   isEditTool,
 } from "@/tools/platform/documents/types";
-import { useTRPC } from "@/trpc/react";
 import { DocumentPreview } from "./document-preview";
 
 type DocumentTool = Extract<
@@ -97,23 +92,16 @@ function DeadDocumentStream({
   isReadonly,
   messageId,
   stopped,
-  toolCallId,
 }: {
   verdict: DeadStream;
   isReadonly: boolean;
   messageId: string;
   /** This tab's own Stop cut the stream (`metadata.streamStopped`). */
   stopped: boolean;
-  toolCallId: string;
 }) {
   const { setArtifact } = useArtifact();
-  const { sendMessage, setMessages } = useChatActions<ChatMessage>();
+  const { sendMessage } = useChatActions<ChatMessage>();
   const storeApi = useChatStoreApi<ChatMessage>();
-  const chatId = useChatId();
-  const addMessageToTree = useAddMessageToTree();
-  const queryClient = useQueryClient();
-  const trpc = useTRPC();
-  const [isReloading, setIsReloading] = useState(false);
   const chatStatus = useChatStatus();
   const { salvage, store } = verdict;
   // WHETHER THE COPY IS THIS PAGE'S OWN. While the server's answer is not known
@@ -209,47 +197,16 @@ function DeadDocumentStream({
 
   // THE LIVE CARD CANNOT CONTINUE YET (`continueAction`): its copy is what reached
   // this page, and the saved document can be longer, so a continuation from its
-  // last line repeats what the server kept. This asks the server for its answer
-  // and puts the persisted message in the live chat, so the card re-renders from
-  // it (exact count, saved or not) and offers Continue from the exact saved text.
-  // Refetching the chat's messages query alone changes nothing on screen: a
-  // chat that is already open reads its messages from the live store, not from
-  // that query (`HostedChatRoute`), so the persisted message is written to the
-  // chat the way `ChatSync`'s `onFinish` writes the Stop mark.
-  const reloadSavedCopy = async () => {
-    if (!chatId) {
-      return;
-    }
-    setIsReloading(true);
-    try {
-      const persisted = await queryClient.fetchQuery({
-        ...trpc.chat.getChatMessages.queryOptions({ chatId }),
-        staleTime: 0,
-      });
-      const answered = findServerAnswer(
-        persisted as ChatMessage[],
-        messageId,
-        toolCallId
-      );
-      if (!answered) {
-        toast.info(
-          "The server has not recorded its answer yet. Try again in a moment."
-        );
-        return;
-      }
-      setMessages(
-        storeApi
-          .getState()
-          .messages.map((message) =>
-            message.id === messageId ? answered : message
-          )
-      );
-      addMessageToTree(answered);
-    } catch {
-      toast.error("Could not load the saved copy. Try again in a moment.");
-    } finally {
-      setIsReloading(false);
-    }
+  // last line repeats what the server kept. A full page reload is the path that
+  // is proven: the reopened chat renders from the server's answer, with the exact
+  // count and a Continue that works from the saved text (live QA, re-checks 5 and
+  // 6). Nothing smaller will do: refetching the chat's messages query changes
+  // nothing on screen, because a chat that is already open reads its messages from
+  // the live store and not from that query (`HostedChatRoute`). If the server has
+  // not marked the call yet, the reloaded card is the same live card again, which
+  // is honest.
+  const reloadSavedCopy = () => {
+    window.location.reload();
   };
 
   const resume = () => {
@@ -298,7 +255,7 @@ function DeadDocumentStream({
         {!isReadonly &&
           (continueAction(store) === "reload-first" ? (
             <Button
-              disabled={isReloading || isRequestInFlight}
+              disabled={isRequestInFlight}
               onClick={reloadSavedCopy}
               size="sm"
               type="button"
@@ -419,7 +376,6 @@ function PureDocumentTool({
         isReadonly={isReadonly}
         messageId={messageId}
         stopped={metadata.streamStopped === true}
-        toolCallId={tool.toolCallId}
         verdict={verdict}
       />
     );

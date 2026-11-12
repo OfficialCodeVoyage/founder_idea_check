@@ -635,8 +635,8 @@ function storeFor({
  * server's answer is unknown (`unknown`) the saved document can be LONGER than
  * this page's copy (97 characters here, 463 saved, live QA re-check 6), and a
  * continuation from the shorter copy repeats what the server already kept. So
- * the live card sends the founder to the server's answer first, and the card
- * that answer produces offers Continue from the exact saved text.
+ * the live card sends the founder to the server's answer first (a page reload),
+ * and the card that answer produces offers Continue from the exact saved text.
  */
 export function continueAction(
   store: PartialDocumentStore
@@ -733,25 +733,6 @@ type PartLike = {
   readonly input?: unknown;
   readonly toolCallId?: unknown;
 };
-
-/**
- * THE SERVER'S ANSWER TO A LIVE DEAD CARD, read from the chat's persisted
- * messages: the persisted copy of message `messageId`, once its tool call
- * `toolCallId` is no longer `input-streaming`. The route marks (or finishes) the
- * call when its turn ends, up to a second after a Stop, so a read made right
- * away can still find the call mid-stream; that is NOT an answer (null), and the
- * caller asks again later. Pure so the card's refresh is decided here, not in a
- * click handler.
- */
-export function findServerAnswer<
-  M extends { readonly id: string; readonly parts: readonly PartLike[] },
->(messages: readonly M[], messageId: string, toolCallId: string): M | null {
-  const persisted = messages.find((message) => message.id === messageId);
-  const part = persisted?.parts.find((p) => p.toolCallId === toolCallId);
-  return persisted && part && part.state !== "input-streaming"
-    ? persisted
-    : null;
-}
 
 /** One dead call, with everything a caller needs to act on it. */
 export type DeadInputStreamRecord = {

@@ -4,7 +4,6 @@ import {
   continueAction,
   DEAD_INPUT_STREAM_MARKER,
   describeInputStream,
-  findServerAnswer,
   hasInputStreamEnded,
   isDeadStreamAnnouncement,
   partialDocumentBody,
@@ -556,37 +555,38 @@ describe("sweepDeadInputStreams", () => {
     );
   });
 
-  it("finds the server's answer to a live dead card only once the call is no longer mid-stream", () => {
-    // The live card's "Reload to see the saved copy" reads the persisted chat.
-    // The route marks the call when its turn ends, up to a second after a Stop,
-    // so a read made at once can still find it `input-streaming`: not an answer.
-    const live = {
-      id: "msg_1",
-      parts: [{ type: "text" }, { ...dead }],
-    };
-    const answered = {
-      id: "msg_1",
-      parts: [
-        { type: "text" },
-        { ...dead, state: "output-error", errorText: DEAD_INPUT_STREAM_MARKER },
-      ],
-    };
-    const other = { id: "msg_2", parts: [{ ...dead }] };
+  it("offers Continue only from the server's own copy, and a reload while its answer is unknown", () => {
+    // REGRESSION (live QA, re-check 6): after a Stop the live card's Continue sent
+    // the last line this page had received (97 characters) while the server had
+    // saved 463, so the continuation would repeat text. The live card (`unknown`)
+    // offers a reload instead, and the card the reload produces continues.
+    expect(continueAction({ state: "unknown" })).toBe("reload-first");
+    expect(continueAction({ state: "not-saved" })).toBe("continue");
+    expect(
+      continueAction({ state: "saved", documentId: "doc_1", kind: "text" })
+    ).toBe("continue");
 
-    expect(findServerAnswer([live], "msg_1", "call_1")).toBeNull();
-    expect(findServerAnswer([other, answered], "msg_1", "call_1")).toBe(
-      answered
-    );
-    // A call that finished server-side is an answer too (the document completed).
-    const finished = {
-      id: "msg_1",
-      parts: [{ ...dead, state: "output-available" }],
+    // The same stranded part, a Stop in this tab, in each state the card can be in.
+    const stranded = {
+      state: "input-streaming",
+      streamEnded: true,
+      input: dead.input,
+      errorText: null,
+      stoppedHere: true,
     };
-    expect(findServerAnswer([finished], "msg_1", "call_1")).toBe(finished);
-    // A message or a call the persisted chat does not hold is no answer.
-    expect(findServerAnswer([answered], "msg_9", "call_1")).toBeNull();
-    expect(findServerAnswer([answered], "msg_1", "call_9")).toBeNull();
-    expect(findServerAnswer([], "msg_1", "call_1")).toBeNull();
+    const live = describeInputStream({ ...stranded, reloadMayAnswer: true });
+    expect(live.died && continueAction(live.store)).toBe("reload-first");
+    const answeredNotSaved = describeInputStream({ ...stranded, saved: null });
+    expect(
+      answeredNotSaved.died && continueAction(answeredNotSaved.store)
+    ).toBe("continue");
+    const answeredSaved = describeInputStream({
+      ...stranded,
+      saved: { documentId: "doc_1", kind: "text" },
+    });
+    expect(answeredSaved.died && continueAction(answeredSaved.store)).toBe(
+      "continue"
+    );
   });
 
   it("does not claim a save the live chat cannot know about", () => {

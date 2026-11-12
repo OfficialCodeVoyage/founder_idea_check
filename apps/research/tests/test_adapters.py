@@ -877,6 +877,22 @@ class TestArcticShiftKeywordQuery:
         framed = "parent perspectives home reading strategies insights challenges"
         assert arctic_shift.keyword_query(framed) == "home reading"
 
+        # The kind of source a researcher asks for is framing too: live QA sent
+        # `title=qualitative early` and `title=official early`.
+        kind_of_source = (
+            "official qualitative quantitative evidence findings analysis early reading"
+        )
+        assert arctic_shift.keyword_query(kind_of_source) == "early reading"
+        assert arctic_shift.keyword_query("official early literacy overview recent") == (
+            "early literacy"
+        )
+
+        # REGRESSION (code review). Framing words that are also the TOPIC are kept:
+        # these used to come back as `special`, `sleep toddlers` and `autism`.
+        assert arctic_shift.keyword_query("special needs children") == "special needs"
+        assert arctic_shift.keyword_query("sleep patterns toddlers") == "sleep patterns"
+        assert arctic_shift.keyword_query("autism behaviors") == "autism behaviors"
+
     def test_search_operators_and_quotes_are_dropped(self):
         query = 'site:reddit.com -ads "flea treatment" OR reminder'
         assert arctic_shift.keyword_query(query) == "flea treatment"

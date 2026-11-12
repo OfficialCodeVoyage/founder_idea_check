@@ -229,11 +229,20 @@ _BOILERPLATE = frozenset(
         # first two words left were one topic word and one piece of framing.
         "perspective", "perspectives", "insight", "insights", "opinion",
         "opinions", "view", "views", "attitude", "attitudes", "trend", "trends",
-        "challenge", "challenges", "need", "needs", "solution", "solutions",
+        "challenge", "challenges", "solution", "solutions",
         "option", "options", "tip", "tips", "strategy", "strategies",
         "approach", "approaches", "way", "ways", "factor", "factors",
-        "behavior", "behaviors", "behaviour", "behaviours", "pattern",
-        "patterns",
+        # How a researcher words the KIND of source they want ("official
+        # qualitative evidence ..."), which a Reddit title does not contain. Live QA
+        # (re-check 4) sent `title=qualitative early` and `title=official early`.
+        "official", "officials", "qualitative", "quantitative", "evidence",
+        "findings", "analysis", "overview", "sources", "recent", "current",
+        "latest",
+        # NOT here, on purpose, because each is often the topic itself: "need" and
+        # "needs" ("special needs children" kept only `special`), "behavior" and
+        # "behaviour" in either number, and "pattern" in either number ("sleep
+        # patterns toddlers" kept `sleep toddlers`). A framing word that is also a
+        # topic word stays a keyword; the cost is a weaker query, not a lost one.
         # Words every post in a subreddit chosen for this buyer already shares.
         "people", "person", "parent", "parents", "user", "users", "customer",
         "customers", "struggling", "struggle", "struggles", "problem",

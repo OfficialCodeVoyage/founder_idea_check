@@ -90,9 +90,11 @@ without the author and no username is ever received.
 The archive matches every word it is sent, so the lane does not forward the
 researcher's web-search string: `keyword_query` drops search operators
 (`site:`, `-term`, `OR`), quotes, stopwords, web-search boilerplate and research
-framing (perspectives, insights, strategies, challenges) and keeps the first two
-content words, sent as the archive's `title` keyword parameter, so
-the lane matches titles only. (On 2026-11-12 the archive answered the `query`
+framing (perspectives, insights, strategies, challenges, and the kind of source
+asked for: official, qualitative, evidence, findings, analysis, recent) and keeps
+the first two content words (a framing word that is often the topic itself, such
+as needs, behaviour or patterns, is kept), sent as the archive's `title` keyword
+parameter, so the lane matches titles only. (On 2026-11-12 the archive answered the `query`
 parameter, title and body together per its README, with HTTP 422 on four probes
 out of four and `title` on two out of six; the 422 body reads "Timeout. Maybe
 slow down a bit". That sample cannot separate the parameter from the moment each

@@ -6,12 +6,11 @@ import type { CostAccumulator } from "./cost-accumulator";
 export const MAIN_CHAT_SOURCE = "main-chat";
 
 /**
- * The accumulator source of a step an abort cut off. The name says it is an
- * estimate, so the entries the route logs before it charges cannot be read as
- * provider-reported usage.
+ * The accumulator source of a step an abort or a broken provider connection
+ * cut off. The name says it is an estimate, so the entries the route logs
+ * before it charges cannot be read as provider-reported usage.
  */
-export const MAIN_CHAT_CUT_STEP_SOURCE =
-  "main-chat (estimate: step cut by abort)";
+export const MAIN_CHAT_CUT_STEP_SOURCE = "main-chat (estimate: step cut off)";
 
 /** How the cut step's input was estimated. See `createMainChatUsageMeter`. */
 export type CutStepInputBasis = "previous-step" | "prompt-count";
@@ -85,6 +84,13 @@ function hasReportedUsage(usage: LanguageModelUsage): boolean {
  * deep research, and the deadline that a long tool runs into, both take this
  * path.
  *
+ * A STEP WHOSE CONNECTION DIES IS ESTIMATED TOO. When the provider's HTTP
+ * body breaks mid-step (a socket reset, a network failure), `streamText`
+ * errors the stream: no `abort`, `error` or `finish-step` part arrives, and
+ * the transform's `cancel` runs instead. It estimates the open step exactly as
+ * an abort would; a step already recorded or estimated is closed, so it is
+ * never charged twice.
+ *
  * A step that ended in a provider error is recorded from its `finish-step`
  * like any other. Whether that carries usage is the provider's call: OpenAI's
  * `response.failed` event carries `response.usage`, which the SDK reports; a
@@ -129,8 +135,7 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
     };
   }
 
-  function recordCutStep() {
-    const text = streamed.join("");
+  function recordCutStep(text: string) {
     const outputTokens = text.length > 0 ? countTokens(text) : 0;
     const estimate: CutStepEstimate = lastCompletedStep
       ? {
@@ -157,8 +162,26 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
     onCutStepEstimated?.(estimate);
   }
 
-  return () =>
-    new TransformStream<TextStreamPart<TOOLS>, TextStreamPart<TOOLS>>({
+  /** Estimates the open step, if any, exactly once, and closes it. */
+  function closeCutStep() {
+    const wasOpen = stepOpen;
+    const text = streamed.join("");
+    stepOpen = false;
+    streamed = [];
+    if (wasOpen) {
+      recordCutStep(text);
+    }
+  }
+
+  // `cancel` is in the Streams standard and in Node's TransformStream, but not
+  // yet in TypeScript's `Transformer` type, so the type adds it.
+  type MeterTransformer = Transformer<
+    TextStreamPart<TOOLS>,
+    TextStreamPart<TOOLS>
+  > & { cancel: (reason: unknown) => void };
+
+  return () => {
+    const transformer: MeterTransformer = {
       transform(part, controller) {
         switch (part.type) {
           case "start-step":
@@ -178,16 +201,25 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
             streamed = [];
             break;
           case "abort":
-            if (stepOpen) {
-              recordCutStep();
-            }
-            stepOpen = false;
-            streamed = [];
+            closeCutStep();
             break;
           default:
             break;
         }
         controller.enqueue(part);
       },
-    });
+      // The stream ended without an `abort` part: the provider's connection
+      // died mid-step (a socket reset, undici's "terminated"), so `streamText`
+      // errored the stream, or the reader downstream cancelled it. Neither
+      // writes a `finish-step`, `error` or `abort` part, and the step the
+      // provider had begun is as spent as one a stop cut off (verified with a
+      // mock model on ai@6.0.219 and Node 24, which calls `cancel` when the
+      // upstream errors). `closeCutStep` estimates it only while it is still
+      // open, so a step already recorded or estimated is never charged twice.
+      cancel() {
+        closeCutStep();
+      },
+    };
+    return new TransformStream(transformer);
+  };
 }

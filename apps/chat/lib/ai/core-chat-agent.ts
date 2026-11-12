@@ -228,7 +228,7 @@ export async function createCoreChatAgent({
     onCutStepEstimated: (estimate) => {
       log.warn(
         { messageId, chatId, selectedModelId, ...estimate },
-        "chat step cut off by an abort: its usage is an estimate"
+        "chat step cut off by an abort or a broken connection: its usage is an estimate"
       );
     },
     onStepWithoutUsage: (finishReason) => {

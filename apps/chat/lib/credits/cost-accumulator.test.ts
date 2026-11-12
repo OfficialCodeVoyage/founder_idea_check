@@ -279,7 +279,10 @@ describe("createMainChatUsageMeter", () => {
     usage: usage(inputTokens, outputTokens),
   });
 
-  async function meter(parts: Record<string, unknown>[]) {
+  async function meter(
+    parts: Record<string, unknown>[],
+    { end = "close" }: { end?: "close" | "error" } = {}
+  ) {
     const { createMainChatUsageMeter, MAIN_CHAT_CUT_STEP_SOURCE } =
       await import("./main-chat-usage");
     const accumulator = new CostAccumulator();
@@ -305,8 +308,15 @@ describe("createMainChatUsageMeter", () => {
     for (const part of parts) {
       await writer.write(part as never);
     }
-    await writer.close();
-    await reading;
+    if (end === "error") {
+      // What `pipeThrough` does when the provider's connection dies: the
+      // upstream errors, so the transform's writable side is aborted.
+      await writer.abort(new TypeError("terminated"));
+      await reading.catch(() => undefined);
+    } else {
+      await writer.close();
+      await reading;
+    }
     const entries = accumulator
       .getEntries()
       .map((entry) =>
@@ -372,6 +382,50 @@ describe("createMainChatUsageMeter", () => {
       { type: "abort" },
     ]);
     expect(entries).toEqual([["main-chat", 40_000, 3000]]);
+  });
+
+  // GUARD: a provider connection that dies mid-step errors the stream with no
+  // abort, error or finish-step part; the open step was still uncharged.
+  it("estimates the open step when the stream errors without an abort part", async () => {
+    const second = await meter(
+      [
+        { type: "start-step" },
+        finishStep(40_000, 3000, "tool-calls"),
+        { type: "start-step" },
+        { type: "text-delta", id: "t", text: "x".repeat(400) },
+      ],
+      { end: "error" }
+    );
+    expect(second.entries).toEqual([
+      ["main-chat", 40_000, 3000],
+      [second.cutSource, 43_000, 100],
+    ]);
+
+    const first = await meter(
+      [
+        { type: "start-step" },
+        { type: "text-delta", id: "t", text: "x".repeat(40) },
+      ],
+      { end: "error" }
+    );
+    expect(first.entries).toEqual([[first.cutSource, 5000, 10]]);
+
+    // Exactly once: a step already recorded, or already estimated on abort,
+    // is not estimated again when the stream then errors.
+    const recorded = await meter(
+      [{ type: "start-step" }, finishStep(40_000, 3000, "tool-calls")],
+      { end: "error" }
+    );
+    expect(recorded.entries).toEqual([["main-chat", 40_000, 3000]]);
+    const aborted = await meter(
+      [
+        { type: "start-step" },
+        { type: "text-delta", id: "t", text: "x".repeat(40) },
+        { type: "abort" },
+      ],
+      { end: "error" }
+    );
+    expect(aborted.entries).toEqual([[aborted.cutSource, 5000, 10]]);
   });
 
   it("charges a failed step's usage when the provider reported it, and skips it when not", async () => {

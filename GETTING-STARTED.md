@@ -121,10 +121,10 @@ The app trusts only that address, so on any other one signing out and other auth
 Open <http://localhost:3100/api/dev-login>.
 
 That is the whole login. It creates a local user, `dev@localhost`, signs a session cookie and sends you to the home
-page. It exists only while the app runs in development (it answers 404 otherwise). It also refuses any
-caller that is not this machine, and the dev server listens on `localhost` only, so other devices on your Wi-Fi cannot
-reach it. Use `localhost` in the address bar,
-not `127.0.0.1`.
+page. It exists only while the app runs in development (it answers 404 otherwise), and only when the app was started
+with `bun run dev:local` or `bun run dev`: those start the server on `localhost` only, so other devices on your Wi-Fi
+cannot reach it. Started any other way (for example a bare `next dev`, which listens on your whole network), the route
+answers 404. Use `localhost` in the address bar, not `127.0.0.1`.
 
 No "Continue with GitHub" or Google button is shown, on purpose: all social providers are off. To use real GitHub
 sign-in, create an OAuth app, put `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET` in `.env.local`, and set

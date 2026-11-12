@@ -61,9 +61,13 @@ function normalizeChatAppScripts(scripts: ScriptMap): void {
   const defaultBranchName = "$" + "{1:-dev-local}";
 
   scripts.prebuild = "tsx scripts/check-env.ts";
-  scripts.dev = "tsx scripts/check-env.ts && bash scripts/with-db.sh next dev";
+  // Bound to localhost, with the marker on the same line: the scaffolded app
+  // keeps `app/api/dev-login/route.ts`, which answers 404 without
+  // IC_DEV_SERVER_LOCALHOST_ONLY=1 (see `isStartedBoundToLocalhost` there).
+  scripts.dev =
+    "tsx scripts/check-env.ts && bash scripts/with-db.sh env IC_DEV_SERVER_LOCALHOST_ONLY=1 next dev --hostname localhost";
   scripts["dev:inspect"] =
-    "tsx scripts/check-env.ts && bash scripts/with-db.sh next dev --inspect";
+    "tsx scripts/check-env.ts && bash scripts/with-db.sh env IC_DEV_SERVER_LOCALHOST_ONLY=1 next dev --hostname localhost --inspect";
   scripts.prod =
     "tsx scripts/check-env.ts && tsx lib/db/migrate.ts && next build && next start";
   scripts.lint = "ultracite check";

@@ -67,23 +67,36 @@ function isLoopbackHost(hostHeader: string | null): boolean {
 }
 
 /**
- * THE SECOND GUARD, not the first. The first is the bind:
- * `scripts/dev-local.sh` and the `dev` scripts start `next dev --hostname
- * localhost`, so nothing off this machine can open a socket to the server at
- * all. This exists because the route hands a 30-day session for the founder's
- * real account to whoever calls it, so a server started some other way (a
- * bare `next dev`, which listens on every interface) must not turn into "anyone
- * on the same Wi-Fi is signed in as you".
+ * THE BIND MARKER — the guard that actually holds. The route hands a 30-day
+ * session for the founder's real account to whoever calls it, so it must only
+ * exist on a server nothing off this machine can reach. `scripts/dev-local.sh`
+ * and the chat `dev` / `dev:inspect` scripts start `next dev --hostname
+ * localhost` AND set this variable in the same command; a server started any
+ * other way (a bare `next dev`, which listens on every interface) lacks it, and
+ * the route answers 404 there.
  *
- * A route handler cannot see the socket's address, so this reads two headers
- * and uses each ONLY TO REFUSE, never to grant:
+ * Why a marker rather than trusting the headers below: a route handler cannot
+ * see the socket's address, and Next KEEPS a client-sent `X-Forwarded-For`.
+ * On a server listening on every interface, a machine on the same Wi-Fi that
+ * sends `Host: localhost` and `X-Forwarded-For: 127.0.0.1` passes
+ * `isLoopbackRequest`. The marker is what ties the shortcut to the bind.
+ */
+const DEV_SERVER_LOCALHOST_ONLY_ENV = "IC_DEV_SERVER_LOCALHOST_ONLY";
+
+function isStartedBoundToLocalhost(): boolean {
+  return process.env[DEV_SERVER_LOCALHOST_ONLY_ENV] === "1";
+}
+
+/**
+ * THE HEADER CHECKS, kept behind the marker. They do not stop a caller who
+ * forges them (see above); they stop the callers who do not bother — and a
+ * DNS-rebinding page in the founder's own browser, whose Host is the
+ * attacker's domain. Each header is used ONLY TO REFUSE, never to grant:
  *  - `Host` must name a loopback host. A LAN caller who addresses the machine
  *    by its IP fails here, and so does a DNS-rebinding page in the founder's
  *    own browser (its Host is the attacker's domain).
  *  - `X-Forwarded-For` must be present and every hop loopback. A caller who
  *    does not forge it is refused unless they really are on this machine.
- *    A caller CAN forge both headers, which is why a loopback value here
- *    proves nothing on its own and the bind stays the control that matters.
  *
  * WHY "MUST BE PRESENT" DOES NOT LOCK THE FOUNDER OUT — read from the
  * installed next 16.3 source, not assumed:
@@ -122,7 +135,7 @@ export async function GET(request: Request) {
   }
   // Same answer as production: a refused caller learns nothing about whether
   // this is a dev server with a sign-in shortcut.
-  if (!isLoopbackRequest(request)) {
+  if (!(isStartedBoundToLocalhost() && isLoopbackRequest(request))) {
     return new Response("Not found", { status: 404 });
   }
 

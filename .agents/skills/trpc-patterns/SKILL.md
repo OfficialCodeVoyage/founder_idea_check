@@ -1,9 +1,9 @@
 ---
 name: trpc-patterns
-description: Implement ChatJS tRPC routers, TanStack Query hooks, mutations, and cache invalidation. Use when adding or changing tRPC procedures or their React consumers in apps/chat.
+description: Implement tRPC routers, TanStack Query hooks, mutations, and cache invalidation. Use when adding or changing tRPC procedures or their React consumers in apps/chat.
 ---
 
-# ChatJS tRPC patterns
+# tRPC patterns
 
 ## Backend
 

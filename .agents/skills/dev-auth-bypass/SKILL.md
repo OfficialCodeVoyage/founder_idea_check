@@ -1,6 +1,6 @@
 ---
 name: dev-auth-bypass
-description: Authenticate a browser against a local ChatJS app without OAuth. Use for development login, local auth bypass, authenticated browser or Playwright testing, and the /api/dev-login route.
+description: Authenticate a browser against a local Founder Idea Check app without OAuth. Use for development login, local auth bypass, authenticated browser or Playwright testing, and the /api/dev-login route.
 ---
 
 # Dev Auth Bypass

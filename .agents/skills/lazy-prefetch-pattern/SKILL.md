@@ -1,6 +1,6 @@
 ---
 name: lazy-prefetch-pattern
-description: Use the ChatJS React Query v5 lazy-prefetch pattern without blocking server rendering. Use when prefetching tRPC queries in Next.js Server Components or changing query dehydration and hydration behavior in apps/chat.
+description: Use the React Query v5 lazy-prefetch pattern without blocking server rendering. Use when prefetching tRPC queries in Next.js Server Components or changing query dehydration and hydration behavior in apps/chat.
 ---
 
 # Lazy prefetch pattern

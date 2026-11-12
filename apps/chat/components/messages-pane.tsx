@@ -45,9 +45,16 @@ function PureMessagesPane({
 
         Hidden on a read-only clone: a shared transcript is someone else's
         project, and its gate state is not the viewer's to act on.
+
+        NOT `shrink-0`, and a flex column. The card is compact until opened and
+        its open body scrolls inside a viewport-relative cap, but on a viewport
+        too short even for that (a landscape phone) the card, not the composer,
+        is what has to give: this slot and everything inside it may shrink, so
+        the composer below keeps its full height. `GateVerdictCard` explains the
+        rest.
       */}
       {projectId && !isReadonly ? (
-        <div className="w-full shrink-0 @[500px]:px-4 px-2">
+        <div className="flex min-h-0 w-full flex-col @[500px]:px-4 px-2">
           <GateVerdictCard projectId={projectId} />
         </div>
       ) : null}

@@ -1,6 +1,8 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import Link from "next/link";
+import { useId, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   type AttemptProgress,
@@ -294,6 +296,61 @@ function CriteriaChecklist({
   );
 }
 
+/**
+ * THE ONE LINE THE CLOSED CARD SHOWS.
+ *
+ * It has to survive on its own, so the two arms that carry no list say what
+ * they are rather than quoting `reason` (which on `none-scored` is a plumbing
+ * message, not a finding about the work). Everywhere else it is the same text
+ * the open card prints first: the headline, else the first named gap, else the
+ * gate's "named nothing" note. The open card still prints all of it, whole.
+ */
+function summaryLine(view: AssessedView): string | null {
+  if (view.coverage.kind === "none-scored") {
+    return "The gate could not assess this phase.";
+  }
+  if (view.coverage.kind === "unreadable") {
+    return "This verdict can no longer be read.";
+  }
+  if (view.headline.kind !== "none") {
+    return view.headline.text;
+  }
+  return view.gaps.at(0) ?? view.noGapNote;
+}
+
+/**
+ * COMPACT BY DEFAULT, A SCROLLING REGION WHEN OPEN.
+ *
+ * The card sits in a `shrink-0` slot above the composer, inside a pane whose
+ * height is fixed to the viewport (`MainChatPanel`, `h-[calc(100dvh_-_…)]`, in an
+ * `overflow: hidden` ancestor). Nothing above it scrolls, so a card taller than
+ * the room it is given does not push the page — it CUTS OFF whatever does not
+ * fit, and what did not fit was the composer. Measured in a browser on the live
+ * attempt-7 verdict: closed, 656px in a 579px pane at 375×667 (founder cannot
+ * type); open, 876 to 1392px at every size, with the checklist rows, "Next", both
+ * links and the composer unreachable; and even at 1280×800 closed it left the
+ * transcript 105px, so the assistant's last sentence ended under the card's
+ * border.
+ *
+ * So the card is ONE ROW until asked: badge, phase, attempt, the headline on a
+ * single line, and a chevron. Everything the card ever said is still there, in
+ * a region under the row, capped at `min(30dvh, 20rem)` with its own scrollbar
+ * — the cap is relative to the viewport, so the transcript keeps most of a
+ * phone's pane and the composer is never pushed out. The cap is the ceiling,
+ * not the floor: the card and its region are flex items that may shrink
+ * (`min-h-0`), so on a landscape phone the region gives way before the
+ * composer does.
+ *
+ * A REGRESSION CANNOT HIDE IN THE COLLAPSED STATE. "Newly unmet — this went
+ * backwards" is the one fact a founder cannot reconstruct from the
+ * conversation, and the reason the diff has its own box when open. Closed, it
+ * is a chip in the summary row, in the same destructive pair as that box.
+ *
+ * THE REGION IS `aria-live="off"` ON PURPOSE. The `<output>` around the card is
+ * a live region so a new verdict is announced; without this, expanding the
+ * details would make a screen reader read the whole body aloud as if it were a
+ * new verdict.
+ */
 export function GateVerdictCard({
   projectId,
   className,
@@ -302,6 +359,8 @@ export function GateVerdictCard({
   className?: string;
 }) {
   const gate = usePhaseGate();
+  const [expanded, setExpanded] = useState(false);
+  const regionId = useId();
   if (!gate?.data) {
     return null;
   }
@@ -351,126 +410,177 @@ export function GateVerdictCard({
     repeats: standing.repeats,
     verdictReadable: gate.data.verdictReadable,
   });
+  const line = summaryLine(view);
+  const wentBackwards = standing.progress?.opened.length ?? 0;
 
   return (
     <output
-      className={cn("mx-auto block w-full px-2 pb-2 md:max-w-3xl", className)}
+      className={cn(
+        "mx-auto flex min-h-0 w-full flex-col px-2 pb-2 md:max-w-3xl",
+        className
+      )}
     >
-      <div className={cn("rounded-lg border p-3", STATUS_STYLE[view.status])}>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={STATUS_VARIANT[view.status]}>{view.label}</Badge>
-          <span className="font-medium text-sm">{gate.data.title}</span>
-          <span className="text-foreground/75 text-xs">
-            phase {gate.data.order} of {gate.data.total}
-          </span>
-          {/*
-            WHICH REFUSAL THIS IS. Seven of them arrived looking identical and
-            standalone, and that identity is why the seventh read as pushback
-            rather than as position in a sequence. Null, never "Attempt 0",
-            before the gate has run.
-          */}
-          {standing.attemptLabel ? (
-            <span className="text-foreground/75 text-xs tabular-nums">
-              {standing.attemptLabel}
-            </span>
-          ) : null}
-          {/*
-            Shown at every breakpoint. It is the only signal that this card may
-            be describing an EARLIER turn, and a founder reading a refusal needs
-            to know whether it judged what they just said.
-          */}
-          {view.pending ? (
-            <span className="text-foreground/75 text-xs italic">
-              {view.pending.marker}
-            </span>
-          ) : null}
-        </div>
-
-        {/*
-          THE SUMMARY HALF ONLY. `view.headline` is `view.reason` with its
-          trailing restatement of the gap list cut off, so the gaps below are
-          not the same sentences a second time — and on the `instead-of-list`
-          arm this IS the whole reason and GapList renders nothing.
-        */}
-        {view.headline.kind === "none" ? null : (
-          <p className="mt-2 text-sm">{view.headline.text}</p>
+      <div
+        className={cn(
+          "flex min-h-0 flex-col rounded-lg border",
+          STATUS_STYLE[view.status]
         )}
-
+      >
         {/*
-          THE GATE NEVER RAN. `failClosedVerdict` returns `perCriterion: []`
-          and `missing: [reason]`, so listing `missing` here would tell a
-          founder that one specific thing is missing when in truth nothing was
-          judged and every criterion is still pending. It is a plumbing failure
-          wearing a refusal's clothes, and it gets its own sentence instead.
+          THE WHOLE ROW IS THE CONTROL: a phone thumb should not have to find a
+          12px chevron. The name a screen reader hears is the row's text, so the
+          sr-only lead says what the row is.
         */}
-        {view.coverage.kind === "none-scored" ? (
-          <p className="mt-3 rounded border border-dashed p-2 text-sm">
-            <span className="font-medium">
-              The gate could not assess this phase.
-            </span>{" "}
-            No criterion was scored, so this is not a judgement of your work —
-            nothing above tells you what to change. Send another message and it
-            will try again.
+        <button
+          aria-controls={regionId}
+          aria-expanded={expanded}
+          className="flex w-full shrink-0 cursor-pointer items-start gap-2 rounded-lg p-3 text-left hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setExpanded((open) => !open)}
+          type="button"
+        >
+          <span className="grid min-w-0 flex-1 gap-1">
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="sr-only">Gate verdict: </span>
+              <Badge variant={STATUS_VARIANT[view.status]}>{view.label}</Badge>
+              <span className="font-medium text-sm">{gate.data.title}</span>
+              {/*
+                WHICH REFUSAL THIS IS. Seven of them arrived looking identical
+                and standalone, and that identity is why the seventh read as
+                pushback rather than as position in a sequence. Null, never
+                "Attempt 0", before the gate has run.
+              */}
+              {standing.attemptLabel ? (
+                <span className="text-foreground/75 text-xs tabular-nums">
+                  {standing.attemptLabel}
+                </span>
+              ) : null}
+              {wentBackwards > 0 ? (
+                <span className="rounded-full border border-destructive-edge bg-destructive-surface px-2 py-0.5 font-medium text-destructive-on-surface text-xs">
+                  {wentBackwards} went backwards
+                </span>
+              ) : null}
+              {/*
+                Shown at every breakpoint. It is the only signal that this card
+                may be describing an EARLIER turn, and a founder reading a
+                refusal needs to know whether it judged what they just said.
+              */}
+              {view.pending ? (
+                <span className="text-foreground/75 text-xs italic">
+                  {view.pending.marker}
+                </span>
+              ) : null}
+            </span>
+            {line ? (
+              <span className="block truncate text-sm">{line}</span>
+            ) : null}
+          </span>
+          <ChevronDown
+            aria-hidden="true"
+            className={cn(
+              "mt-0.5 size-4 shrink-0 text-foreground/75 transition-transform motion-reduce:transition-none",
+              expanded && "rotate-180"
+            )}
+          />
+        </button>
+
+        <section
+          aria-label="Verdict details"
+          aria-live="off"
+          className="max-h-[min(30dvh,20rem)] min-h-0 overflow-y-auto overscroll-contain border-t px-3 pt-2 pb-3"
+          hidden={!expanded}
+          id={regionId}
+        >
+          <p className="text-foreground/75 text-xs">
+            Phase {gate.data.order} of {gate.data.total}
           </p>
-        ) : null}
 
-        {view.coverage.kind === "unreadable" ? (
-          <p className="mt-3 rounded border border-dashed p-2 text-sm">
-            <span className="font-medium">
-              This verdict can no longer be read.
-            </span>{" "}
-            The decision above was stored, but its detail no longer matches the
-            shape this app expects — so the absence of a list below is a reading
-            failure, not a clean bill of health.
-          </p>
-        ) : null}
+          {/*
+            THE SUMMARY HALF ONLY. `view.headline` is `view.reason` with its
+            trailing restatement of the gap list cut off, so the gaps below are
+            not the same sentences a second time — and on the `instead-of-list`
+            arm this IS the whole reason and GapList renders nothing.
+          */}
+          {view.headline.kind === "none" ? null : (
+            <p className="mt-2 text-sm">{view.headline.text}</p>
+          )}
 
-        <GapList view={view} />
+          {/*
+            THE GATE NEVER RAN. `failClosedVerdict` returns `perCriterion: []`
+            and `missing: [reason]`, so listing `missing` here would tell a
+            founder that one specific thing is missing when in truth nothing was
+            judged and every criterion is still pending. It is a plumbing
+            failure wearing a refusal's clothes, and it gets its own sentence
+            instead.
+          */}
+          {view.coverage.kind === "none-scored" ? (
+            <p className="mt-3 rounded border border-dashed p-2 text-sm">
+              <span className="font-medium">
+                The gate could not assess this phase.
+              </span>{" "}
+              No criterion was scored, so this is not a judgement of your work —
+              nothing above tells you what to change. Send another message and
+              it will try again.
+            </p>
+          ) : null}
 
-        {/*
-          WHAT THIS STATE IS, AND WHAT CLOSES IT. Without this the list above is
-          a set of sentences with no instruction attached — and for
-          `fieldwork-required` the correct instruction is the opposite of the
-          obvious one: do NOT try to answer these, build the instrument.
-        */}
-        {view.coverage.kind === "scored" && view.obstacle ? (
-          <p className="mt-2 text-foreground/75 text-sm">
-            {view.obstacle.note}
-          </p>
-        ) : null}
+          {view.coverage.kind === "unreadable" ? (
+            <p className="mt-3 rounded border border-dashed p-2 text-sm">
+              <span className="font-medium">
+                This verdict can no longer be read.
+              </span>{" "}
+              The decision above was stored, but its detail no longer matches
+              the shape this app expects — so the absence of a list below is a
+              reading failure, not a clean bill of health.
+            </p>
+          ) : null}
 
-        {view.coverage.kind === "scored" && view.noGapNote ? (
-          <p className="mt-2 text-foreground/75 text-sm">{view.noGapNote}</p>
-        ) : null}
+          <GapList view={view} />
 
-        <AttemptDiff progress={standing.progress} />
-        <RepeatNote note={standing.repeatNote} />
-        <CriteriaChecklist
-          checklist={checklist}
-          explainAbsence={view.coverage.kind === "scored"}
-        />
+          {/*
+            WHAT THIS STATE IS, AND WHAT CLOSES IT. Without this the list above
+            is a set of sentences with no instruction attached — and for
+            `fieldwork-required` the correct instruction is the opposite of the
+            obvious one: do NOT try to answer these, build the instrument.
+          */}
+          {view.coverage.kind === "scored" && view.obstacle ? (
+            <p className="mt-2 text-foreground/75 text-sm">
+              {view.obstacle.note}
+            </p>
+          ) : null}
 
-        {view.nextQuestion ? (
-          <p className="mt-3 border-t pt-2 text-sm">
-            <span className="font-medium">Next: </span>
-            {view.nextQuestion}
-          </p>
-        ) : null}
+          {view.coverage.kind === "scored" && view.noGapNote ? (
+            <p className="mt-2 text-foreground/75 text-sm">{view.noGapNote}</p>
+          ) : null}
 
-        <div className="mt-2 flex gap-3 text-xs">
-          <Link
-            className="text-foreground/75 underline underline-offset-2 hover:text-foreground"
-            href={`/project/${projectId}/phases`}
-          >
-            All phases and past verdicts
-          </Link>
-          <Link
-            className="text-foreground/75 underline underline-offset-2 hover:text-foreground"
-            href={`/project/${projectId}/canvas`}
-          >
-            Canvas
-          </Link>
-        </div>
+          <AttemptDiff progress={standing.progress} />
+          <RepeatNote note={standing.repeatNote} />
+          <CriteriaChecklist
+            checklist={checklist}
+            explainAbsence={view.coverage.kind === "scored"}
+          />
+
+          {view.nextQuestion ? (
+            <p className="mt-3 border-t pt-2 text-sm">
+              <span className="font-medium">Next: </span>
+              {view.nextQuestion}
+            </p>
+          ) : null}
+
+          <div className="mt-2 flex gap-3 text-xs">
+            <Link
+              className="text-foreground/75 underline underline-offset-2 hover:text-foreground"
+              href={`/project/${projectId}/phases`}
+            >
+              All phases and past verdicts
+            </Link>
+            <Link
+              className="text-foreground/75 underline underline-offset-2 hover:text-foreground"
+              href={`/project/${projectId}/canvas`}
+            >
+              Canvas
+            </Link>
+          </div>
+        </section>
       </div>
     </output>
   );

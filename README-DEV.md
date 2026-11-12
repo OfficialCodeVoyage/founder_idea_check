@@ -129,7 +129,7 @@ who has the store id and the key, straight from the Blob CDN, around the access 
 private blob is read only with the app's own credentials, so that route is the only way in. The Blob store must accept
 private blobs. Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a deployment:
 
-- **Blobs uploaded as public before this change will not load.** In private mode files-sdk 2.1.0 reads every file with
+- **Blobs uploaded as public before this change will not load.** In private mode files-sdk reads every file with
   `blob.get(key, { access: "private" })` and reports anything that does not come back that way as `NotFound`, so a
   store that already holds public blobs (one used by this app before the switch, or by upstream ChatJS) serves them as
   404. One-off fix, before going live on such a store: create a private Blob store; copy every blob into it under the

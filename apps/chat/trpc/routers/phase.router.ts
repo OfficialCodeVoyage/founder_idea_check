@@ -14,16 +14,17 @@ import { createTRPCRouter, protectedProcedure } from "@/trpc/init";
 /**
  * The current phase's attempt ledger, projected to what the verdict card needs.
  *
- * ONE EXTRA QUERY, FOR ONE PHASE, and only once the gate has actually run —
- * `getState` is polled every 3s while a verdict is pending, and a query issued
- * on every poll of a project that has never been judged buys nothing. The
- * `attempts` procedure above stays separate because IT loads a phase the
- * founder chose to open; this is the phase they are already in.
+ * NOT PART OF THE 3-SECOND POLL. `getState` is polled while a verdict is
+ * pending, and re-reading the ledger there Zod-parsed every stored verdict on
+ * every tick although the ledger only changes when a new attempt is recorded.
+ * It is served by `currentLedger` below, which the client keys on the attempt
+ * count, so it is fetched once per new attempt. The `attempts` procedure stays
+ * separate because IT loads a phase the founder chose to open; this is the
+ * phase they are already in.
  *
  * Projected rather than returned whole: `describeAttemptSeries` carries every
- * evaluation's `evidence` and `gap` prose, which is model-written text that has
- * no business crossing the wire on a 3-second poll. Ids and the diff are all
- * the card reads.
+ * evaluation's `evidence` and `gap` prose, which is model-written text the
+ * card does not read. Ids, decisions and the diff are all it needs.
  *
  * `unmet` stays NULLABLE all the way through. Null means the attempt had no
  * criterion state at all — an unreadable verdict, or a gate that failed closed
@@ -108,10 +109,42 @@ export const phaseRouter = createTRPCRouter({
       );
     }),
 
+  /**
+   * The verdict card's ledger for the phase the founder is in.
+   *
+   * `attemptCount` is the CACHE KEY: the client passes the count `getState`
+   * reported, so react-query fetches this once per new attempt instead of on
+   * every poll. It also lets a phase never judged skip the database entirely.
+   */
+  currentLedger: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string().uuid(),
+        phaseKey: z.string().min(1),
+        attemptCount: z.number().int().min(0),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const project = await getProjectById({ id: input.projectId });
+      // Same answer for "no such project" and "not yours", as in `attempts`.
+      if (!project || project.userId !== ctx.user.id) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project not found",
+        });
+      }
+      return currentPhaseLedger(input);
+    }),
+
   getState: protectedProcedure
     .input(z.object({ projectId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const project = await getProjectById({ id: input.projectId });
+      // Independent reads, so in parallel. The phase rows are only returned
+      // after the ownership check below.
+      const [project, rows] = await Promise.all([
+        getProjectById({ id: input.projectId }),
+        getProjectPhases({ projectId: input.projectId }),
+      ]);
       if (!project) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -128,7 +161,6 @@ export const phaseRouter = createTRPCRouter({
       // Reads the CURRENT phase rather than PHASE_ONE, so the rail follows a
       // PASS into phase 2. Same pure resolver the system prompt uses, so the
       // badge and the prompt cannot disagree about which phase this is.
-      const rows = await getProjectPhases({ projectId: input.projectId });
       const { phase, workflowComplete } = resolveCurrentPhase(
         rows.map((r) => ({
           phaseKey: r.phaseKey,
@@ -138,11 +170,6 @@ export const phaseRouter = createTRPCRouter({
       const row = rows.find((r) => r.phaseKey === phase.key) ?? null;
       // Parsed, not cast: `verdict` is a json column, i.e. genuinely unknown.
       const state = toPhaseGateState(row);
-      const ledger = await currentPhaseLedger({
-        projectId: input.projectId,
-        phaseKey: phase.key,
-        attemptCount: row?.attemptCount ?? 0,
-      });
 
       return {
         phaseKey: phase.key,
@@ -220,17 +247,8 @@ export const phaseRouter = createTRPCRouter({
          * tell them apart. It is never "all eight came back untouched".
          */
         perCriterion: state?.perCriterion ?? [],
-        /**
-         * THE DIFF, WHICH WAS ALWAYS COMPUTED AND NEVER SHOWN HERE.
-         *
-         * `describeAttemptSeries` has produced closed / opened / stillOpen per
-         * attempt since the ledger was read, and it rendered only inside the
-         * Phases screen's history panel. The founder whose verdicts went
-         * 5 -> 1 -> 1 -> 1 -> 5 -> 5 -> 1 closed four criteria, watched them
-         * re-open twice and was never told, because the one screen carrying
-         * that fact was a click away from the conversation.
-         */
-        ledger,
+        // The ledger (the attempt diff the card shows) is NOT here: it is
+        // `currentLedger`, fetched once per new attempt rather than per poll.
       };
     }),
 });

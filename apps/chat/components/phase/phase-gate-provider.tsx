@@ -96,7 +96,7 @@ export type PhaseGateData = {
    * it with `criteriaAssessed` and `verdictReadable`, which say which of the
    * two absences it is.
    */
-  perCriterion: { criterionId: string; status: CriterionStatus }[];
+  perCriterion: readonly { criterionId: string; status: CriterionStatus }[];
   /** Every recorded attempt on this phase, with its diff. Oldest first. */
   ledger: AttemptLedgerStep[];
 };
@@ -115,11 +115,35 @@ export function PhaseGateProvider({
 }) {
   const trpc = useTRPC();
   const [wait, setWait] = useState<RailWait>({ kind: "idle" });
-  const { data } = useQuery({
+  const { data: state } = useQuery({
     ...trpc.phase.getState.queryOptions({ projectId }),
     refetchInterval: pollInterval(wait.kind),
     refetchIntervalInBackground: true,
   });
+
+  // THE LEDGER IS NOT POLLED. It changes only when a new attempt is recorded,
+  // so it is keyed on the phase and its attempt count: a new verdict changes
+  // the key and fetches it once; every other poll tick reads the cache. Until
+  // the ledger for the CURRENT count arrives the card gets an empty one, which
+  // it renders as "nothing to say" — never the previous attempt's diff under
+  // the new attempt's number.
+  const ledgerKey = state
+    ? {
+        projectId,
+        phaseKey: state.phaseKey,
+        attemptCount: state.attemptCount,
+      }
+    : null;
+  const { data: ledger } = useQuery({
+    ...trpc.phase.currentLedger.queryOptions(
+      ledgerKey ?? { projectId, phaseKey: "-", attemptCount: 0 }
+    ),
+    enabled: ledgerKey !== null && ledgerKey.attemptCount > 0,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const data: PhaseGateData | null = state
+    ? { ...state, ledger: ledger ?? [] }
+    : null;
 
   // Held in a ref so the turn-ended effect can seed its baseline without taking
   // `data` as a dependency — re-running it on every poll would restart the
@@ -153,9 +177,7 @@ export function PhaseGateProvider({
   }, [observed]);
 
   return (
-    <PhaseGateContext.Provider
-      value={{ data: (data as PhaseGateData | undefined) ?? null, wait }}
-    >
+    <PhaseGateContext.Provider value={{ data, wait }}>
       {children}
     </PhaseGateContext.Provider>
   );

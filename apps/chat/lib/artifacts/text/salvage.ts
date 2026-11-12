@@ -646,7 +646,7 @@ export function continueAction(
 
 const PARTIAL_PREFIX = "[PARTIAL — stream died]";
 
-/** The prefix of a live copy cut by this tab's own Stop: nothing died. */
+/** The prefix of a copy of a turn the founder stopped, live or stored: nothing died. */
 const PARTIAL_PREFIX_STOPPED = "[PARTIAL — stopped]";
 
 /**
@@ -654,15 +654,21 @@ const PARTIAL_PREFIX_STOPPED = "[PARTIAL — stopped]";
  *
  * The prefix leads, so every place a title appears unadorned — the artifact
  * header, the document list, a share link — carries the warning without any of
- * them having to know this feature exists. The title of a live copy (see
- * `ClientCopy`) says "stopped" for a Stop, because "stream died" is false of a
- * turn the founder cut; every stored title keeps "stream died".
+ * them having to know this feature exists. It says "stopped" for a turn the
+ * founder cut with Stop, because "stream died" is false of it: a live copy cut by
+ * this tab's own Stop (`copy`, see `ClientCopy`), and the stored copy of a turn
+ * the route knows the founder stopped (`stoppedByUser`). Every other title,
+ * stored or live, keeps "stream died": a real death, and the request deadline.
  */
 export function partialDocumentTitle(
   title: string | null,
-  copy?: ClientCopy
+  copy?: ClientCopy,
+  stoppedByUser = false
 ): string {
-  const prefix = copy === "stopped" ? PARTIAL_PREFIX_STOPPED : PARTIAL_PREFIX;
+  const prefix =
+    copy === "stopped" || stoppedByUser
+      ? PARTIAL_PREFIX_STOPPED
+      : PARTIAL_PREFIX;
   return `${prefix} ${title ?? "Untitled document"}`;
 }
 
@@ -681,12 +687,20 @@ export function partialDocumentTitle(
  * was ever written" is true of a copy the server wrote and false of this one (a
  * Stop showed 97 characters here beside 463 saved, live QA re-check 6). Every
  * stored copy keeps the exact wording.
+ *
+ * THE BODY AGREES WITH THE TITLE (`partialDocumentTitle`) about who ended the
+ * stream. A turn the founder cut with Stop says "the reply was stopped" in both:
+ * a stored copy is told by the route (`stoppedByUser`), a live copy knows it from
+ * `copy`. A stored copy is exact either way: "Nothing further was ever written"
+ * is true of what the server wrote.
  */
 export function partialDocumentBody(
   salvage: Extract<SalvagedTextDocument, { salvaged: true }>,
-  copy?: ClientCopy
+  copy?: ClientCopy,
+  stoppedByUser = false
 ): string {
   const chars = salvage.contentChars.toLocaleString("en-US");
+  const stopped = stoppedByUser || copy === "stopped";
   // Headings and paragraphs only. The text artifact opens in Lexical, whose
   // default markdown import cannot put a heading inside a quote, does not
   // treat a bare ">" line as a quote, and has no horizontal-rule node — so a
@@ -695,8 +709,8 @@ export function partialDocumentBody(
     "## ⚠️ PARTIAL DOCUMENT — RECOVERED, NOT COMPLETE",
     "",
     copy
-      ? `${copy === "stopped" ? "The reply was stopped" : "The stream writing this document stopped"} after at least ${chars} characters had reached this page. Everything below arrived here; the saved document may be longer, so reload the chat to see it. The last line is very likely cut mid-sentence.`
-      : `The stream writing this document stopped after ${chars} characters. Everything below arrived; nothing after it ever did, and the last line is very likely cut mid-sentence.`,
+      ? `${stopped ? "The reply was stopped" : "The stream writing this document stopped"} after at least ${chars} characters had reached this page. Everything below arrived here; the saved document may be longer, so reload the chat to see it. The last line is very likely cut mid-sentence.`
+      : `${stopped ? "The reply was stopped" : "The stream writing this document stopped"} after ${chars} characters. Everything below arrived; nothing after it ever did, and the last line is very likely cut mid-sentence.`,
     "",
     // A live copy may be shorter than the saved document, so continuing from ITS
     // last line would repeat what the server already kept: reload first.
@@ -714,7 +728,7 @@ export function partialDocumentBody(
     : [
         "## ⚠️ THE DOCUMENT STOPS HERE",
         "",
-        `The stream was cut at this point, ${chars} characters in. Nothing further was ever written. The line above is where a continuation must resume.`,
+        `${stopped ? "The reply was stopped" : "The stream was cut"} at this point, ${chars} characters in. Nothing further was ever written. The line above is where a continuation must resume.`,
       ];
 
   return `${banner}\n\n${salvage.content}\n\n${footer.join("\n")}\n`;

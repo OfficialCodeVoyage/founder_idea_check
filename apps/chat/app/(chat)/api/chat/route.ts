@@ -1306,7 +1306,8 @@ async function rescueDeadToolInputStreams({
    * founder pressed Stop or the deadline fired is salvaged and marked exactly
    * the same either way, and so is a real death. The log line differs: a Stop
    * is a choice, so it is a WARN; the deadline is the backstop and, like a death
-   * with no cause, an ERROR.
+   * with no cause, an ERROR. The Stop also titles the saved partial document
+   * "stopped" and not "stream died" (`partialDocumentTitle`).
    */
   stopCause: TurnStopCause | null;
   userId: string | null;
@@ -1334,6 +1335,7 @@ async function rescueDeadToolInputStreams({
       toolType: death.toolType,
       userId,
       messageId: assistantMessage.id,
+      stoppedByUser: cause === "user",
       log,
     });
     if (document) {
@@ -1415,12 +1417,19 @@ async function writePartialDocument({
   toolType,
   userId,
   messageId,
+  stoppedByUser,
   log,
 }: {
   salvage: SalvagedTextDocument;
   toolType: string;
   userId: string | null;
   messageId: string;
+  /**
+   * The founder's Stop cut the stream: the title and the body say "stopped",
+   * because "stream died" is false of it. A real death and the deadline keep
+   * "stream died".
+   */
+  stoppedByUser: boolean;
   log: ReturnType<typeof createModuleLogger>;
 }): Promise<SavedPartialDocument | null> {
   if (!salvage.salvaged) {
@@ -1437,8 +1446,8 @@ async function writePartialDocument({
   try {
     await saveDocument({
       id: documentId,
-      title: partialDocumentTitle(salvage.title),
-      content: partialDocumentBody(salvage),
+      title: partialDocumentTitle(salvage.title, undefined, stoppedByUser),
+      content: partialDocumentBody(salvage, undefined, stoppedByUser),
       kind: "text",
       userId,
       messageId,

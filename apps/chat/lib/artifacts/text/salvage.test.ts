@@ -328,12 +328,19 @@ describe("partial document labelling", () => {
     expect(title).toContain(REAL_TITLE);
 
     // A live copy cut by this tab's own Stop says "stopped", not "stream died"
-    // (nothing died); any other live copy and every stored title keep the prefix.
+    // (nothing died); any other live copy keeps the prefix.
     const stopped = partialDocumentTitle(REAL_TITLE, "stopped");
     expect(stopped).toMatch(PARTIAL_AT_START);
     expect(stopped).toContain("stopped");
     expect(stopped).not.toContain("stream died");
     expect(partialDocumentTitle(REAL_TITLE, "died")).toBe(title);
+
+    // REGRESSION (final review): the STORED copy of a turn the founder stopped was
+    // titled "[PARTIAL — stream died]" although nothing died. The route tells it
+    // (`stoppedByUser`); a real death and the request deadline keep "stream died".
+    expect(title).toContain("stream died");
+    expect(partialDocumentTitle(REAL_TITLE, undefined, true)).toBe(stopped);
+    expect(partialDocumentTitle(REAL_TITLE, undefined, false)).toBe(title);
   });
 
   it("names the document even when its title never arrived", () => {
@@ -355,6 +362,20 @@ describe("partial document labelling", () => {
     expect(body).toContain("Nothing further was ever written");
     expect(body).not.toContain("at least");
     expect(body).toContain("continue from the last line");
+    expect(body).toContain("The stream writing this document stopped");
+    expect(body).toContain("The stream was cut at this point");
+
+    // A stored copy of a turn the founder stopped says so, as its title does, and
+    // is still the server's exact copy: nothing further was ever written.
+    const stoppedBody = partialDocumentBody(salvage, undefined, true);
+    expect(stoppedBody).toContain("The reply was stopped after");
+    expect(stoppedBody).toContain("The reply was stopped at this point");
+    expect(stoppedBody).not.toContain("stream writing");
+    expect(stoppedBody).not.toContain("stream was cut");
+    expect(stoppedBody).toContain("THE DOCUMENT STOPS HERE");
+    expect(stoppedBody).toContain("Nothing further was ever written");
+    expect(stoppedBody).not.toContain("at least");
+    expect(stoppedBody).toContain("continue from the last line");
   });
 
   it("says a live copy holds only what reached this page, and that the saved one may be longer", () => {

@@ -349,7 +349,7 @@ export const create = new Command()
 
 			logger.break();
 			logger.log(
-				`  For detailed setup instructions, visit ${highlighter.info("https://www.chatjs.dev/docs/quickstart")}`,
+				`  For detailed setup instructions, visit ${highlighter.info("https://github.com/OfficialCodeVoyage/founder_idea_check#readme")}`,
 			);
 		} catch (error) {
 			handleError(error);

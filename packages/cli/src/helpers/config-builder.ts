@@ -181,10 +181,10 @@ export function buildConfigTs(input: {
   return `import { defineConfig } from "@/lib/config-schema";
 
 /**
- * ChatJS Configuration
+ * Chat app configuration
  *
- * Edit this file to customize your app.
- * @see https://chatjs.dev/docs/reference/config
+ * Edit this file to customize your app. Every option and its default is
+ * defined in \`lib/config-schema.ts\`.
  */
 const config = defineConfig({
 ${generateConfig(fullConfig, 1, "")}

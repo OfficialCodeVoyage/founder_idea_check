@@ -16,6 +16,13 @@ import { cn } from "@/lib/utils";
 const PERCENT = 100;
 
 /**
+ * What the popover says when the payload carries no gate reason. The tooltip
+ * this popover replaced said exactly this in that state, and the disclosure
+ * must not open to a bare gap with nothing to say whether the gate has looked.
+ */
+const GATE_NOT_RUN = "The gate has not run yet.";
+
+/**
  * Every judgement about WHAT the rail says lives in `describeRail`
  * (lib/phases/rail.ts). This map is presentation only.
  *
@@ -62,6 +69,7 @@ export function PhaseRail({
     total: data.total,
     workflowComplete: data.workflowComplete,
   });
+  const reason = data.reason ?? GATE_NOT_RUN;
 
   return (
     <div
@@ -127,8 +135,8 @@ export function PhaseRail({
             className="w-[min(24rem,calc(100vw-2rem))] text-xs"
           >
             <p className="font-medium">{rail.detail}</p>
-            {data.reason && data.reason !== rail.detail ? (
-              <p className="mt-1 text-muted-foreground">{data.reason}</p>
+            {reason && reason !== rail.detail ? (
+              <p className="mt-1 text-muted-foreground">{reason}</p>
             ) : null}
             {data.nextQuestion ? (
               <p className="mt-1 text-muted-foreground">

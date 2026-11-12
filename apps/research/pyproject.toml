@@ -75,7 +75,7 @@ dependencies = [
 # not install it. This project publishes no simulation image, and nobody should
 # publish one (or any other bundle that ships igraph) without meeting the GPL for
 # that bundle. Recorded in THIRD_PARTY-research.md.
-simulation = ["camel-oasis==0.2.5", "mcp<2"]
+simulation = ["camel-oasis==0.2.6", "mcp<2"]
 
 dev = [
     "pytest>=8.3,<9.0",

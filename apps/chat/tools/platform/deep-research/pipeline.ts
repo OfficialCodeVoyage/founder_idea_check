@@ -61,17 +61,19 @@ export async function runDeepResearchPipeline(
       `deepResearch` never carries it, and inventing a route through three files
       two other agents are editing would be a worse trade than saying so. So
       `targetUserFact` is null here and the segment is read from the
-      conversation the tool DOES have — which contains the founder describing
-      their buyer in their own words, and which is guarded by the
-      `conflicting-signals` arm so an assistant turn mentioning developers
-      cannot flip a parenting product onto the developer ordering.
+      conversation the tool DOES have — by turn, because `readAudience` reads
+      only the founder's (`user`) turns, so an assistant turn mentioning
+      developers cannot flip a parenting product onto the developer ordering.
 
       Closing the gap is passing one string into `targetUserFact`. Nothing else
       here changes.
     */
     audience: readAudience({
       targetUserFact: null,
-      conversation: messagesToString(input.messages),
+      conversation: input.messages.map((message) => ({
+        role: message.role,
+        text: getTextContentFromModelMessage(message),
+      })),
     }),
     config,
     dataStream,

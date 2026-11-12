@@ -129,24 +129,34 @@ const TECHNICAL_MARKERS: readonly RegExp[] = [
  * Buyers whose working day is anything else. Not an exhaustive census — it is
  * the set of people-nouns a founder actually writes when naming a segment, and
  * a miss here costs a neutral ordering rather than a wrong one.
+ *
+ * AUDIENCE PHRASES, NOT COMMON WORDS. A bare word that technical talk uses for
+ * something else is only a marker with the qualifier that makes it a person:
+ * "drivers" alone is device drivers, "readers" alone is screen and RSS readers,
+ * "tenants" is multi-tenancy, "child" is a child process, "students" may be CS
+ * students, "coaches" is a verb. "customers at" named nobody, so it is gone.
  */
 const NON_TECHNICAL_MARKERS: readonly RegExp[] = [
   /\bparents?\b/i,
   /\b(mums?|moms?|mothers?|dads?|fathers?)\b/i,
-  /\b(kids?|child|children|toddlers?|babies|infants?)\b/i,
+  /\b(kids|children|toddlers?|babies|infants?)\b/i,
   /\b(preschool|kindergarten|nursery)\w*\b/i,
-  /\b(teachers?|educators?|tutors?|students?)\b/i,
+  /\b(teachers?|educators?|tutors?)\b/i,
+  /\b(school|high[- ]school|college|university|nursing|medical|law) students?\b/i,
   /\b(nurses?|doctors?|patients?|therapists?|carers?|caregivers?)\b/i,
   /\bsmall[- ]business(es)?\b/i,
   /\b(shop|store|salon|restaurant|cafe|bakery)\s?owners?\b/i,
   /\b(restaurants?|salons?|bakeries|cafes?)\b/i,
   /\b(bookkeepers?|accountants?|bartenders?|baristas?|chefs?)\b/i,
-  /\b(homeowners?|landlords?|tenants?|renters?|retirees?)\b/i,
-  /\b(shoppers?|customers? at|diners?|commuters?|travellers?|travelers?)\b/i,
-  /\bpet (owners?|parents?)\b/i,
+  /\b(homeowners?|landlords?|renters?|retirees?)\b/i,
+  /\b(shoppers?|diners?|commuters?|travellers?|travelers?)\b/i,
+  /\bpet (owners?|parents?|sitters?)\b/i,
   /\b(dog|cat) (walkers?|owners?|sitters?|groomers?)\b/i,
-  /\b(gardeners?|plumbers?|electricians?|farmers?|drivers?|cleaners?)\b/i,
-  /\b(coaches?|athletes?|musicians?|readers?)\b/i,
+  /\b(gardeners?|plumbers?|electricians?|farmers?|house ?cleaners?)\b/i,
+  /\b(delivery|truck|taxi|rideshare|uber|lyft|bus|van) drivers?\b/i,
+  /\b(sports|fitness|football|soccer|basketball|tennis|swim|running|life) coach(es)?\b/i,
+  /\b(athletes?|musicians?)\b/i,
+  /\b(young|reluctant|early|beginning|struggling|avid|book) readers?\b/i,
 ];
 
 function matched(text: string, markers: readonly RegExp[]): string[] {
@@ -178,19 +188,26 @@ function matched(text: string, markers: readonly RegExp[]): string[] {
  * gap is passing one string here, not rewriting the ranking — and so the gap is
  * visible in the type rather than living in a commit message.
  *
- * THE FALLBACK IS THE CONVERSATION, which the tool does have. It is scanned with
- * the SAME markers, and the guard that makes that safe is `conflicting-signals`:
- * an assistant turn that mentions developers while the founder is talking about
- * parents produces UNKNOWN, not "technical". The bias is deliberate and one-way
- * — when in doubt we must not return the developer ordering, because returning
- * it by accident is the entire bug.
+ * THE FALLBACK IS THE FOUNDER'S OWN TURNS, which the tool does have. Only turns
+ * with role `user` are read: the assistant's words describe the conversation,
+ * not the buyer, and an assistant aside about developers would otherwise
+ * overrule what the founder said. They are scanned with the SAME markers, and
+ * `conflicting-signals` still guards a founder who names both audiences:
+ * UNKNOWN, not "technical". The bias is deliberate and one-way — when in doubt
+ * we must not return the developer ordering, because returning it by accident
+ * is the entire bug.
  */
 export function readAudience(input: {
   targetUserFact: string | null;
-  conversation: string;
+  /** The conversation by turn. Only `user` turns are read. */
+  conversation: readonly { role: string; text: string }[];
 }): AudienceView {
   const fact = input.targetUserFact?.trim() ?? "";
-  const source = fact.length > 0 ? fact : input.conversation;
+  const founderTurns = input.conversation
+    .filter((turn) => turn.role === "user")
+    .map((turn) => turn.text)
+    .join("\n");
+  const source = fact.length > 0 ? fact : founderTurns;
   if (source.trim().length === 0) {
     return { known: false, reason: "no-segment-stated" };
   }
@@ -345,42 +362,59 @@ export const NEUTRAL_RANKING: SourceRanking = {
  * searched Reddit and found nothing" and be exactly the wrong sentence.
  */
 const COMMUNITY_TABLE: readonly {
+  /** Only a segment read as this audience is matched against the row. */
+  readonly audience: BuyerAudience;
   readonly match: RegExp;
   readonly subreddits: readonly string[];
 }[] = [
   {
     // Parents of young children — the bedtime-app founder's buyer.
+    audience: "non-technical",
     match:
-      /\b(parents?|mums?|moms?|dads?|kids?|child|children|toddlers?|preschool\w*|kindergarten|nursery|bedtime)\b/i,
+      /\b(parents?|mums?|moms?|dads?|kids|children|toddlers?|preschool\w*|kindergarten|nursery|bedtime)\b/i,
     subreddits: ["Parenting", "daddit", "Mommit", "kindergarten"],
   },
   {
     // Classroom staff. Distinct from parents: different room, different budget.
+    audience: "non-technical",
     match: /\b(teachers?|educators?|classrooms?|tutors?|curriculum)\b/i,
     subreddits: ["Teachers", "education", "ELATeachers"],
   },
   {
     // Independent operators and their back office — the bookkeeper segment.
+    audience: "non-technical",
     match:
       /\b(small[- ]business(es)?|bookkeepers?|accountants?|invoic\w+|restaurants?|salons?|shop ?owners?)\b/i,
     subreddits: ["smallbusiness", "Bookkeeping", "Entrepreneur"],
   },
   {
-    // Pet services — the dog-walker segment.
-    match: /\b(dogs?|cats?|pets?|veterinar\w+|groom\w+|walkers?)\b/i,
+    // Pet services — the dog-walker segment. Animal phrases, not bare "pets":
+    // "pets vs cattle" is infrastructure talk.
+    audience: "non-technical",
+    match:
+      /\b(dogs?|cats?|pet (owners?|parents?|sitters?)|veterinar\w+|groomers?|dog walkers?)\b/i,
     subreddits: ["dogs", "pets", "petsitting"],
   },
   {
     // Practitioners, for a developer-tools buyer.
+    audience: "technical",
     match:
       /\b(developers?|devs|engineers?|programmers?|dev-?ops|kubernetes|terraform|sysadmins?)\b/i,
     subreddits: ["devops", "webdev", "ExperiencedDevs", "programming"],
   },
 ];
 
-function communitiesFor(segment: string): readonly string[] {
+/**
+ * Rows for the audience the segment was read as, so a technical buyer who
+ * mentions cats is never sent to r/dogs and a parent who mentions engineers
+ * is never sent to r/devops.
+ */
+function communitiesFor(
+  segment: string,
+  audience: BuyerAudience
+): readonly string[] {
   for (const row of COMMUNITY_TABLE) {
-    if (row.match.test(segment)) {
+    if (row.audience === audience && row.match.test(segment)) {
       return row.subreddits;
     }
   }
@@ -392,7 +426,7 @@ export function rankSourcesFor(view: AudienceView): SourceRanking {
   if (!view.known) {
     return NEUTRAL_RANKING;
   }
-  const communities = communitiesFor(view.segment);
+  const communities = communitiesFor(view.segment, view.audience);
   const reddit =
     communities.length > 0
       ? `The Reddit archive is asked about r/${communities.join(", r/")}.`

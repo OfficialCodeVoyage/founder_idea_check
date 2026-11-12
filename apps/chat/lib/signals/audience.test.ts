@@ -35,7 +35,7 @@ describe("readAudience", () => {
   it("reads a non-technical buyer out of the target_user fact", () => {
     const view = readAudience({
       targetUserFact: PARENT_TARGET_USER,
-      conversation: "",
+      conversation: [],
     });
     expect(view.known).toBe(true);
     if (view.known) {
@@ -48,11 +48,11 @@ describe("readAudience", () => {
     const bookkeeper = readAudience({
       targetUserFact:
         "The target user is an in-house bookkeeper or controller at an independent restaurant group with 3 to 15 locations.",
-      conversation: "",
+      conversation: [],
     });
     const walker = readAudience({
       targetUserFact: "Independent dog walkers in Berlin are the target users.",
-      conversation: "",
+      conversation: [],
     });
     expect(bookkeeper.known && bookkeeper.audience).toBe("non-technical");
     expect(walker.known && walker.audience).toBe("non-technical");
@@ -62,7 +62,7 @@ describe("readAudience", () => {
     const view = readAudience({
       targetUserFact:
         "Backend engineers running Kubernetes at Series-A startups are the buyer.",
-      conversation: "",
+      conversation: [],
     });
     expect(view.known && view.audience).toBe("technical");
   });
@@ -70,7 +70,7 @@ describe("readAudience", () => {
   it("does not read 'founder' as technical — every user of this app is one", () => {
     const view = readAudience({
       targetUserFact: "Solo founders validating their first idea.",
-      conversation: "",
+      conversation: [],
     });
     expect(view.known).toBe(false);
   });
@@ -78,17 +78,34 @@ describe("readAudience", () => {
   it("falls back to the conversation when no fact is reachable", () => {
     const view = readAudience({
       targetUserFact: null,
-      conversation:
-        "user: I want to sell a bedtime-routine app to parents of 3-8 year olds.",
+      conversation: [
+        {
+          role: "user",
+          text: "I want to sell a bedtime-routine app to parents of 3-8 year olds.",
+        },
+      ],
     });
     expect(view.known && view.audience).toBe("non-technical");
   });
 
-  it("refuses to guess when both audiences are named", () => {
+  it("reads only the founder's turns, never the assistant's", () => {
     const view = readAudience({
       targetUserFact: null,
-      conversation:
-        "user: a tool for parents. assistant: developers on Hacker News may also care.",
+      conversation: [
+        { role: "user", text: "a tool for parents" },
+        { role: "assistant", text: "developers on Hacker News may also care." },
+      ],
+    });
+    expect(view.known && view.audience).toBe("non-technical");
+  });
+
+  it("refuses to guess when the founder names both audiences", () => {
+    const view = readAudience({
+      targetUserFact: null,
+      conversation: [
+        { role: "user", text: "a tool for parents" },
+        { role: "user", text: "and for developers too" },
+      ],
     });
     expect(view.known).toBe(false);
     if (!view.known) {
@@ -96,8 +113,27 @@ describe("readAudience", () => {
     }
   });
 
+  it("does not let common words flip a technical buyer", () => {
+    // Device drivers, screen readers, CS students, a child process and "pets
+    // vs cattle" are infrastructure talk, not a second audience.
+    const view = readAudience({
+      targetUserFact: null,
+      conversation: [
+        {
+          role: "user",
+          text: "Platform engineers on Kubernetes who treat servers as pets vs cattle, write device drivers, test with screen readers, spawn a child process, and onboard CS students.",
+        },
+      ],
+    });
+    expect(view.known && view.audience).toBe("technical");
+    const options = sourceOptionsFor(rankSourcesFor(view));
+    expect(options?.["arctic-shift"]).toEqual({
+      subreddits: ["devops", "webdev", "ExperiencedDevs", "programming"],
+    });
+  });
+
   it("carries no audience and no weight on the unknown arm", () => {
-    const view = readAudience({ targetUserFact: null, conversation: "" });
+    const view = readAudience({ targetUserFact: null, conversation: [] });
     expect(view.known).toBe(false);
     // THE HOUSE IDIOM. Nothing on this arm may be read as an ordering: no
     // segment string, no audience, no weight standing at 0.
@@ -108,7 +144,7 @@ describe("readAudience", () => {
 describe("rankSourcesFor", () => {
   it("puts Reddit and the general web above Hacker News for a parent buyer", () => {
     const ranking = rankSourcesFor(
-      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: "" })
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
     );
     const order = orderProviders(ALL_PROVIDERS, ranking).map((p) => p.id);
     expect(order.indexOf("arctic-shift")).toBeLessThan(
@@ -125,7 +161,7 @@ describe("rankSourcesFor", () => {
     const ranking = rankSourcesFor(
       readAudience({
         targetUserFact: "Platform engineers who operate Kubernetes clusters.",
-        conversation: "",
+        conversation: [],
       })
     );
     const order = orderProviders(ALL_PROVIDERS, ranking).map((p) => p.id);
@@ -135,9 +171,9 @@ describe("rankSourcesFor", () => {
 
   it("never zeroes a lane — deprioritised is not disabled", () => {
     for (const view of [
-      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: "" }),
-      readAudience({ targetUserFact: "Backend engineers.", conversation: "" }),
-      readAudience({ targetUserFact: null, conversation: "" }),
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] }),
+      readAudience({ targetUserFact: "Backend engineers.", conversation: [] }),
+      readAudience({ targetUserFact: null, conversation: [] }),
     ]) {
       const ranking = rankSourcesFor(view);
       for (const provider of ALL_PROVIDERS) {
@@ -148,7 +184,7 @@ describe("rankSourcesFor", () => {
 
   it("keeps every lane in the order, dropping none", () => {
     const ranking = rankSourcesFor(
-      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: "" })
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
     );
     const order = orderProviders(ALL_PROVIDERS, ranking).map((p) => p.id);
     expect(order.slice().sort()).toEqual(ALL_PROVIDERS.map((p) => p.id).sort());
@@ -156,7 +192,7 @@ describe("rankSourcesFor", () => {
 
   it("gives an unknown segment the NAMED neutral ranking, not the developer one", () => {
     const neutral = rankSourcesFor(
-      readAudience({ targetUserFact: null, conversation: "" })
+      readAudience({ targetUserFact: null, conversation: [] })
     );
     expect(neutral).toBe(NEUTRAL_RANKING);
     const order = orderProviders(ALL_PROVIDERS, neutral).map((p) => p.id);
@@ -173,7 +209,7 @@ describe("rankSourcesFor", () => {
 describe("sourceOptionsFor", () => {
   it("names the parenting subreddits the Arctic Shift lane needs", () => {
     const ranking = rankSourcesFor(
-      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: "" })
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
     );
     const options = sourceOptionsFor(ranking);
     expect(options?.["arctic-shift"]).toEqual({
@@ -192,7 +228,7 @@ describe("sourceOptionsFor", () => {
 describe("rankSignals", () => {
   it("lifts a Reddit result above a more relevant Hacker News one for a parent buyer", () => {
     const ranking = rankSourcesFor(
-      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: "" })
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
     );
     const ranked = rankSignals(
       [signal("hackernews", 0.9), signal("arctic-shift", 0.5)],
@@ -205,7 +241,7 @@ describe("rankSignals", () => {
     // Deprioritised is not disabled: the weighting is a multiplier on the
     // sidecar's own relevance, not a filter.
     const ranking = rankSourcesFor(
-      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: "" })
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
     );
     const ranked = rankSignals(
       [signal("arctic-shift", 0.05), signal("hackernews", 1)],
@@ -216,7 +252,7 @@ describe("rankSignals", () => {
 
   it("drops nothing", () => {
     const ranking = rankSourcesFor(
-      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: "" })
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
     );
     const input = [
       signal("hackernews", 0.9),
@@ -231,7 +267,7 @@ describe("rankSignals", () => {
     // A zero relevance is a real score, not an unknown — but it must not make
     // the audience weighting unreadable by collapsing every lane onto one tie.
     const ranking = rankSourcesFor(
-      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: "" })
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
     );
     const ranked = rankSignals(
       [signal("hackernews", 0), signal("arctic-shift", 0)],
@@ -242,7 +278,7 @@ describe("rankSignals", () => {
 
   it("is stable within a lane, preserving the sidecar's own ordering", () => {
     const ranking = rankSourcesFor(
-      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: "" })
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
     );
     const ranked = rankSignals(
       [

@@ -66,7 +66,14 @@ export function PhaseRail({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 border-b px-4 text-muted-foreground text-xs",
+        // TWO ROWS BELOW `sm`, ONE ABOVE — and the height is owned HERE and
+        // mirrored in `MainChatPanel`'s `contentHeight`, which subtracts it
+        // (`3.5rem` / `2.25rem`). At 390px wide the single 36px row left the
+        // detail ~20px between the badge and the two links on the right, and it
+        // rendered as "f…": truncated to nothing, with no tooltip on a touch
+        // screen. Phone width has room for the phase, the badge and the two
+        // links on row one, and then the detail gets the whole second row.
+        "flex h-14 flex-wrap content-center items-center gap-x-3 gap-y-0.5 border-b px-4 text-muted-foreground text-xs sm:h-9 sm:flex-nowrap",
         className
       )}
     >
@@ -86,32 +93,40 @@ export function PhaseRail({
         value={(data.order / data.total) * PERCENT}
       />
       <Badge variant={STATUS_VARIANT[rail.status]}>{rail.label}</Badge>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="truncate">{rail.detail}</span>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-sm">
-          <p className="font-medium">
-            {data.reason ?? "The gate has not run yet."}
-          </p>
-          {data.nextQuestion ? (
-            <p className="mt-1 opacity-80">Next: {data.nextQuestion}</p>
-          ) : null}
-          {rail.pending ? (
-            <p className="mt-1 opacity-80">{rail.pending.note}</p>
-          ) : null}
-        </TooltipContent>
-      </Tooltip>
       {/*
-        Shown at EVERY breakpoint, deliberately. It is the only non-hover signal
-        that the badge may describe an earlier turn, and a touch device never
-        opens the tooltip that explains it.
+        The detail and the pending marker travel together. Below `sm` they are
+        the whole second row (`order-last` puts them after the links in DOM
+        order, `basis-full` makes the row); from `sm` up they are back between
+        the badge and the links, where they have always been.
       */}
-      {rail.pending ? (
-        <span aria-live="polite" className="shrink-0 italic opacity-70">
-          {rail.pending.marker}
-        </span>
-      ) : null}
+      <div className="order-last flex min-w-0 basis-full items-center gap-3 sm:order-none sm:basis-auto">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="truncate">{rail.detail}</span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm">
+            <p className="font-medium">
+              {data.reason ?? "The gate has not run yet."}
+            </p>
+            {data.nextQuestion ? (
+              <p className="mt-1 opacity-80">Next: {data.nextQuestion}</p>
+            ) : null}
+            {rail.pending ? (
+              <p className="mt-1 opacity-80">{rail.pending.note}</p>
+            ) : null}
+          </TooltipContent>
+        </Tooltip>
+        {/*
+          Shown at EVERY breakpoint, deliberately. It is the only non-hover
+          signal that the badge may describe an earlier turn, and a touch device
+          never opens the tooltip that explains it.
+        */}
+        {rail.pending ? (
+          <span aria-live="polite" className="shrink-0 italic opacity-70">
+            {rail.pending.marker}
+          </span>
+        ) : null}
+      </div>
       <div className="ml-auto flex shrink-0 items-center gap-1">
         <Link
           className="rounded px-2 py-1 hover:bg-accent hover:text-accent-foreground"

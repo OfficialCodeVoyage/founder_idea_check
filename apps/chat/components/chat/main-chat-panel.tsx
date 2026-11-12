@@ -32,11 +32,12 @@ export function MainChatPanel({
   // the answer finishes, so the message count changes far too early.
   const status = useChatStatus();
 
-  // The rail is h-9 (2.25rem). ChatContent's height is hardcoded against
+  // The rail is h-14 (3.5rem, two rows) below `sm` and h-9 (2.25rem) from `sm`
+  // up — see PhaseRail. ChatContent's height is hardcoded against
   // --header-height, so the rail's height has to be subtracted explicitly
-  // here — there is no flex parent to absorb it.
+  // here — there is no flex parent to absorb it. Change one, change the other.
   const contentHeight = projectId
-    ? "h-[calc(100dvh_-_var(--header-height)_-_2.25rem)]"
+    ? "h-[calc(100dvh_-_var(--header-height)_-_3.5rem)] sm:h-[calc(100dvh_-_var(--header-height)_-_2.25rem)]"
     : "h-[calc(100dvh_-_var(--header-height))]";
 
   const header = (
@@ -80,7 +81,7 @@ export function MainChatPanel({
         projectId={projectId}
       >
         {header}
-        <PhaseRail className="h-9" projectId={projectId} />
+        <PhaseRail projectId={projectId} />
         {content}
       </PhaseGateProvider>
     </div>

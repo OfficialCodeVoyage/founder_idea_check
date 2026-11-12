@@ -2,10 +2,14 @@
 
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { ChatMessage } from "@/lib/ai/types";
+import { config } from "@/lib/config";
+import {
+  buildDraftChatSubmission,
+  normalizeSelectedModel,
+} from "@/lib/draft-chat-submission";
 import {
   type AttemptProgress,
   type AttemptStandingView,
@@ -21,13 +25,14 @@ import {
   gapsByCriterion,
   groupChecklistRows,
   humanizeCriterionId,
+  type RailAssessment,
   type StatusStrip,
 } from "@/lib/phases/rail";
 import type { GateObstacle } from "@/lib/phases/types";
-import { useChatActions, useChatStatus } from "@/lib/stores/base";
+import { useSendDraftChatSubmission } from "@/lib/send-draft-chat-submission";
+import { useChatStatus } from "@/lib/stores/base";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
-import { useAddMessageToTree } from "@/lib/stores/hooks-threads";
-import { cn, generateUUID } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useChatInput } from "@/providers/chat-input-provider";
 import { type PhaseGateData, usePhaseGate } from "./phase-gate-provider";
 
@@ -213,8 +218,13 @@ function AttemptDiff({ progress }: { progress: AttemptProgress | null }) {
  *
  * ONE SENTENCE, NOT ONE LINE PER CRITERION. Replayed against the real seven
  * attempts, six criteria had blocked all seven of them — as six lines that is a
- * wall of identical text sitting on top of the regression above it. Every
- * repeat is still shown, annotated on its own row in the checklist below.
+ * wall of identical text sitting on top of the regression above it.
+ *
+ * ONLY WHEN THE ROWS CANNOT SAY IT. With the checklist drawn, every repeat is
+ * already annotated on its own row ("blocked 18 of 18 attempts"), so this
+ * sentence would state the same counts a second time, with raw criterion ids
+ * where the rows have names. The card renders it only for a verdict whose rows
+ * are not drawn.
  */
 function RepeatNote({ note }: { note: string | null }) {
   if (!note) {
@@ -297,10 +307,14 @@ function StatusStripBar({
   );
 }
 
-/** The first sentence of `text`: for a note that has room for exactly one. */
-function firstSentence(text: string): string {
-  const end = text.indexOf(". ");
-  return end === -1 ? text : text.slice(0, end + 1);
+/**
+ * "Plan how to find out" asks the assistant for help; it asserts nothing, so it
+ * is a fixed request (like a follow-up suggestion) and carries no
+ * `targetCriterionId`: an "Answering: ..." label on it would claim the founder
+ * had answered the criterion.
+ */
+function planRequestText(title: string): string {
+  return `Help me plan how to get real evidence for "${title}": who to talk to, what to ask, and what result would count.`;
 }
 
 /**
@@ -312,31 +326,55 @@ function firstSentence(text: string): string {
  * sends at once, with a fixed sentence, because it asks the assistant for help
  * rather than asserting a fact and so needs nothing typed.
  *
- * The send follows the composer's own (`multimodal-input.tsx::coreSubmitLogic`)
- * rather than `followup-suggestions.tsx`, which sends without the project id and
- * without adding the message to the thread tree.
+ * THE SEND IS THE COMPOSER'S OWN. It is built with `buildDraftChatSubmission`
+ * and sent through `useSendDraftChatSubmission`, the code `coreSubmitLogic`
+ * uses, so the request carries its assistant message id, the pending
+ * placeholder, the parallel-group fields and the founder's multi-model
+ * selection. `followup-suggestions.tsx` sends none of those, and a reply with no
+ * placeholder has nowhere to render.
+ *
+ * ONE CLICK, ONE REQUEST. The button locks at the click and unlocks only when
+ * the chat has gone busy and come back: the chat status turns busy a render
+ * after `sendMessage` runs, and a second click in that window would send the
+ * same request twice. The tool selection is not carried: a founder who has
+ * deep research switched on for their own next message did not ask for it here.
+ *
+ * THIS HOOK LIVES IN `ChecklistBody`, not in the card, on purpose: it reads the
+ * composer's context, which changes as the founder types, and everything above
+ * the rows (the verdict, the strip, the diff) must not be recomputed for that.
  */
 function useCriterionActions({
-  projectId,
+  chatId,
   phaseKey,
 }: {
-  projectId: string;
-  phaseKey: string | null;
+  chatId: string;
+  phaseKey: string;
 }) {
-  const { editorRef, setCriterionTarget, selectedModelId, selectedTool } =
-    useChatInput();
-  const { sendMessage } = useChatActions<ChatMessage>();
+  const {
+    editorRef,
+    setCriterionTarget,
+    selectedModelId,
+    selectedModelSelection,
+  } = useChatInput();
   const status = useChatStatus();
   const lastMessageId = useLastMessageId();
-  const addMessageToTree = useAddMessageToTree();
+  const sendDraftChatSubmission = useSendDraftChatSubmission(chatId);
+  const [lock, setLock] = useState<"open" | "armed" | "running">("open");
+
+  const busy = status === "submitted" || status === "streaming";
+  useEffect(() => {
+    if (lock === "armed" && busy) {
+      setLock("running");
+    } else if (lock === "running" && !busy) {
+      setLock("open");
+    }
+  }, [busy, lock]);
+
+  const canSend = (status === "ready" || status === "error") && lock === "open";
 
   return {
-    // The same rule as the composer's own gate on sending.
-    canSend: status === "ready" || status === "error",
+    canSend,
     target(row: GroupedChecklistRow) {
-      if (!phaseKey) {
-        return;
-      }
       setCriterionTarget({
         phaseKey,
         criterionId: row.id,
@@ -346,27 +384,23 @@ function useCriterionActions({
       editorRef.current?.focus();
     },
     planFieldwork(row: GroupedChecklistRow) {
-      const title = humanizeCriterionId(row.id);
-      const message: ChatMessage = {
-        id: generateUUID(),
-        role: "user",
-        parts: [
-          {
-            type: "text",
-            text: `Help me plan how to get real evidence for "${title}": who to talk to, what to ask, and what result would count.`,
-          },
-        ],
-        metadata: {
-          createdAt: new Date(),
-          parentMessageId: lastMessageId,
-          selectedModel: selectedModelId,
-          activeStreamId: null,
-          selectedTool: selectedTool || undefined,
-          targetCriterionId: row.id,
-        },
-      };
-      sendMessage(message, { body: { projectId } });
-      addMessageToTree(message);
+      if (!canSend) {
+        return;
+      }
+      const { message, requestSpecs } = buildDraftChatSubmission({
+        attachments: [],
+        input: planRequestText(humanizeCriterionId(row.id)),
+        normalizedSelectedModel: normalizeSelectedModel({
+          selectedModelId,
+          selectedModelSelection,
+        }),
+        parallelResponsesEnabled: config.features.parallelResponses,
+        parentMessageId: lastMessageId,
+        selectedTool: null,
+        targetCriterionId: null,
+      });
+      setLock("armed");
+      sendDraftChatSubmission({ message, requestSpecs });
     },
   };
 }
@@ -471,42 +505,43 @@ function CriterionRow({
 }) {
   const tone = STATE_TONE[row.state];
   return (
-    <li className="flex @[500px]:flex-row flex-col @[500px]:items-start @[500px]:justify-between gap-2 py-2">
-      <div className="min-w-0">
-        <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span aria-hidden="true" className={cn("w-3 shrink-0 text-sm", tone)}>
-            {STATE_MARK[row.state]}
+    <li className="min-w-0 py-2">
+      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span aria-hidden="true" className={cn("w-3 shrink-0 text-sm", tone)}>
+          {STATE_MARK[row.state]}
+        </span>
+        <span className="font-medium text-sm">
+          {humanizeCriterionId(row.id)}
+        </span>
+        <span className={cn("text-xs", tone)}>{row.label}</span>
+        {row.doesNotBlock ? (
+          <span className="text-foreground/75 text-xs">does not block</span>
+        ) : null}
+        {wentBackwards ? (
+          <span className="rounded-full border border-destructive-edge bg-destructive-surface px-2 py-0.5 font-medium text-destructive-on-surface text-xs">
+            went backwards
           </span>
-          <span className="font-medium text-sm">
-            {humanizeCriterionId(row.id)}
+        ) : null}
+        {row.repeat ? (
+          <span className="text-foreground/75 text-xs">
+            blocked {row.repeat.blocked} of {row.repeat.of} attempts
           </span>
-          <span className={cn("text-xs", tone)}>{row.label}</span>
-          {row.doesNotBlock ? (
-            <span className="text-foreground/75 text-xs">does not block</span>
-          ) : null}
-          {wentBackwards ? (
-            <span className="rounded-full border border-destructive-edge bg-destructive-surface px-2 py-0.5 font-medium text-destructive-on-surface text-xs">
-              went backwards
-            </span>
-          ) : null}
-          {row.repeat ? (
-            <span className="text-foreground/75 text-xs">
-              blocked {row.repeat.blocked} of {row.repeat.of} attempts
-            </span>
-          ) : null}
-        </p>
-        {gap ? (
-          <p
-            className="mt-0.5 line-clamp-2 text-foreground/75 text-xs"
-            title={gap}
-          >
-            Missing: {gap}
-          </p>
-        ) : (
-          <p className="mt-0.5 text-foreground/75 text-xs">{row.description}</p>
-        )}
-      </div>
-      <div className="flex @[500px]:w-44 @[500px]:shrink-0 @[500px]:flex-col flex-wrap items-center @[500px]:items-stretch gap-1.5">
+        ) : null}
+      </p>
+      {/*
+        THE WHOLE GAP, NEVER CLAMPED. A clamp hides the tail of a finding behind
+        a tooltip that touch and keyboard cannot reach, and Incident 3 is that the
+        founder is shown the whole open set.
+      */}
+      <p className="mt-0.5 text-foreground/75 text-xs">
+        {gap ? `Missing: ${gap}` : row.description}
+      </p>
+      {/*
+        ONE LINE OF ACTIONS UNDER THE TEXT, wrapping only when the card is too
+        narrow for them. Side-by-side with the text they stacked three buttons
+        and made a row about 110px tall, so two rows filled the capped region.
+      */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         <RowActions actions={actions} projectId={projectId} row={row} />
       </div>
     </li>
@@ -534,15 +569,17 @@ function CriterionRow({
  * with no `rows` at all when nothing was scored.
  */
 function ChecklistBody({
-  actions,
+  chatId,
   gaps,
   groups,
+  phaseKey,
   progress,
   projectId,
 }: {
-  actions: CriterionActions;
+  chatId: string;
   gaps: ReadonlyMap<string, string> | null;
   groups: ChecklistGroups;
+  phaseKey: string;
   /**
    * The latest attempt's diff. Its `closed` and `opened` hold criterion IDS
    * (`describeAttemptSeries`), so they match a row by `row.id`: a "newly met"
@@ -551,6 +588,7 @@ function ChecklistBody({
   progress: AttemptProgress | null;
   projectId: string;
 }) {
+  const actions = useCriterionActions({ chatId, phaseKey });
   const closedIds = new Set(progress?.closed ?? []);
   const openedIds = new Set(progress?.opened ?? []);
   const open = [
@@ -710,7 +748,7 @@ function VerdictRow({
                 >
                   {strip.label}
                 </span>
-                <span className="sr-only">{strip.spoken}. </span>
+                <span className="sr-only">{strip.spoken} </span>
               </>
             ) : null}
             {line ? (
@@ -766,13 +804,15 @@ function VerdictNotices({ view }: { view: AssessedView }) {
 }
 
 /**
- * WHAT THIS STATE IS, AND WHAT CLOSES IT, in one sentence.
+ * WHAT THIS STATE IS, AND WHAT CLOSES IT.
  *
  * The rows are a set of findings with no instruction attached, and for
  * `fieldwork-required` the correct instruction is the opposite of the obvious
- * one: do NOT try to answer these, build the instrument. The obstacle note's own
- * first sentence says it; the rest of it said again what the groups and the
- * status words already do. Only for a verdict that scored something.
+ * one: do NOT try to answer these, build the instrument. The WHOLE note is
+ * printed, not its first sentence: the later sentences are the remedy
+ * ("Restating it plainly is often all this needs", "The next real step is the
+ * instrument"), and cutting them keeps the diagnosis and drops the cure. Only
+ * for a verdict that scored something.
  */
 function VerdictFootnotes({ view }: { view: AssessedView }) {
   if (view.coverage.kind !== "scored") {
@@ -784,9 +824,7 @@ function VerdictFootnotes({ view }: { view: AssessedView }) {
         <p className="mt-2 text-foreground/75 text-sm">{view.noGapNote}</p>
       ) : null}
       {view.obstacle ? (
-        <p className="mt-2 text-foreground/75 text-sm">
-          {firstSentence(view.obstacle.note)}
-        </p>
+        <p className="mt-2 text-foreground/75 text-sm">{view.obstacle.note}</p>
       ) : null}
     </>
   );
@@ -823,21 +861,39 @@ function placeGaps({
 }
 
 /**
- * THE OPEN REGION: the checklist, then the notes that frame it, then where to
- * go next. Hidden, not unmounted, while closed (`hidden`), so the toggle's
- * `aria-controls` always points at something.
+ * THE GATE'S OWN SENTENCE ABOVE THE ROWS, or null.
  *
- * THE HEADLINE ONLY WHEN THERE IS NO CHECKLIST TO CARRY IT. With the rows drawn,
- * the strip and the status words say how many are open and of what kind, and
- * "1 of 8 could not be assessed, and 4 more are still open" printed over them
- * is the same count a third time. When the rows cannot be drawn, or the gaps do
- * not line up with them, it is the summary half of the reason, as before:
  * `view.headline` is `view.reason` with its trailing restatement of the gap list
- * cut off, so the gaps below are not the same sentences a second time, and on
- * the `instead-of-list` arm it IS the whole reason.
+ * cut off, so the gaps below are not the same sentences a second time. Its
+ * `summary` half is the gate's own sentence about WHICH rule fired and how much
+ * else is open, and the status words on the rows do not say that, so it is shown
+ * even when the rows carry every gap. The `instead-of-list` arm is different:
+ * the reason IS the gap and nothing else, so when the rows carry the gap it is
+ * the same sentence twice, and it is shown only when they do not (`GapList`
+ * prints nothing on that arm).
+ */
+function headlineText(view: AssessedView, carried: boolean): string | null {
+  const { headline } = view;
+  if (headline.kind === "summary") {
+    return headline.text;
+  }
+  if (headline.kind === "instead-of-list" && !carried) {
+    return headline.text;
+  }
+  return null;
+}
+
+/**
+ * THE OPEN REGION: what moved, the checklist, the notes that frame it, then
+ * where to go next. Hidden, not unmounted, while closed (`hidden`), so the
+ * toggle's `aria-controls` always points at something.
+ *
+ * REGRESSIONS COME FIRST, right under the phase line and above the checklist.
+ * "Newly unmet — this went backwards" is the one fact a founder cannot
+ * reconstruct from the conversation, so nothing sits in front of it.
  */
 function VerdictDetails({
-  actions,
+  chatId,
   checklist,
   data,
   expanded,
@@ -846,7 +902,7 @@ function VerdictDetails({
   standing,
   view,
 }: {
-  actions: CriterionActions;
+  chatId: string;
   checklist: CriterionChecklist;
   data: PhaseGateData;
   expanded: boolean;
@@ -863,6 +919,7 @@ function VerdictDetails({
     obstacle: data.obstacle,
     view,
   });
+  const headline = headlineText(view, carried);
   return (
     <section
       aria-label="Verdict details"
@@ -875,15 +932,20 @@ function VerdictDetails({
         Phase {data.order} of {data.total}
       </p>
 
-      {carried || view.headline.kind === "none" ? null : (
-        <p className="mt-2 text-sm">{view.headline.text}</p>
-      )}
+      <AttemptDiff progress={standing.progress} />
+
+      {headline ? <p className="mt-2 text-sm">{headline}</p> : null}
 
       <VerdictNotices view={view} />
 
       {carried ? null : <GapList view={view} />}
 
-      <RepeatNote note={standing.repeatNote} />
+      {/*
+        ONLY WHEN THERE ARE NO ROWS TO SAY IT. With the checklist drawn, each
+        repeat is on its own row, and this sentence would restate those counts
+        with raw ids.
+      */}
+      {groups ? null : <RepeatNote note={standing.repeatNote} />}
 
       {/*
         THE CHECKLIST IS THE BODY. Where it cannot be drawn, the note says why —
@@ -892,9 +954,10 @@ function VerdictDetails({
       */}
       {groups ? (
         <ChecklistBody
-          actions={actions}
+          chatId={chatId}
           gaps={gaps}
           groups={groups}
+          phaseKey={data.phaseKey}
           progress={standing.progress}
           projectId={projectId}
         />
@@ -904,8 +967,6 @@ function VerdictDetails({
       )}
 
       <VerdictFootnotes view={view} />
-
-      <AttemptDiff progress={standing.progress} />
 
       {view.nextQuestion ? (
         <p className="mt-3 border-t pt-2 text-sm">
@@ -930,6 +991,70 @@ function VerdictDetails({
       </div>
     </section>
   );
+}
+
+/**
+ * EVERYTHING THE CARD DERIVES FROM THE GATE PAYLOAD, in one pure place so it can
+ * be memoised on that payload.
+ *
+ * All of these read the SAME payload in the same call, so the attempt number,
+ * the diff and the checklist cannot describe a different verdict from the one
+ * badged at the top. A verdict that is not assessed carries none of the rest:
+ * there is nothing to derive a checklist from.
+ */
+type CardView =
+  | {
+      kind: "unassessed";
+      view: Extract<GateVerdictView, { assessed: false }>;
+    }
+  | {
+      kind: "verdict";
+      checklist: CriterionChecklist;
+      line: string | null;
+      standing: AttemptStandingView;
+      strip: StatusStrip;
+      view: AssessedView;
+    };
+
+function deriveCardView(
+  data: PhaseGateData,
+  assessment: RailAssessment
+): CardView {
+  const view = describeGateVerdict({
+    assessment,
+    criteriaAssessed: data.criteriaAssessed,
+    decision: data.decision,
+    missing: data.missing,
+    nextQuestion: data.nextQuestion,
+    obstacle: data.obstacle,
+    reason: data.reason,
+    total: data.total,
+    perCriterion: data.perCriterion,
+    verdictReadable: data.verdictReadable,
+    workflowComplete: data.workflowComplete,
+  });
+  if (!view.assessed) {
+    return { kind: "unassessed", view };
+  }
+  const standing = describeAttemptStanding({
+    attemptCount: data.attemptCount,
+    ledger: data.ledger,
+    criteria: data.criteria,
+  });
+  const checklist = describeCriterionChecklist({
+    criteria: data.criteria,
+    perCriterion: data.perCriterion,
+    repeats: standing.repeats,
+    verdictReadable: data.verdictReadable,
+  });
+  return {
+    kind: "verdict",
+    checklist,
+    line: summaryLine(view),
+    standing,
+    strip: describeStatusStrip(checklist),
+    view,
+  };
 }
 
 /**
@@ -965,45 +1090,42 @@ function VerdictDetails({
  * a live region so a new verdict is announced; without this, expanding the
  * details would make a screen reader read the whole body aloud as if it were a
  * new verdict.
+ *
+ * THIS COMPONENT DOES NOT READ THE COMPOSER. It re-renders when the gate payload
+ * changes, not on every keystroke; the row actions that need the composer's
+ * context are a layer down (`ChecklistBody`).
  */
 export function GateVerdictCard({
+  chatId,
   projectId,
   className,
 }: {
+  chatId: string;
   projectId: string;
   className?: string;
 }) {
   const gate = usePhaseGate();
   const [expanded, setExpanded] = useState(false);
   const regionId = useId();
-  // Before the early return: hooks cannot be conditional.
-  const actions = useCriterionActions({
-    projectId,
-    phaseKey: gate?.data?.phaseKey ?? null,
-  });
-  if (!gate?.data) {
+  const data = gate?.data ?? null;
+  const assessment = gate?.wait.kind ?? "idle";
+  // Keyed on the payload (the provider keeps its identity between polls that
+  // return the same state) and on the wait, so nothing is re-derived for a
+  // render that changed neither.
+  const card = useMemo(
+    () => (data ? deriveCardView(data, assessment) : null),
+    [assessment, data]
+  );
+  if (!(data && card)) {
     return null;
   }
-
-  const view = describeGateVerdict({
-    assessment: gate.wait.kind,
-    criteriaAssessed: gate.data.criteriaAssessed,
-    decision: gate.data.decision,
-    missing: gate.data.missing,
-    nextQuestion: gate.data.nextQuestion,
-    obstacle: gate.data.obstacle,
-    reason: gate.data.reason,
-    total: gate.data.total,
-    perCriterion: gate.data.perCriterion,
-    verdictReadable: gate.data.verdictReadable,
-    workflowComplete: gate.data.workflowComplete,
-  });
 
   // NOT ASSESSED IS NOT A VERDICT, so it does not get a verdict's card. A
   // founder who has not been judged yet must not see a bordered panel that
   // looks like a ruling — the only thing worth saying is that the gate has not
   // looked, and only while something is actually pending.
-  if (!view.assessed) {
+  if (card.kind === "unassessed") {
+    const { view } = card;
     return view.pending ? (
       <output
         className={cn(
@@ -1016,21 +1138,7 @@ export function GateVerdictCard({
     ) : null;
   }
 
-  // Both read the SAME payload as the verdict above, in the same render, so the
-  // attempt number, the diff and the checklist cannot describe a different
-  // verdict from the one badged at the top.
-  const standing = describeAttemptStanding({
-    attemptCount: gate.data.attemptCount,
-    ledger: gate.data.ledger,
-    criteria: gate.data.criteria,
-  });
-  const checklist = describeCriterionChecklist({
-    criteria: gate.data.criteria,
-    perCriterion: gate.data.perCriterion,
-    repeats: standing.repeats,
-    verdictReadable: gate.data.verdictReadable,
-  });
-
+  const { checklist, line, standing, strip, view } = card;
   return (
     <output
       className={cn(
@@ -1052,18 +1160,18 @@ export function GateVerdictCard({
       >
         <VerdictRow
           expanded={expanded}
-          line={summaryLine(view)}
+          line={line}
           onToggle={() => setExpanded((open) => !open)}
           regionId={regionId}
           standing={standing}
-          strip={describeStatusStrip(checklist)}
-          title={gate.data.title}
+          strip={strip}
+          title={data.title}
           view={view}
         />
         <VerdictDetails
-          actions={actions}
+          chatId={chatId}
           checklist={checklist}
-          data={gate.data}
+          data={data}
           expanded={expanded}
           projectId={projectId}
           regionId={regionId}

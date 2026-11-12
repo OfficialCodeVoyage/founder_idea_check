@@ -909,8 +909,13 @@ function openClauses(rows: readonly ChecklistRow[]): string[] {
     .map((entry) => `${entry.count} ${CHECKLIST_LABEL[entry.state]}`);
 }
 
+/** "3 of 8 met": the one clause the summary and the status strip both open with. */
+function metClause(metCount: number, total: number): string {
+  return `${metCount} of ${total} met`;
+}
+
 function summarize(rows: readonly ChecklistRow[], metCount: number): string {
-  const head = [`${metCount} of ${rows.length} met`, ...openClauses(rows)].join(
+  const head = [metClause(metCount, rows.length), ...openClauses(rows)].join(
     ", "
   );
   // WHICH OF THE OPEN ONES CANNOT BE ANSWERED. "you have not said this" and
@@ -1079,17 +1084,12 @@ export type StatusStrip =
       total: number;
       /** The visible count: "3 of 8 met". */
       label: string;
-      /** The count with every state named, for a screen reader. */
+      /**
+       * The count with every state named, for a screen reader: exactly
+       * `CriterionChecklist.summary`, a whole sentence ending in a full stop.
+       */
       spoken: string;
     };
-
-/** The order the spoken clauses come in after "N of M met". */
-const SPOKEN_ORDER: readonly Exclude<ChecklistState, "met">[] = [
-  "partial",
-  "unmet",
-  "not-evaluable",
-  "unscored",
-];
 
 /** PURE. The strip, or an honest refusal to draw one. */
 export function describeStatusStrip(
@@ -1098,21 +1098,17 @@ export function describeStatusStrip(
   if (!checklist.available) {
     return { available: false };
   }
-  const { rows, metCount } = checklist;
-  const label = `${metCount} of ${rows.length} met`;
-  const clauses = SPOKEN_ORDER.map((state) => ({
-    state,
-    count: rows.filter((r) => r.state === state).length,
-  }))
-    .filter((entry) => entry.count > 0)
-    .map((entry) => `${entry.count} ${CHECKLIST_LABEL[entry.state]}`);
+  const { rows, metCount, summary } = checklist;
   return {
     available: true,
     segments: rows.map((r) => ({ id: r.id, state: r.state })),
     metCount,
     total: rows.length,
-    label,
-    spoken: [label, ...clauses].join(", "),
+    label: metClause(metCount, rows.length),
+    // The checklist's own sentence, not a second one: it already names every
+    // state in a fixed order, and it is the one sentence that also says how
+    // many of the open criteria need data from outside the conversation.
+    spoken: summary,
   };
 }
 

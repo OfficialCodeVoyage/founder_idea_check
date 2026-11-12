@@ -26,6 +26,7 @@ const CALL = "call-1";
 
 /** Top-level so biome's useTopLevelRegex stays happy. */
 const ANY_DIGIT = /\d/;
+const TWO_SEARCHES_LINE = /^Researched for 2 seconds, 2 searches, \d+ sources$/;
 
 function web(results: number, status: "running" | "completed"): ResearchUpdate {
   return {
@@ -205,6 +206,21 @@ describe("researchRunLine", () => {
     expect(line).toContain("1 search,");
     expect(line).toContain("0 sources");
     expect(line).toContain("elapsed time not recorded");
+  });
+
+  it("spells every plural it prints as a word, never as an appended s", () => {
+    // QA saw "5 searchs": the suffix rule was right for "sources" and
+    // "seconds" and wrong for "search".
+    const line = researchRunLine(
+      describeResearchRun([
+        marker("started", 0),
+        web(2, "completed"),
+        web(1, "completed"),
+        marker("completed", 2000),
+      ])
+    );
+
+    expect(line).toMatch(TWO_SEARCHES_LINE);
   });
 });
 

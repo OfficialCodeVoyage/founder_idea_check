@@ -110,18 +110,27 @@ function measureElapsed(
   return { known: true, seconds };
 }
 
-function plural(count: number, singular: string): string {
-  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+/**
+ * Both forms are spelled out at every call site. Appending "s" printed
+ * "5 searchs" on every run summary; English plurals are not a suffix rule, so
+ * the caller names the word it means rather than this function guessing.
+ */
+function plural(count: number, forms: { one: string; other: string }): string {
+  return `${count} ${count === 1 ? forms.one : forms.other}`;
 }
+
+const SEARCH = { one: "search", other: "searches" };
+const SOURCE = { one: "source", other: "sources" };
+const SECOND = { one: "second", other: "seconds" };
 
 /** PURE. The row's text. Kept next to the union so the arms cannot drift apart. */
 export function researchRunLine(view: ResearchRunView): string {
   if (!view.searched) {
     return `No search ran — ${view.note}`;
   }
-  const counts = `${plural(view.searches, "search")}, ${plural(view.sources, "source")}`;
+  const counts = `${plural(view.searches, SEARCH)}, ${plural(view.sources, SOURCE)}`;
   if (view.elapsed.known) {
-    return `Researched for ${plural(view.elapsed.seconds, "second")}, ${counts}`;
+    return `Researched for ${plural(view.elapsed.seconds, SECOND)}, ${counts}`;
   }
   return `Researched ${counts} (elapsed time not recorded)`;
 }

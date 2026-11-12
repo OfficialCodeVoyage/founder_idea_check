@@ -680,7 +680,11 @@ export function partialDocumentBody(
       ? `${copy === "stopped" ? "The reply was stopped" : "The stream writing this document stopped"} after at least ${chars} characters had reached this page. Everything below arrived here; the saved document may be longer, so reload the chat to see it. The last line is very likely cut mid-sentence.`
       : `The stream writing this document stopped after ${chars} characters. Everything below arrived; nothing after it ever did, and the last line is very likely cut mid-sentence.`,
     "",
-    "This text was salvaged so it would not be lost. **Do not treat it as a finished document.** Ask the assistant to continue from the last line to complete it.",
+    // A live copy may be shorter than the saved document, so continuing from ITS
+    // last line would repeat what the server already kept: reload first.
+    copy
+      ? "This text was salvaged so it would not be lost. **Do not treat it as a finished document.** Reload the chat first, then ask the assistant to continue from the saved document."
+      : "This text was salvaged so it would not be lost. **Do not treat it as a finished document.** Ask the assistant to continue from the last line to complete it.",
   ].join("\n");
 
   const footer = copy

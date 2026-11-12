@@ -353,6 +353,7 @@ describe("partial document labelling", () => {
     // A stored copy is the server's own, so it is exact.
     expect(body).toContain("Nothing further was ever written");
     expect(body).not.toContain("at least");
+    expect(body).toContain("continue from the last line");
   });
 
   it("says a live copy holds only what reached this page, and that the saved one may be longer", () => {
@@ -369,6 +370,11 @@ describe("partial document labelling", () => {
       expect(body).toContain(`at least ${chars} characters`);
       expect(body).toContain("saved document may be longer");
       expect(body).toContain("reload the chat");
+      // The live copy can be shorter than the saved document, so it sends the
+      // founder to the saved one rather than to its own last line.
+      expect(body).toContain("Reload the chat first");
+      expect(body).toContain("continue from the saved document");
+      expect(body).not.toContain("continue from the last line");
       expect(body).not.toContain("Nothing further was ever written");
       expect(body).toContain(salvage.content);
       expect(body.split("\n")[0].startsWith("## ")).toBe(true);

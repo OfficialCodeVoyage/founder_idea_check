@@ -20,7 +20,7 @@
 		"nextjs"
 	],
 	"dependencies": {
-		"@clack/prompts": "^1.0.1",
+		"@clack/prompts": "^1.8.1",
 		"commander": "^14.0.0",
 		"files-sdk": "2.1.0",
 		"kleur": "^4.1.5",

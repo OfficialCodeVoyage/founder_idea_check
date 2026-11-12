@@ -273,6 +273,17 @@ describe("partial document labelling", () => {
     expect(body).toContain(salvage.content);
     expect(body).toContain(salvage.contentChars.toLocaleString("en-US"));
   });
+
+  it("uses only markdown the text editor renders, not raw quote or rule marks", () => {
+    // Lexical's default import shows "> ##", a bare ">" and "---" as literal
+    // characters. The banner and footer are headings and paragraphs instead.
+    if (!salvage.salvaged) {
+      throw new Error("fixture should salvage");
+    }
+    const lines = partialDocumentBody(salvage).split("\n");
+    expect(lines[0].startsWith("## ")).toBe(true);
+    expect(lines.filter((l) => l.startsWith(">") || l === "---")).toEqual([]);
+  });
 });
 
 describe("sweepDeadInputStreams", () => {

@@ -523,20 +523,22 @@ export function partialDocumentBody(
   salvage: Extract<SalvagedTextDocument, { salvaged: true }>
 ): string {
   const chars = salvage.contentChars.toLocaleString("en-US");
+  // Headings and paragraphs only. The text artifact opens in Lexical, whose
+  // default markdown import cannot put a heading inside a quote, does not
+  // treat a bare ">" line as a quote, and has no horizontal-rule node — so a
+  // blockquoted banner showed up as raw "> ##" and "---" characters there.
   const banner = [
-    "> ## ⚠️ PARTIAL DOCUMENT — RECOVERED, NOT COMPLETE",
-    ">",
-    `> The stream writing this document stopped after ${chars} characters. Everything below arrived; nothing after it ever did, and the last line is very likely cut mid-sentence.`,
-    ">",
-    "> This text was salvaged so it would not be lost. **Do not treat it as a finished document.** Ask the assistant to continue from the last line to complete it.",
+    "## ⚠️ PARTIAL DOCUMENT — RECOVERED, NOT COMPLETE",
+    "",
+    `The stream writing this document stopped after ${chars} characters. Everything below arrived; nothing after it ever did, and the last line is very likely cut mid-sentence.`,
+    "",
+    "This text was salvaged so it would not be lost. **Do not treat it as a finished document.** Ask the assistant to continue from the last line to complete it.",
   ].join("\n");
 
   const footer = [
-    "---",
+    "## ⚠️ THE DOCUMENT STOPS HERE",
     "",
-    "> ## ⚠️ THE DOCUMENT STOPS HERE",
-    ">",
-    `> The stream was cut at this point, ${chars} characters in. Nothing further was ever written. The line above is where a continuation must resume.`,
+    `The stream was cut at this point, ${chars} characters in. Nothing further was ever written. The line above is where a continuation must resume.`,
   ].join("\n");
 
   return `${banner}\n\n${salvage.content}\n\n${footer}\n`;

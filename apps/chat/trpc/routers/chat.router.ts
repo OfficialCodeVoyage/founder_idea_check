@@ -257,7 +257,7 @@ export const chatRouter = createTRPCRouter({
         chatId: z.string().uuid(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const chat = await getChatById({ id: input.chatId });
 
       if (!chat || chat.visibility !== "public") {
@@ -267,7 +267,20 @@ export const chatRouter = createTRPCRouter({
         });
       }
 
-      return dbChatToUIChat(chat);
+      // Sharing a chat shares its CONVERSATION, not who owns it or which
+      // project it is filed under. This procedure is public, so `userId` and
+      // `projectId` used to go to anyone holding the link — and a project id
+      // was exactly what a caller needed to file their own chat under someone
+      // else's project. Only the owner gets them back; the share page's
+      // breadcrumb (`components/header-breadcrumb.tsx::HeaderBreadcrumb`) is
+      // the one reader of `projectId` here, and it can only resolve a project
+      // for its owner anyway.
+      const isOwner = ctx.user?.id === chat.userId;
+      return {
+        ...dbChatToUIChat(chat),
+        userId: isOwner ? chat.userId : null,
+        projectId: isOwner ? (chat.projectId ?? null) : null,
+      };
     }),
 
   getPublicChatMessages: publicProcedure

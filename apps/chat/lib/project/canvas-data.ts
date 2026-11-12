@@ -73,7 +73,7 @@ export async function loadProjectCanvas({
   const [phaseRows, factRows, personaRows, taskRows] = await Promise.all([
     getProjectPhases({ projectId }),
     getProjectFacts({ projectId }),
-    getPersonaDocumentsByProjectId({ projectId }),
+    getPersonaDocumentsByProjectId({ projectId, userId }),
     getProjectTasks({ projectId }),
   ]);
 

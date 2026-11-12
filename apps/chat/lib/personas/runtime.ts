@@ -106,7 +106,10 @@ export async function regeneratePersona(
 
   const [factRows, projectMessages, existing] = await Promise.all([
     getProjectFacts({ projectId: input.projectId }),
-    getAllMessagesByProjectId({ projectId: input.projectId }),
+    getAllMessagesByProjectId({
+      projectId: input.projectId,
+      userId: input.userId,
+    }),
     store.readLatest(input.documentId),
   ]);
 

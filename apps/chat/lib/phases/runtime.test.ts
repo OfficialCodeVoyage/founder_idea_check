@@ -72,6 +72,7 @@ import type { CriterionEvaluation, CriterionStatus } from "./types";
 
 const PROJECT_ID = "project-1";
 const CHAT_ID = "chat-1";
+const OWNER_ID = "owner-1";
 
 /** config.ai.workflows.chat is the judge. */
 const JUDGE_MODEL_ID = "gpt-5.6-terra";
@@ -304,6 +305,7 @@ describe("runPostTurnPhasePass", () => {
   it("extracts, then gates, then persists the verdict", async () => {
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -315,9 +317,24 @@ describe("runPostTurnPhasePass", () => {
     expect(row.decision).toBe("PASS");
   });
 
+  it("judges only the project owner's chats, never every chat that names the project", async () => {
+    await runPostTurnPhasePass({
+      projectId: PROJECT_ID,
+      userId: OWNER_ID,
+      chatId: CHAT_ID,
+      assistantMessageId: "a1",
+    });
+
+    expect(getAllMessagesByProjectId).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      userId: OWNER_ID,
+    });
+  });
+
   it("extraction runs BEFORE the gate, so 'zero facts ⇒ BLOCK' is a signal not a race", async () => {
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -332,6 +349,7 @@ describe("runPostTurnPhasePass", () => {
   it("PASS advances the phase and opens the next one", async () => {
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -350,6 +368,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -367,6 +386,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -386,6 +406,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -401,6 +422,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -418,6 +440,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -432,6 +455,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -452,6 +476,7 @@ describe("runPostTurnPhasePass", () => {
     await expect(
       runPostTurnPhasePass({
         projectId: PROJECT_ID,
+        userId: OWNER_ID,
         chatId: CHAT_ID,
         assistantMessageId: "a1",
       })
@@ -469,6 +494,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -485,6 +511,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -498,6 +525,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -513,6 +541,7 @@ describe("runPostTurnPhasePass", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -552,6 +581,7 @@ describe("runPostTurnPhasePass / abandoned branches", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a2b",
     });
@@ -573,6 +603,7 @@ describe("runPostTurnPhasePass / abandoned branches", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1r",
     });
@@ -613,6 +644,7 @@ describe("runPostTurnPhasePass / the exchange handed to the extractor", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "p0",
     });
@@ -634,6 +666,7 @@ describe("runPostTurnPhasePass / the exchange handed to the extractor", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a2",
     });
@@ -664,6 +697,7 @@ describe("runPostTurnPhasePass / the exchange handed to the extractor", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a2",
     });
@@ -680,6 +714,7 @@ describe("runPostTurnPhasePass / the exchange handed to the extractor", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -727,6 +762,7 @@ describe("runPostTurnPhasePass / documents the judge can see", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a2",
     });
@@ -770,6 +806,7 @@ describe("runPostTurnPhasePass / documents the judge can see", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a4",
     });
@@ -810,6 +847,7 @@ describe("runPostTurnPhasePass / provenance reaches the models", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -822,6 +860,7 @@ describe("runPostTurnPhasePass / provenance reaches the models", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -840,6 +879,7 @@ describe("runPostTurnPhasePass / provenance reaches the models", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "a1",
     });
@@ -877,6 +917,7 @@ describe("phase budgets", () => {
 
     await runPostTurnPhasePass({
       projectId: PROJECT_ID,
+      userId: OWNER_ID,
       chatId: CHAT_ID,
       assistantMessageId: "m59",
     });

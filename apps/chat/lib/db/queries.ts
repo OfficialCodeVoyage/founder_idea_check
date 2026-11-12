@@ -625,15 +625,27 @@ export async function getAllMessagesByChatId({
  */
 export async function getAllMessagesByProjectId({
   projectId,
+  userId,
 }: {
   projectId: string;
+  /**
+   * THE PROJECT'S OWNER, and the filter is not optional. `Chat.projectId` is
+   * written from a request body, so "a chat says it belongs to this project"
+   * proves nothing about who wrote it: before the owner was part of this
+   * filter, another user's chat pointed at the project put that user's turns
+   * into the owner's gate transcript and persona grounding. The route now
+   * refuses such chats (`app/(chat)/api/chat/route.ts::handleChatValidation`),
+   * but rows written before that check still exist, and this read must not
+   * depend on the write path having always been right.
+   */
+  userId: string;
 }): Promise<ChatMessage[]> {
   try {
     const rows = await db
       .select({ message })
       .from(message)
       .innerJoin(chat, eq(message.chatId, chat.id))
-      .where(eq(chat.projectId, projectId))
+      .where(and(eq(chat.projectId, projectId), eq(chat.userId, userId)))
       .orderBy(asc(message.createdAt));
 
     return selectActiveThread(
@@ -839,15 +851,29 @@ export async function getPublicDocumentsById({ id }: { id: string }) {
  */
 export async function getPersonaDocumentsByProjectId({
   projectId,
+  userId,
 }: {
   projectId: string;
+  /**
+   * THE PROJECT'S OWNER. A persona row carries the userId of the turn that
+   * produced it, and a turn in another user's chat pointed at this project
+   * used to save personas under that user's id but this project's id — which
+   * a project-only filter then listed on the owner's canvas, export and
+   * simulation. Same reasoning as `getAllMessagesByProjectId`: the read must
+   * hold even for rows written before the route refused such chats.
+   */
+  userId: string;
 }) {
   try {
     return await db
       .select()
       .from(document)
       .where(
-        and(eq(document.projectId, projectId), eq(document.kind, "persona"))
+        and(
+          eq(document.projectId, projectId),
+          eq(document.userId, userId),
+          eq(document.kind, "persona")
+        )
       )
       .orderBy(asc(document.createdAt));
   } catch (error) {

@@ -447,10 +447,17 @@ export type PhasePassOutcome =
 
 export async function runPostTurnPhasePass({
   projectId,
+  userId,
   chatId,
   assistantMessageId,
 }: {
   projectId: string;
+  /**
+   * The project's OWNER. Scopes the judged transcript to that user's chats
+   * (see `lib/db/queries.ts::getAllMessagesByProjectId`); the route checks the
+   * chat's owner is the project's owner before it calls this.
+   */
+  userId: string;
   chatId: string;
   assistantMessageId: string | null;
 }): Promise<PhasePassOutcome> {
@@ -482,6 +489,7 @@ export async function runPostTurnPhasePass({
   try {
     const { decision, factsChanged } = await runPhasePass({
       projectId,
+      userId,
       chatId,
       assistantMessageId,
       phase,
@@ -514,12 +522,14 @@ export async function runPostTurnPhasePass({
 
 async function runPhasePass({
   projectId,
+  userId,
   chatId,
   assistantMessageId,
   phase,
   workflowComplete,
 }: {
   projectId: string;
+  userId: string;
   chatId: string;
   assistantMessageId: string | null;
   /** From resolveCurrentPhase. Keeps a finished arc from being un-finished. */
@@ -527,7 +537,7 @@ async function runPhasePass({
   phase: PhaseDefinition;
 }): Promise<{ decision: "PASS" | "WARN" | "BLOCK"; factsChanged: number }> {
   const [projectMessages, chatMessages, priorRows] = await Promise.all([
-    getAllMessagesByProjectId({ projectId }),
+    getAllMessagesByProjectId({ projectId, userId }),
     getAllMessagesByChatId({ chatId }),
     getProjectFacts({ projectId }),
   ]);

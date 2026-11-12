@@ -51,7 +51,7 @@ export async function runPostTurnPersonaPass({
   try {
     const [factRows, personaRows] = await Promise.all([
       getProjectFacts({ projectId }),
-      getPersonaDocumentsByProjectId({ projectId }),
+      getPersonaDocumentsByProjectId({ projectId, userId }),
     ]);
 
     // Grouped per documentId, NOT flattened. `latestPersonaVersion` orders a

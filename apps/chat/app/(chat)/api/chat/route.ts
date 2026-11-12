@@ -213,6 +213,37 @@ async function handleChatValidation({
       };
     }
   } else {
+    // A NEW CHAT MAY ONLY BE FILED UNDER THE REQUESTER'S OWN PROJECT.
+    // `projectId` comes straight from the request body, and once it is on the
+    // Chat row every project-scoped read trusts it: the system prompt loads
+    // that project's instructions, facts and gate verdict, and the post-turn
+    // passes extract into its fact store, re-run its gate and save personas
+    // under it. Without this check any signed-in user could read and write
+    // another founder's project by naming its id. "No such project" and "not
+    // yours" get the same answer so a caller cannot probe which ids exist —
+    // the posture of `api/chat/prepare/route.ts::validatePrepareProject`.
+    // Checked before the title is generated so a refused request costs no
+    // model call.
+    if (projectId) {
+      const project = await getProjectById({ id: projectId });
+      if (!project || project.userId !== userId) {
+        log.warn(
+          {
+            chatId,
+            userId,
+            projectId,
+            hasProject: !!project,
+            projectUserId: project?.userId ?? null,
+          },
+          "Unauthorized - project ownership mismatch"
+        );
+        return {
+          error: new Response("Unauthorized", { status: 401 }),
+          isNewChat,
+        };
+      }
+    }
+
     isNewChat = true;
     const title = await generateTitleFromUserMessage({
       message: userMessage,
@@ -326,7 +357,16 @@ async function getSystemPrompt({
     const currentChat = await getChatById({ id: chatId });
     if (currentChat?.projectId) {
       const project = await getProjectById({ id: currentChat.projectId });
-      if (project?.instructions) {
+      // DEFENCE IN DEPTH. handleChatValidation refuses a new chat filed under
+      // someone else's project, but a Chat row written before that check (or
+      // by any future path that forgets it) still names the project. A
+      // project that is missing or not owned by the chat's owner contributes
+      // nothing — no instructions, no facts, no verdict — and the turn runs
+      // as a plain chat.
+      if (!project || project.userId !== currentChat.userId) {
+        return system;
+      }
+      if (project.instructions) {
         system = `${system}\n\nProject instructions:\n${project.instructions}`;
       }
       // Phase persona + phase brief + the ranked fact block + the GATE VERDICT
@@ -518,8 +558,27 @@ async function createChatStream({
       if (!finishedChat?.projectId) {
         return;
       }
-      const phaseProjectId = finishedChat.projectId;
-      const phaseUserId = finishedChat.userId;
+      // Same defence as getSystemPrompt, and it matters more here: these
+      // passes WRITE — facts into the project's store, a verdict onto its
+      // gate, personas under it. A chat whose owner is not the project's
+      // owner must never reach them, whatever wrote its projectId.
+      const phaseProject = await getProjectById({
+        id: finishedChat.projectId,
+      });
+      if (!phaseProject || phaseProject.userId !== finishedChat.userId) {
+        log.warn(
+          {
+            chatId,
+            chatUserId: finishedChat.userId,
+            projectId: finishedChat.projectId,
+            hasProject: !!phaseProject,
+          },
+          "post-turn passes skipped - chat owner does not own its project"
+        );
+        return;
+      }
+      const phaseProjectId = phaseProject.id;
+      const phaseUserId = phaseProject.userId;
       // THE ROUTE IS THE SEQUENCER. The phase pass now reports what it did, and
       // the persona pass decides off that report. Kept here rather than inside
       // runPostTurnPhasePass so lib/phases/runtime.ts does not import
@@ -531,6 +590,7 @@ async function createChatStream({
       after(async () => {
         const outcome = await runPostTurnPhasePass({
           projectId: phaseProjectId,
+          userId: phaseUserId,
           chatId,
           assistantMessageId: messageId,
         });

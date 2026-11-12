@@ -89,7 +89,7 @@ export async function runProjectSimulation({
   }
 
   const [versions, profiles, facts] = await Promise.all([
-    getProjectPersonas({ projectId }),
+    getProjectPersonas({ projectId, userId: project.userId }),
     getSimulationProfiles({ projectId }),
     getProjectFacts({ projectId }),
   ]);

@@ -49,7 +49,7 @@ export async function buildProjectHandoff({
   const [factRows, phaseRows, personaRows] = await Promise.all([
     getProjectFacts({ projectId }),
     getProjectPhases({ projectId }),
-    getPersonaDocumentsByProjectId({ projectId }),
+    getPersonaDocumentsByProjectId({ projectId, userId: project.userId }),
   ]);
 
   const phases: ExportPhaseState[] = phaseRows.map((row) => ({

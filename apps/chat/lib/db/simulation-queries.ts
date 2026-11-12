@@ -33,11 +33,14 @@ import {
  */
 export async function getProjectPersonas({
   projectId,
+  userId,
 }: {
   projectId: string;
+  /** The project's owner, whom the caller has already checked. */
+  userId: string;
 }): Promise<PersonaVersion[]> {
   return latestPersonaPerDocument(
-    await getPersonaDocumentsByProjectId({ projectId })
+    await getPersonaDocumentsByProjectId({ projectId, userId })
   );
 }
 

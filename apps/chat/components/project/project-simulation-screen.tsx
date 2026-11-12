@@ -95,7 +95,7 @@ async function ProjectSimulationContent({
   const [facts, history, versions, profiles] = await Promise.all([
     getProjectFacts({ projectId }),
     getSimulationRuns({ projectId }),
-    getProjectPersonas({ projectId }),
+    getProjectPersonas({ projectId, userId: project.userId }),
     getSimulationProfiles({ projectId }),
   ]);
 

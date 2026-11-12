@@ -394,8 +394,22 @@ function PureArtifactPanel({
             variant="outline"
           />
 
-          <div className="flex flex-col">
-            <ArtifactTitle>{artifact.title}</ArtifactTitle>
+          <div className="flex min-w-0 flex-col">
+            {/*
+              TWO LINES, THEN AN ELLIPSIS. A document's title is a sentence
+              (the research reports put their whole question in it) and the
+              side panel is about 360px wide, so the header grew to six lines
+              and pushed the document down. The clamp is visual only: the full
+              title stays in the DOM, so it is still the text assistive
+              technology reads, and `title` gives sighted pointer users the
+              whole of it on hover.
+            */}
+            <ArtifactTitle
+              className="line-clamp-2 break-words"
+              title={artifact.title}
+            >
+              {artifact.title}
+            </ArtifactTitle>
 
             {(() => {
               if (isContentDirty) {

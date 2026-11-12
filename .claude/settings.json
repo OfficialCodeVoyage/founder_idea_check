@@ -51,6 +51,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'f=\"$(git rev-parse --show-toplevel 2>/dev/null)/.claude/hooks/format-on-edit.sh\"; [ -f \"$f\" ] && exec bash \"$f\"; exit 0'",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }

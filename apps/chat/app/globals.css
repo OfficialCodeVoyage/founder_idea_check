@@ -54,6 +54,14 @@
   --color-notice-on-surface: var(--notice-on-surface);
   --color-notice-edge: var(--notice-edge);
 
+  /*
+    SOLID FILLS FOR WHITE TEXT. `Badge` puts white 12px text on a solid pill, and
+    neither `--primary` nor `--destructive` is dark enough to carry it. See the
+    token definitions below.
+  */
+  --color-primary-solid: var(--primary-solid);
+  --color-destructive-solid: var(--destructive-solid);
+
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -317,6 +325,29 @@
   --notice-on-surface: hsl(28 80% 26%);
   --notice-edge: hsl(35 65% 44%);
 
+  /*
+    THE BADGE'S OWN FILLS, MEASURED.
+
+    `Badge` is white 12px semibold text on a solid pill. White on `--destructive`
+    (#EF4444) is 3.76:1 and white on `--primary` (#3B82F6) is 3.68:1 — both under
+    the 4.5:1 AA floor for text this small, and both were the BLOCKED and PASSED
+    chips on the gate card and the phase rail, i.e. the first thing a founder
+    reads about where they stand.
+
+    WHY NOT DARKEN `--destructive` / `--primary` THEMSELVES. They are also the
+    colour of `text-destructive` / focus rings / outlines on the DARK page,
+    where the lighter values are what clear contrast (#EF4444 on #171717 is
+    5.1:1; a darkened red there would be under 4:1). A fill that carries white
+    text and a foreground that sits on a dark page want opposite lightness, so
+    they are two tokens. Identical in both themes: white text on the fill is the
+    only thing they are measured against.
+
+      white on --primary-solid     (#2563EB) = 5.17:1
+      white on --destructive-solid (#C32222) = 5.87:1
+  */
+  --primary-solid: hsl(221.2121 83.1933% 53.3333%);
+  --destructive-solid: hsl(0 70% 45%);
+
   --border: hsl(220 13.0435% 90.9804%);
   --input: hsl(220 13.0435% 90.9804%);
   --ring: hsl(217.2193 91.2195% 59.8039%);
@@ -388,6 +419,10 @@
   --notice-surface: hsl(35 45% 14%);
   --notice-on-surface: hsl(40 90% 78%);
   --notice-edge: hsl(40 50% 46%);
+
+  /* Same values as the light block on purpose — see the note there. */
+  --primary-solid: hsl(221.2121 83.1933% 53.3333%);
+  --destructive-solid: hsl(0 70% 45%);
 
   --border: hsl(0 0% 25.098%);
   --input: hsl(0 0% 25.098%);

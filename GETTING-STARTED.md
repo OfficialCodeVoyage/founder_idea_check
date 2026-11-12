@@ -86,7 +86,8 @@ You should see `"ok": true` and a `sources` list in which `hackernews` and `web-
 bun run db:migrate
 ```
 
-You should see `Running migrations...` and then `Migrations completed in <n> ms`. To look at what it made:
+You should see `Running migrations...` and then `Migrations completed in <n> ms`. A Postgres `NOTICE` that an identifier was truncated to 63 bytes is expected and
+harmless (see [`docs/DATABASE.md`](docs/DATABASE.md)). To look at what it made:
 
 ```bash
 docker exec ic-pg psql -U postgres -d ideacheck -c '\dt'

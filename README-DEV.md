@@ -232,7 +232,8 @@ bun run lint
 - `bun run build` only right before a push, never while iterating: it runs `check-env` strictly and the migrator, then
   `next build`.
 - CI runs `verify`, the unit tests, the sidecar tests and a test-integrity check on every pull request; the one required
-  check is `ci-success`. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the details.
+  check is `ci-success`, and a pull request is squash-merged into `main`.
+  [`CONTRIBUTING.md`](CONTRIBUTING.md) has the details.
 
 ## What costs money
 

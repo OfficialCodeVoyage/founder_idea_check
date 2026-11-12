@@ -172,13 +172,17 @@ function DeadDocumentStream({
       // panel loads its stored content (and any later edits) by that id.
       // Marked partial in the panel header as well as in the body: a founder
       // who opens this and reads to the end must not be able to mistake it for
-      // a finished document at any point on the way.
+      // a finished document at any point on the way. The header says what the
+      // stored title says: "stopped" for a turn the founder cut, which the
+      // server recorded on the marked part (`store.stoppedByUser`) and so
+      // survives a reload, where this tab's own Stop mark does not.
+      const stoppedByUser = store.stoppedByUser === true;
       setArtifact((prev) => ({
         ...prev,
         documentId: store.documentId,
         kind: store.kind,
-        title: partialDocumentTitle(salvage.title),
-        content: partialDocumentBody(salvage),
+        title: partialDocumentTitle(salvage.title, undefined, stoppedByUser),
+        content: partialDocumentBody(salvage, undefined, stoppedByUser),
         messageId,
         status: "idle",
         isVisible: true,

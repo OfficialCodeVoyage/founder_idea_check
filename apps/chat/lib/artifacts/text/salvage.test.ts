@@ -574,6 +574,32 @@ describe("sweepDeadInputStreams", () => {
     expect(unsavedAgain.died && continueAction(unsavedAgain.store)).toBe(
       "continue"
     );
+
+    // REGRESSION (final review): the panel header of a saved partial said "stream
+    // died" after a Stop, while the stored title said "stopped". The cause rides
+    // on the marked part, so a RELOADED card (no `streamStopped` mark) opens the
+    // document under the stored title too. A stream that died, and a tag written
+    // before the mark existed, carry nothing and stay "stream died".
+    expect(savedPart.errorText).not.toContain(":stopped");
+    const stoppedSwept = sweepDeadInputStreams(
+      [dead],
+      new Map([
+        ["call_1", { documentId, kind: "text" as const, stoppedByUser: true }],
+      ])
+    );
+    const [stoppedPart] = stoppedSwept.parts as (typeof dead & {
+      errorText: string;
+    })[];
+    expect(stoppedPart.errorText).toContain(
+      `[partial-document:text:${documentId}:stopped]`
+    );
+    const stoppedAgain = reread(stoppedPart);
+    expect(stoppedAgain.died && stoppedAgain.store).toEqual({
+      state: "saved",
+      documentId,
+      kind: "text",
+      stoppedByUser: true,
+    });
   });
 
   it("offers Continue only from the server's own copy, and a reload while its answer is unknown", () => {

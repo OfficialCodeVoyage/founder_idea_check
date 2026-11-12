@@ -1452,7 +1452,7 @@ async function writePartialDocument({
       userId,
       messageId,
     });
-    return { documentId, kind: "text" };
+    return { documentId, kind: "text", stoppedByUser };
   } catch (error) {
     // The salvage is a best effort layered on top of a failure that has
     // already happened. If it throws, the turn must still finish and the

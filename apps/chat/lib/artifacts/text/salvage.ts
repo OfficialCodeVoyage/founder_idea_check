@@ -52,13 +52,19 @@ export const DEAD_INPUT_STREAM_MARKER = "[dead-input-stream]";
 /**
  * Follows DEAD_INPUT_STREAM_MARKER in `tool_errorText` when, and only when, the
  * route actually wrote the salvaged prefix as a `Document`:
- * `[dead-input-stream] [partial-document:<kind>:<documentId>] <detail>`.
+ * `[dead-input-stream] [partial-document:<kind>:<documentId>] <detail>`, with
+ * `:stopped` after the id when the founder's own Stop cut the stream.
  *
  * Same reasoning as the marker itself: `Part` has no column for it, and the
  * output-error part is the one place a reloaded page reads the outcome back
- * from. A marker with no tag means the server decided and saved nothing.
+ * from. A marker with no tag means the server decided and saved nothing. The
+ * `:stopped` is there because the stored title says "stopped" for such a turn
+ * (`partialDocumentTitle`), and the panel header a reloaded card opens it under
+ * must say the same; a tag without it (every one written before it existed) is a
+ * stream that died, as its title says.
  */
-const SAVED_DOCUMENT_TAG = /^ \[partial-document:([a-z]+):([^\]\s]+)\]/;
+const SAVED_DOCUMENT_TAG =
+  /^ \[partial-document:([a-z]+):([^\]\s:]+)(:stopped)?\]/;
 
 /**
  * WHETHER THE SALVAGED PREFIX WAS WRITTEN AS A DOCUMENT.
@@ -78,6 +84,8 @@ export type PartialDocumentStore =
       readonly state: "saved";
       readonly documentId: string;
       readonly kind: ArtifactKind;
+      /** The stored copy is titled and worded as a Stop's (`SavedPartialDocument`). */
+      readonly stoppedByUser?: boolean;
     }
   | { readonly state: "not-saved" }
   | { readonly state: "unknown" };
@@ -86,6 +94,11 @@ export type PartialDocumentStore =
 export type SavedPartialDocument = {
   readonly documentId: string;
   readonly kind: ArtifactKind;
+  /**
+   * The founder's own Stop cut the stream, so the route titled and worded the
+   * document "stopped" and not "stream died". Absent and false are the same.
+   */
+  readonly stoppedByUser?: boolean;
 };
 
 function isArtifactKind(value: string): value is ArtifactKind {
@@ -98,7 +111,12 @@ function readStoreFromErrorText(errorText: string): PartialDocumentStore {
     .slice(DEAD_INPUT_STREAM_MARKER.length)
     .match(SAVED_DOCUMENT_TAG);
   if (tag && isArtifactKind(tag[1])) {
-    return { state: "saved", kind: tag[1], documentId: tag[2] };
+    return {
+      state: "saved",
+      kind: tag[1],
+      documentId: tag[2],
+      ...(tag[3] ? { stoppedByUser: true } : {}),
+    };
   }
   return { state: "not-saved" };
 }
@@ -832,7 +850,7 @@ function errorTextFor(
   const { store } = verdict;
   const tag =
     store.state === "saved"
-      ? ` [partial-document:${store.kind}:${store.documentId}]`
+      ? ` [partial-document:${store.kind}:${store.documentId}${store.stoppedByUser ? ":stopped" : ""}]`
       : "";
   return `${DEAD_INPUT_STREAM_MARKER}${tag} ${verdict.detail}`;
 }

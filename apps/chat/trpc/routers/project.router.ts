@@ -11,6 +11,23 @@ import { PROJECT_COLOR_NAMES, PROJECT_ICONS } from "@/lib/project-icons";
 import { generateUUID } from "@/lib/utils";
 import { createTRPCRouter, protectedProcedure } from "@/trpc/init";
 
+/**
+ * The caller's project, or NOT_FOUND. "No such project" and "not yours" are
+ * deliberately the same answer: a FORBIDDEN for the second told a caller that
+ * the id they guessed exists and belongs to someone — the posture
+ * `phase.router.ts` takes in `getState`, `attempts` and `currentLedger`.
+ */
+async function getOwnedProject({ id, userId }: { id: string; userId: string }) {
+  const project = await getProjectById({ id });
+  if (!project || project.userId !== userId) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Project not found",
+    });
+  }
+  return project;
+}
+
 export const projectRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
     const projects = await getProjectsByUserId({ userId: ctx.user.id });
@@ -42,20 +59,7 @@ export const projectRouter = createTRPCRouter({
   getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const project = await getProjectById({ id: input.id });
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found",
-        });
-      }
-      if (project.userId !== ctx.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Project not found",
-        });
-      }
-      return project;
+      return await getOwnedProject({ id: input.id, userId: ctx.user.id });
     }),
 
   update: protectedProcedure
@@ -71,19 +75,7 @@ export const projectRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await getProjectById({ id: input.id });
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found",
-        });
-      }
-      if (project.userId !== ctx.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Project not found",
-        });
-      }
+      await getOwnedProject({ id: input.id, userId: ctx.user.id });
       await updateProject({ id: input.id, updates: input.updates });
       return { success: true };
     }),
@@ -96,19 +88,7 @@ export const projectRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await getProjectById({ id: input.id });
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found",
-        });
-      }
-      if (project.userId !== ctx.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Project not found",
-        });
-      }
+      await getOwnedProject({ id: input.id, userId: ctx.user.id });
       await updateProject({
         id: input.id,
         updates: { instructions: input.instructions },
@@ -119,19 +99,7 @@ export const projectRouter = createTRPCRouter({
   remove: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const project = await getProjectById({ id: input.id });
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found",
-        });
-      }
-      if (project.userId !== ctx.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Project not found",
-        });
-      }
+      await getOwnedProject({ id: input.id, userId: ctx.user.id });
       await deleteProject({ id: input.id });
       return { success: true };
     }),

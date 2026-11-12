@@ -63,8 +63,9 @@ const config = defineConfig({
     enabled: false, // Electron app removed from this fork
   },
   ai: {
-    // Native Anthropic BYOK: paste ANTHROPIC_API_KEY into .env.local and the
-    // whole app works. Model IDs below are bare Anthropic API IDs.
+    // OpenAI directly: put OPENAI_API_KEY in .env.local. The model ids below are
+    // OpenAI model ids, and they are typed per gateway (lib/config-schema.ts),
+    // so changing `gateway` means changing them too.
     gateway: "openai",
     providerOrder: ["anthropic"],
     disabledModels: [],

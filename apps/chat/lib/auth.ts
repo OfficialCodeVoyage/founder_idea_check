@@ -39,10 +39,11 @@ if (process.env.NODE_ENV === "production" && !(env.APP_URL || env.VERCEL_URL)) {
 }
 
 /**
- * The committed `.env.local` ships placeholder OAuth values so the env
- * validator passes and the app boots. Registering a provider with them yields a
- * sign-in button that can never succeed (the OAuth host rejects the client_id),
- * so treat a placeholder exactly like an unset variable.
+ * A half-filled `.env.local` can hold placeholder OAuth values (for example
+ * `your-client-id`) that satisfy the env validator and let the app boot.
+ * Registering a provider with them yields a sign-in button that can never
+ * succeed (the OAuth host rejects the client_id), so treat a placeholder exactly
+ * like an unset variable.
  */
 const PLACEHOLDER_CREDENTIAL_PATTERN = /^(?:placeholder|changeme|your[-_])/i;
 

@@ -358,8 +358,8 @@ function validateAuthentication(env: NodeJS.ProcessEnv): ValidationError[] {
   });
 
   if (!hasAuth) {
-    // Outside production this is not fatal: development has GET /api/dev-login
-    // and dev email+password sign-in, neither of which needs an OAuth app.
+    // Outside production this is not fatal: development has GET /api/dev-login,
+    // which needs no OAuth app.
     const message = {
       feature: "authentication",
       missing: ["At least one auth provider must be enabled and configured"],

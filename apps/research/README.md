@@ -90,18 +90,31 @@ without the author and no username is ever received.
 The archive matches every word it is sent, so the lane does not forward the
 researcher's web-search string: `keyword_query` drops search operators
 (`site:`, `-term`, `OR`), quotes, stopwords and web-search boilerplate and keeps
-the first two content words, sent as the archive's `title` keyword parameter:
-checked live on 2026-11-12, the archive answered the `query` parameter (title and
-body together, per its README) with HTTP 422 in under a second every time, and
-the same request with `title` with HTTP 200 and matching posts. So the lane
-matches titles only. It is polite and bounded: one request per second,
-at most one retry (a 429 or a body-reported overload, honouring the archive's
-requested wait up to five seconds), no retry for any other 4xx, no further
-subreddits once one is rate-limited, and 25 seconds for the whole lane. Only a
-429 (or an overload in a 200 body) is called a rate limit: any other 4xx,
-including the 422 whose body says "slow down", is reported as a rejected query.
-When it returns nothing because it was rate-limited, rejected the query or ran
-out of time, it says so in those words instead of reporting an empty result.
+the first two content words, sent as the archive's `title` keyword parameter, so
+the lane matches titles only. (On 2026-11-12 the archive answered the `query`
+parameter, title and body together per its README, with HTTP 422 on four probes
+out of four and `title` on two out of six; the 422 body reads "Timeout. Maybe
+slow down a bit". That sample cannot separate the parameter from the moment each
+request was made, so `title` is kept for being the README's own example, not
+because it is proven better.) The archive's own timeouts and load-shedding are
+the dominant failure, so the lane is polite and bounded:
+- one request per second, a pause of two seconds between subreddits, and at most
+  two subreddits per call (the best-fitting two; the app lists them best first);
+- a 429 is not retried: it starts a cool-down of the lane (the pause the archive
+  named, thirty seconds when it names none, at most sixty) during which no search
+  asks the archive at all, and the rest of that call's subreddits are not asked;
+- a 422 whose body says "Timeout" is the archive's search timing out on its side,
+  not a rate limit and not a bad query: it is asked once more after a two-second
+  pause with the most recent thirty days only, and reported as a timeout;
+- an overload reported in a 200 body is retried once after the wait it asked for
+  (up to five seconds); any other 4xx is a rejected query and is not retried;
+- twenty-five seconds for the whole lane.
+
+The lane report shows a plain sentence for each failure. The request URL and the
+start of the response body are written to the sidecar's log (`research.arctic_shift`)
+and never returned, because the report is shown to the founder verbatim. When the
+lane returns nothing because it was rate-limited, timed out, rejected the query or
+ran out of time, it says so in those words instead of reporting an empty result.
 
 The permission gate (`app/sources/base.py::assert_permitted`) still supports a
 source that is barred in hosted mode or needs a credential beyond the operator

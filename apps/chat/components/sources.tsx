@@ -2,6 +2,7 @@ import { ArrowRight, FileText } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -9,6 +10,7 @@ import {
 import {
   Drawer,
   DrawerContent,
+  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
@@ -18,6 +20,14 @@ import { cn } from "@/lib/utils";
 import type { SearchResultItem } from "@/tools/platform/research-updates-schema";
 import { Favicon } from "./favicon";
 import { FaviconGroup } from "./favicon-group";
+
+/**
+ * Radix warns, once per open, when a dialog has no description for assistive
+ * technology to announce. The visible title says what the list is; this says
+ * what its rows do.
+ */
+const SOURCES_DESCRIPTION =
+  "Pages cited in this answer. Each one opens in a new tab.";
 
 const SourcesList = ({
   sources,
@@ -80,6 +90,9 @@ const AllSourcesView = ({
               <FileText className="h-4 w-4" />
               {title}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              {SOURCES_DESCRIPTION}
+            </DialogDescription>
           </DialogHeader>
           <SourcesList sources={sources} />
         </DialogContent>
@@ -100,6 +113,9 @@ const AllSourcesView = ({
             <FileText className="h-4 w-4" />
             {title}
           </DrawerTitle>
+          <DrawerDescription className="sr-only">
+            {SOURCES_DESCRIPTION}
+          </DrawerDescription>
         </DrawerHeader>
         <div className="overflow-y-auto p-4">
           <SourcesList sources={sources} />

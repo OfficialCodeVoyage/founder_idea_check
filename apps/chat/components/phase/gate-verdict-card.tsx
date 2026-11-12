@@ -94,7 +94,7 @@ function GapList({ view }: { view: AssessedView }) {
         assessed". Those are opposite situations with opposite remedies, and the
         founder could not tell which one they were in.
       */}
-      <p className="font-medium text-xs uppercase tracking-wide opacity-70">
+      <p className="font-medium text-foreground/75 text-xs uppercase tracking-wide">
         {`${view.obstacle?.heading ?? "What is missing"} — ${view.gaps.length} of ${view.coverage.criteria} criteria`}
       </p>
       <ul className="mt-1 space-y-1">
@@ -108,7 +108,7 @@ function GapList({ view }: { view: AssessedView }) {
         */}
         {view.gaps.map((gap, index) => (
           <li className="flex gap-2 text-sm" key={view.gapKeys[index]}>
-            <span aria-hidden="true" className="opacity-50">
+            <span aria-hidden="true" className="text-foreground/75">
               —
             </span>
             <span>{gap}</span>
@@ -138,12 +138,12 @@ function AttemptDiff({ progress }: { progress: AttemptProgress | null }) {
   return (
     <div className="mt-3 space-y-2">
       {progress.opened.length > 0 ? (
-        <div className="rounded border border-destructive/50 bg-destructive/10 p-2">
-          <p className="font-medium text-destructive text-xs uppercase tracking-wide">
+        <div className="rounded border border-destructive-edge bg-destructive-surface p-2">
+          <p className="font-medium text-destructive-on-surface text-xs uppercase tracking-wide">
             Newly unmet — this went backwards
           </p>
           <p className="mt-1 text-sm">{progress.opened.join(", ")}</p>
-          <p className="mt-1 text-muted-foreground text-xs">
+          <p className="mt-1 text-foreground/75 text-xs">
             These were met on the previous attempt and are not met now. Nothing
             you said necessarily caused it — the gate re-reads the whole
             transcript every time — but you would have no way of knowing it had
@@ -152,13 +152,13 @@ function AttemptDiff({ progress }: { progress: AttemptProgress | null }) {
         </div>
       ) : null}
       {progress.closed.length > 0 ? (
-        <p className="text-emerald-600 text-xs dark:text-emerald-400">
+        <p className="text-state-met text-xs">
           <span className="font-medium">Closed since the last attempt:</span>{" "}
           {progress.closed.join(", ")}
         </p>
       ) : null}
       {progress.stillOpen.length > 0 ? (
-        <p className="text-muted-foreground text-xs">
+        <p className="text-foreground/75 text-xs">
           <span className="font-medium">Still open:</span>{" "}
           {progress.stillOpen.join(", ")}
         </p>
@@ -184,18 +184,30 @@ function RepeatNote({ note }: { note: string | null }) {
   if (!note) {
     return null;
   }
-  return <p className="mt-2 text-muted-foreground text-xs">{note}</p>;
+  return <p className="mt-2 text-foreground/75 text-xs">{note}</p>;
 }
 
-/** One tone per state. `unscored` shares muted with not-evaluable — the LABEL
+/**
+ * One tone per state. `unscored` shares muted with not-evaluable — the LABEL
  * is what separates them, and the two are neighbouring shades of "unknown"
- * rather than opposite findings. */
+ * rather than opposite findings.
+ *
+ * EVERY TEXT TONE IN THIS FILE IS MEASURED, not eyeballed. The three state
+ * tones are `--state-met|partial|unmet` (app/globals.css), each checked at
+ * 4.5:1 or better against all three card tints and the bare page in both
+ * themes. "Muted" text is `text-foreground/75` rather than
+ * `text-muted-foreground`, and never `opacity-*`: `--muted-foreground` sits
+ * 0.01 above the floor on the BLOCKED tint and below it on the tinted
+ * regression box, and an `opacity-*` on text is a contrast loss that depends
+ * on whatever happens to be behind it. `foreground/75` is 5.5:1 or better on
+ * every surface here, light and dark.
+ */
 const STATE_TONE: Record<ChecklistState, string> = {
-  met: "text-emerald-600 dark:text-emerald-400",
-  partial: "text-amber-600 dark:text-amber-400",
-  unmet: "text-destructive",
-  "not-evaluable": "text-muted-foreground",
-  unscored: "text-muted-foreground",
+  met: "text-state-met",
+  partial: "text-state-partial",
+  unmet: "text-state-unmet",
+  "not-evaluable": "text-foreground/75",
+  unscored: "text-foreground/75",
 };
 
 const STATE_MARK: Record<ChecklistState, string> = {
@@ -230,12 +242,12 @@ function CriteriaChecklist({
 }) {
   if (!checklist.available) {
     return explainAbsence ? (
-      <p className="mt-2 text-muted-foreground text-sm">{checklist.note}</p>
+      <p className="mt-2 text-foreground/75 text-sm">{checklist.note}</p>
     ) : null;
   }
   return (
     <details className="mt-3 border-t pt-2">
-      <summary className="cursor-pointer text-muted-foreground text-xs opacity-80 hover:opacity-100">
+      <summary className="cursor-pointer text-foreground/75 text-xs hover:text-foreground">
         All {checklist.rows.length} exit criteria — {checklist.summary}
       </summary>
       <ul className="mt-2 space-y-2">
@@ -259,17 +271,19 @@ function CriteriaChecklist({
                 demanding four rubric scores from a founder with no interviews.
               */}
               {row.state !== "met" && row.closure === "offline-only" ? (
-                <span className="ml-2 opacity-70">needs field data</span>
+                <span className="ml-2 text-foreground/75">
+                  needs field data
+                </span>
               ) : null}
               {row.severity === "advisory" ? (
-                <span className="ml-2 opacity-70">advisory only</span>
+                <span className="ml-2 text-foreground/75">advisory only</span>
               ) : null}
               {row.repeat ? (
-                <span className="ml-2 opacity-70">
+                <span className="ml-2 text-foreground/75">
                   blocked {row.repeat.blocked} of {row.repeat.of} attempts
                 </span>
               ) : null}
-              <span className="mt-0.5 block text-muted-foreground">
+              <span className="mt-0.5 block text-foreground/75">
                 {row.description}
               </span>
             </span>
@@ -346,7 +360,7 @@ export function GateVerdictCard({
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={STATUS_VARIANT[view.status]}>{view.label}</Badge>
           <span className="font-medium text-sm">{gate.data.title}</span>
-          <span className="text-muted-foreground text-xs">
+          <span className="text-foreground/75 text-xs">
             phase {gate.data.order} of {gate.data.total}
           </span>
           {/*
@@ -356,7 +370,7 @@ export function GateVerdictCard({
             before the gate has run.
           */}
           {standing.attemptLabel ? (
-            <span className="text-muted-foreground text-xs tabular-nums">
+            <span className="text-foreground/75 text-xs tabular-nums">
               {standing.attemptLabel}
             </span>
           ) : null}
@@ -366,7 +380,7 @@ export function GateVerdictCard({
             to know whether it judged what they just said.
           */}
           {view.pending ? (
-            <span className="text-xs italic opacity-70">
+            <span className="text-foreground/75 text-xs italic">
               {view.pending.marker}
             </span>
           ) : null}
@@ -420,13 +434,13 @@ export function GateVerdictCard({
           obvious one: do NOT try to answer these, build the instrument.
         */}
         {view.coverage.kind === "scored" && view.obstacle ? (
-          <p className="mt-2 text-muted-foreground text-sm">
+          <p className="mt-2 text-foreground/75 text-sm">
             {view.obstacle.note}
           </p>
         ) : null}
 
         {view.coverage.kind === "scored" && view.noGapNote ? (
-          <p className="mt-2 text-muted-foreground text-sm">{view.noGapNote}</p>
+          <p className="mt-2 text-foreground/75 text-sm">{view.noGapNote}</p>
         ) : null}
 
         <AttemptDiff progress={standing.progress} />
@@ -445,13 +459,13 @@ export function GateVerdictCard({
 
         <div className="mt-2 flex gap-3 text-xs">
           <Link
-            className="underline underline-offset-2 opacity-70 hover:opacity-100"
+            className="text-foreground/75 underline underline-offset-2 hover:text-foreground"
             href={`/project/${projectId}/phases`}
           >
             All phases and past verdicts
           </Link>
           <Link
-            className="underline underline-offset-2 opacity-70 hover:opacity-100"
+            className="text-foreground/75 underline underline-offset-2 hover:text-foreground"
             href={`/project/${projectId}/canvas`}
           >
             Canvas

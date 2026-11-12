@@ -62,6 +62,15 @@
   --color-primary-solid: var(--primary-solid);
   --color-destructive-solid: var(--destructive-solid);
 
+  /*
+    THE GATE CARD'S STATE TEXT TONES — see the token definitions below for why
+    `text-emerald-600`, `text-amber-600` and `text-destructive` could not be
+    used for 12px text on a tinted card.
+  */
+  --color-state-met: var(--state-met);
+  --color-state-partial: var(--state-partial);
+  --color-state-unmet: var(--state-unmet);
+
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -348,6 +357,34 @@
   --primary-solid: hsl(221.2121 83.1933% 53.3333%);
   --destructive-solid: hsl(0 70% 45%);
 
+  /*
+    THE GATE CARD'S STATE TONES, MEASURED.
+
+    The checklist coloured its marks and labels `text-emerald-600`,
+    `text-amber-600` and `text-destructive` (light theme) at 12px on a card
+    tinted 5% toward the verdict colour. Those are the right hues and the wrong
+    lightness for text that small: on the BLOCKED tint (#FEF6F6) they measured
+    3.44:1, 2.99:1 and 3.53:1 against an AA floor of 4.5:1. The state is
+    ALSO spelled out in words ("met", "partly evidenced", "not met"), so
+    colour was never the only carrier, but a label that is hard to read is
+    still hard to read.
+
+    The three are measured against every tint the card can wear (BLOCKED, THIN,
+    PASSED/COMPLETE) and against the bare page, in both themes, and the number
+    below is the worst of the four:
+
+      light  met     #007050  5.72:1    dark  met     #00D696  8.78:1
+      light  partial #9E4200  6.09:1    dark  partial #FFB700  9.51:1
+      light  unmet   #B61616  6.33:1    dark  unmet   #FF6666  5.82:1
+
+    The dark `unmet` used to be `text-destructive` (#EF4444), which sat at
+    4.40:1 on the THIN tint and 4.48:1 on the PASSED tint — under the floor by
+    a hair, on exactly the cards where a not-met row is the surprise.
+  */
+  --state-met: hsl(163 100% 22%);
+  --state-partial: hsl(25 100% 31%);
+  --state-unmet: hsl(0 78% 40%);
+
   --border: hsl(220 13.0435% 90.9804%);
   --input: hsl(220 13.0435% 90.9804%);
   --ring: hsl(217.2193 91.2195% 59.8039%);
@@ -423,6 +460,11 @@
   /* Same values as the light block on purpose — see the note there. */
   --primary-solid: hsl(221.2121 83.1933% 53.3333%);
   --destructive-solid: hsl(0 70% 45%);
+
+  /* Measured against this theme's own tints — figures in the light block. */
+  --state-met: hsl(162 100% 42%);
+  --state-partial: hsl(43 100% 50%);
+  --state-unmet: hsl(0 100% 70%);
 
   --border: hsl(0 0% 25.098%);
   --input: hsl(0 0% 25.098%);

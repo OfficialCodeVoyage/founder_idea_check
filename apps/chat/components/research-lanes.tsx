@@ -104,7 +104,7 @@ export function ResearchLanes({ lanes }: { lanes: LaneReport[] }) {
   return (
     <div className="w-full rounded-lg border p-3">
       <p className="pb-1 font-medium text-foreground text-xs">
-        {`${ran} of ${lanes.length} sources ran`}
+        {`${ran} of ${lanes.length} ${lanes.length === 1 ? "source" : "sources"} ran`}
       </p>
       <ul className="divide-y divide-border/60">
         {lanes.map((lane) => (

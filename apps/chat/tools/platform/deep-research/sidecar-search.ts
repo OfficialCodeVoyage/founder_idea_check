@@ -93,6 +93,11 @@ function isoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
+/** "1 search" / "2 searches": the step titles are shown to the founder as written. */
+function searchCount(count: number): string {
+  return count === 1 ? "1 search" : `${count} searches`;
+}
+
 function describeFailures(failures: readonly SignalFailure[]): string {
   if (failures.length === 0) {
     return "No source returned an error and no source returned a result.";
@@ -377,8 +382,7 @@ function writeSkippedStep(input: {
     reason,
     writeTopLevelUpdates,
   } = input;
-  const count =
-    queries.length === 1 ? "1 search" : `${queries.length} searches`;
+  const count = searchCount(queries.length);
   dataStream.write({
     type: "data-researchUpdate",
     id: updateId,
@@ -567,7 +571,7 @@ Avoid:
         id: updateId,
         data: {
           toolCallId,
-          title: `Executing ${queries.length} searches`,
+          title: `Executing ${searchCount(queries.length)}`,
           type: "web",
           status: "running",
           queries,
@@ -728,7 +732,7 @@ Avoid:
         id: updateId,
         data: {
           toolCallId,
-          title: `Executing ${queries.length} searches`,
+          title: `Executing ${searchCount(queries.length)}`,
           type: "web",
           status: "completed",
           queries,

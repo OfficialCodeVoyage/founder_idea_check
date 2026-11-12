@@ -41,7 +41,7 @@ function web(
   return {
     type: "web",
     toolCallId: CALL,
-    title: "Executing 1 searches",
+    title: "Executing 1 search",
     status,
     queries: ["demand"],
     results: Array.from({ length: results }, (_, i) => ({

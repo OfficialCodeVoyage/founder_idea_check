@@ -4,6 +4,11 @@ import { deduplicateByDomainAndUrl } from "./search-utils";
 import type { SearchProviderOptions } from "./web-search";
 import { webSearchStep } from "./web-search";
 
+/** "1 search" / "2 searches": the step titles are shown to the founder as written. */
+function searchCount(count: number): string {
+  return count === 1 ? "1 search" : `${count} searches`;
+}
+
 export interface SearchQuery {
   maxResults: number;
   query: string;
@@ -50,7 +55,7 @@ export async function multiQueryWebSearchStep({
       id: updateId,
       data: {
         toolCallId,
-        title: `Executing ${queries.length} searches`,
+        title: `Executing ${searchCount(queries.length)}`,
         type: "web",
         status: "running",
         queries: queries.map((q) => q.query),
@@ -104,7 +109,7 @@ export async function multiQueryWebSearchStep({
       id: updateId,
       data: {
         toolCallId,
-        title: `Executing ${queries.length} searches`,
+        title: `Executing ${searchCount(queries.length)}`,
         type: "web",
         status: "completed",
         queries: queries.map((q) => q.query),
@@ -128,7 +133,7 @@ export async function multiQueryWebSearchStep({
       id: updateId,
       data: {
         toolCallId,
-        title: `Executing ${queries.length} searches`,
+        title: `Executing ${searchCount(queries.length)}`,
         type: "web",
         status: "completed",
         queries: queries.map((q) => q.query),

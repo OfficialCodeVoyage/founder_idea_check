@@ -8,10 +8,11 @@
 # than writing — is upstream's. Removed: the depth presets, the thread-comment
 # enrichment fan-out, and the `log.source_log` sink. Errors now raise named
 # exceptions instead of returning `{"hits": [], "error": ...}`. Added: a hit is
-# dropped unless its title or text shares a CONTENT word with the query (or two
-# distinct weak words), where stopwords, numbers and years, countries, file types,
-# research filler and broad tech words do not count (`matches_a_content_word`,
-# `_NEVER_TOKENS`).
+# dropped unless its TITLE shares a CONTENT word with the query (or two distinct
+# weak words), or its story text, with nothing of the kind in the title, shares
+# TWO distinct content words with it, where stopwords, numbers and years,
+# countries, file types, research filler and broad tech words do not count
+# (`matches_a_content_word`, `_NEVER_TOKENS`).
 #
 #   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/hackernews.py&since=2026-08-18" --jq '.[].commit.message'
 # ─────────────────────────────────────────────────────────────────────────────
@@ -27,8 +28,10 @@ from urllib.parse import urlencode
 from ..errors import SourceSchemaDrift
 from ..http import get_json
 from ..schema import SourceItem
+from ..text import cjk
 from ..text.relevance import (
     LOW_SIGNAL_QUERY_TOKENS,
+    STOPWORDS,
     PreparedQuery,
     token_overlap_relevance,
     tokenize,
@@ -137,6 +140,12 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 #      "Traceforce - security monitoring for AI apps", "Google, Microsoft and xAI
 #      agree to share early AI models" and three AI coding-agent tools matched on
 #      those. Only 3 of the 38 were about children's reading.
+#   4. Re-check 5, with all of that out: 22 stories, 10 of them with NOTHING of the
+#      question in the title, passing on words found somewhere in the story's text.
+#      A vet directory and an org-mode notes app went through on "parent" or
+#      "reading" said once in a paragraph. One word in a paragraph is how a story
+#      mentions something, not what it is about, and a long query has a dozen
+#      content words to be found by accident.
 #
 # So the words of a query fall into three kinds, and only the last decides:
 #
@@ -149,11 +158,35 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 #           itself: "code", "review", "price", "comparison", "rate", "data"
 #           (`_WEAK_TOKENS`). One of them is not evidence; two DIFFERENT ones in
 #           the same hit are ("code review", "price comparison").
-#   CONTENT every other word. One is enough.
+#   CONTENT every other word. One in the title is enough (see below for the text).
 #
-# A hit is on topic when it shares one CONTENT word with the query, or two
-# distinct WEAK words. Words are compared on a crude stem (`_stem`: a trailing
+# A hit is on topic when its TITLE shares one CONTENT word with the query or two
+# distinct WEAK words, or, with nothing of the kind in the title, when its STORY
+# TEXT shares two DISTINCT CONTENT words with the query. A title is what the
+# story is called; a body is where a story can mention anything. So the body
+# earns its place only with a second, different word, and two weak words in a body
+# do not count at all. Words are compared on a crude stem (`_stem`: a trailing
 # plural "s"), on BOTH sides, so "tool" matches "tools" and "APIs" matches "api".
+#
+# WHAT THE BODY RULE COSTS, stated so nobody re-derives it. A query with ONE
+# content word ("tutoring price cost") can never qualify a hit by its body: there
+# is no second distinct word to find, so it matches by title alone, and an Ask HN
+# thread that names the topic only in its text is missed. That is the narrow
+# case; a researcher's query nearly always holds several content words. Two words
+# of a long query can still turn up in an off-topic text by accident, so the rule
+# narrows that door and does not close it.
+#
+# The two words must be two different WORDS in the text, not one word and its
+# synonym: the vendored `tokenize` expands "js" into "javascript" (and "ml" into
+# "machine" and "learning"), which would make one mention count twice, so the body
+# is read with `_plain_words`, which expands nothing. A title still reads through
+# `tokenize`, because a title match needs one word and the expansion only helps it.
+#
+# The TITLE rule is deliberately unchanged: one content word still qualifies
+# ("Starlink Reluctant to Operate in Taiwan" for a question about reluctant
+# readers). A title is one line and the word either names the story's subject or
+# is the founder's own word matched by luck; telling the two apart takes more than
+# a count of words, and a title has no second paragraph to look in.
 #
 # THE TRADE-OFF, stated so nobody re-derives it: a story that shares only two
 # weak words with a query can still be off topic. The pair rule counts only the
@@ -174,7 +207,9 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 # test falls back to its WEAK words, ANY ONE of them ("price comparison tool"
 # keeps "Show HN: price comparison for flights", by the single word and not by a
 # pair), and to any query word when it has no weak word either, rather than
-# turning the whole lane into an empty result.
+# turning the whole lane into an empty result. That fallback reads the title and
+# the body alike: it exists so a lane does not go empty, and a body-only rule here
+# would empty it.
 _FILLER_TOKENS = frozenset(
     (
         # Countries, regions, nationalities: the market the founder named.
@@ -283,22 +318,33 @@ def _kind(token: str) -> str:
     return _CONTENT
 
 
-def matches_a_content_word(prepared: PreparedQuery, text: str) -> bool:
-    """PURE. Is `text` on topic for the query? THE one place that decides whether
-    a Hacker News hit is.
+def _plain_words(text: str) -> set[str]:
+    """PURE. The stems of the words `text` contains, and nothing the vendored
+    `tokenize` adds: its synonym expansion ("js" for "javascript", "machine" and
+    "learning" for "ml") would let one mention count as two different words.
+    """
+    return {_stem(word) for word in cjk.segment(text) if word not in STOPWORDS and len(word) > 1}
 
-    On topic means it shares one CONTENT word with the query, or two distinct WEAK
-    words (the history is in the comment above `_FILLER_TOKENS`). Tokenised with
-    the same `tokenize` the relevance score uses, so a word that counts here counts
-    there, and compared on `_stem`. With no CONTENT word in the query the test is
-    "any WEAK word", and with no WEAK word either "any query word"; with no query
-    word at all (stopwords only) every hit stays, as `token_overlap_relevance`
-    already treats such a query as neutral.
+
+def matches_a_content_word(prepared: PreparedQuery, title: str, body: str = "") -> bool:
+    """PURE. Is the story on topic for the query? THE one place that decides
+    whether a Hacker News hit is.
+
+    On topic means: its TITLE shares one CONTENT word with the query or two
+    distinct WEAK words, or its STORY TEXT (`body`) shares two distinct CONTENT
+    words with it (the history and the reasons are in the comment above
+    `_FILLER_TOKENS`). The title is tokenised with the same `tokenize` the
+    relevance score uses, so a word that counts there counts here, and compared
+    on `_stem`; the body is counted on `_plain_words`. With no CONTENT word in
+    the query the test is "any WEAK word" in the title or the body, and with no
+    WEAK word either "any query word"; with no query word at all (stopwords
+    only) every hit stays, as `token_overlap_relevance` already treats such a
+    query as neutral.
     """
     query_tokens = prepared.q_tokens
     if not query_tokens:
         return True
-    in_hit = {_stem(token) for token in tokenize(text)}
+    in_title = {_stem(token) for token in tokenize(title)}
     content: set[str] = set()
     weak: set[str] = set()
     for token in query_tokens:
@@ -308,7 +354,12 @@ def matches_a_content_word(prepared: PreparedQuery, text: str) -> bool:
         elif kind == _WEAK:
             weak.add(_stem(token))
     if content:
-        return bool(content & in_hit) or len(weak & in_hit) >= 2
+        if content & in_title or len(weak & in_title) >= 2:
+            return True
+        # Nothing of the kind in the title: the body must say two different
+        # content words. A query with a single content word cannot, by design.
+        return len(content & _plain_words(body)) >= 2
+    in_hit = in_title | {_stem(token) for token in tokenize(body)}
     return bool((weak or {_stem(token) for token in query_tokens}) & in_hit)
 
 
@@ -345,16 +396,16 @@ def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:
         body = _strip_html(str(hit.get("story_text") or ""))
         created = str(hit.get("created_at") or "")[:10] or None
 
-        # A HIT THAT MATCHES NO REAL WORD OF THE QUERY IS NOT ON TOPIC. See
+        # A HIT THAT MATCHES NO REAL WORD OF THE QUERY IS NOT ON TOPIC, and one
+        # that matches a single word of its body only is not either. See
         # `matches_a_content_word`, the one place this is decided, and the
         # history in the comment above `_FILLER_TOKENS`. Dropped HERE, where the
         # looseness is introduced, and not for every lane: a web-search snippet
         # can match a query without repeating its words. An empty result is still
         # a finding (nothing on HN matches), not an error.
-        text = f"{title} {body}"
-        if not matches_a_content_word(prepared, text):
+        if not matches_a_content_word(prepared, title, body):
             continue
-        relevance = token_overlap_relevance(prepared, text)
+        relevance = token_overlap_relevance(prepared, f"{title} {body}")
 
         items.append(
             SourceItem(

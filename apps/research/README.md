@@ -138,6 +138,19 @@ left out: that is a lane that was not searched in full, so it is reported as a
 failure naming each subreddit. "Found nothing" (an empty result) is kept for a
 lane in which every subreddit it was given answered cleanly with no posts.
 
+Hacker News is searched with Algolia's `optionalWords`, so a page of stories
+comes back whatever the topic, and the lane keeps a story only when it is on
+topic for the query (`app/sources/hackernews.py::matches_a_content_word`). The
+**title** decides first: one content word of the query in it is enough, or two
+different weak ones ("code" and "review"). A story with neither in the title
+stays only when its **text** (the Show HN or Ask HN body) says two different
+content words of the query; one word in a paragraph is a mention, not a topic
+(a live run let in a vet directory and a notes app that way). Stopwords, numbers and years, countries, file types, research filler
+(report, survey, official, qualitative), time and age words and broad tech words
+(AI, app, tool) are never content words. So a query with a single content word
+matches by title alone, and a query with none falls back to any weak word, then
+any word, in title or text, rather than returning nothing.
+
 The permission gate (`app/sources/base.py::assert_permitted`) still supports a
 source that is barred in hosted mode or needs a credential beyond the operator
 toggle; no registered source uses either today.

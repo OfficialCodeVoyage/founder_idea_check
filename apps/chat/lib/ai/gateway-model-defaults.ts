@@ -129,10 +129,13 @@ const vercelDefaults = {
       maxSearchQueries: 2,
       /**
        * FAIL-CLOSED FALLBACK for a deployment that never configured research.
-       * `hosted: true` + a finite cap is the restrictive pair:
-       * decideResearchBudget() refuses an uncapped hosted run. An empty
-       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
-       * overrides all three for this fork.
+       * `hosted: true` is the restrictive value: `decideProviderGate` in
+       * `lib/signals/provider.ts` refuses every signal source that is not
+       * `enabledInHosted`. The finite `maxInputTokensPerRun` is only a
+       * declared intent: nothing reads it today, so it does not refuse or
+       * shorten a run (see chat.config.ts). An empty researchSidecarUrl
+       * disables every sidecar-backed source. chat.config.ts overrides all
+       * three for this fork.
        */
       maxInputTokensPerRun: 1_500_000,
       hosted: true,
@@ -196,10 +199,13 @@ const openrouterDefaults = {
       maxSearchQueries: 2,
       /**
        * FAIL-CLOSED FALLBACK for a deployment that never configured research.
-       * `hosted: true` + a finite cap is the restrictive pair:
-       * decideResearchBudget() refuses an uncapped hosted run. An empty
-       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
-       * overrides all three for this fork.
+       * `hosted: true` is the restrictive value: `decideProviderGate` in
+       * `lib/signals/provider.ts` refuses every signal source that is not
+       * `enabledInHosted`. The finite `maxInputTokensPerRun` is only a
+       * declared intent: nothing reads it today, so it does not refuse or
+       * shorten a run (see chat.config.ts). An empty researchSidecarUrl
+       * disables every sidecar-backed source. chat.config.ts overrides all
+       * three for this fork.
        */
       maxInputTokensPerRun: 1_500_000,
       hosted: true,
@@ -266,10 +272,13 @@ const openaiDefaults = {
       maxSearchQueries: 2,
       /**
        * FAIL-CLOSED FALLBACK for a deployment that never configured research.
-       * `hosted: true` + a finite cap is the restrictive pair:
-       * decideResearchBudget() refuses an uncapped hosted run. An empty
-       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
-       * overrides all three for this fork.
+       * `hosted: true` is the restrictive value: `decideProviderGate` in
+       * `lib/signals/provider.ts` refuses every signal source that is not
+       * `enabledInHosted`. The finite `maxInputTokensPerRun` is only a
+       * declared intent: nothing reads it today, so it does not refuse or
+       * shorten a run (see chat.config.ts). An empty researchSidecarUrl
+       * disables every sidecar-backed source. chat.config.ts overrides all
+       * three for this fork.
        */
       maxInputTokensPerRun: 1_500_000,
       hosted: true,
@@ -327,10 +336,13 @@ const openaiCompatibleDefaults = {
       maxSearchQueries: 2,
       /**
        * FAIL-CLOSED FALLBACK for a deployment that never configured research.
-       * `hosted: true` + a finite cap is the restrictive pair:
-       * decideResearchBudget() refuses an uncapped hosted run. An empty
-       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
-       * overrides all three for this fork.
+       * `hosted: true` is the restrictive value: `decideProviderGate` in
+       * `lib/signals/provider.ts` refuses every signal source that is not
+       * `enabledInHosted`. The finite `maxInputTokensPerRun` is only a
+       * declared intent: nothing reads it today, so it does not refuse or
+       * shorten a run (see chat.config.ts). An empty researchSidecarUrl
+       * disables every sidecar-backed source. chat.config.ts overrides all
+       * three for this fork.
        */
       maxInputTokensPerRun: 1_500_000,
       hosted: true,
@@ -385,10 +397,13 @@ const litellmDefaults = {
       maxSearchQueries: 2,
       /**
        * FAIL-CLOSED FALLBACK for a deployment that never configured research.
-       * `hosted: true` + a finite cap is the restrictive pair:
-       * decideResearchBudget() refuses an uncapped hosted run. An empty
-       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
-       * overrides all three for this fork.
+       * `hosted: true` is the restrictive value: `decideProviderGate` in
+       * `lib/signals/provider.ts` refuses every signal source that is not
+       * `enabledInHosted`. The finite `maxInputTokensPerRun` is only a
+       * declared intent: nothing reads it today, so it does not refuse or
+       * shorten a run (see chat.config.ts). An empty researchSidecarUrl
+       * disables every sidecar-backed source. chat.config.ts overrides all
+       * three for this fork.
        */
       maxInputTokensPerRun: 1_500_000,
       hosted: true,
@@ -444,10 +459,13 @@ const anthropicDefaults = {
       maxSearchQueries: 2,
       /**
        * FAIL-CLOSED FALLBACK for a deployment that never configured research.
-       * `hosted: true` + a finite cap is the restrictive pair:
-       * decideResearchBudget() refuses an uncapped hosted run. An empty
-       * researchSidecarUrl disables every sidecar-backed source. chat.config.ts
-       * overrides all three for this fork.
+       * `hosted: true` is the restrictive value: `decideProviderGate` in
+       * `lib/signals/provider.ts` refuses every signal source that is not
+       * `enabledInHosted`. The finite `maxInputTokensPerRun` is only a
+       * declared intent: nothing reads it today, so it does not refuse or
+       * shorten a run (see chat.config.ts). An empty researchSidecarUrl
+       * disables every sidecar-backed source. chat.config.ts overrides all
+       * three for this fork.
        */
       maxInputTokensPerRun: 1_500_000,
       hosted: true,

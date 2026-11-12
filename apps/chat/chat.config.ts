@@ -190,21 +190,37 @@ const config = defineConfig({
         maxResearcherSteps: 6,
 
         /**
-         * Hard ceiling on PROJECTED input tokens for one research run, across
-         * the whole fan-out. `null` disables the cap and is only legal when
-         * `hosted: false` — decideResearchBudget() REFUSES an uncapped hosted
-         * run, because a missing cap is a misconfiguration and the safe reading
-         * of a misconfiguration is not "unlimited".
+         * Intended ceiling on PROJECTED input tokens for one research run,
+         * across the whole fan-out. `null` is the "no cap" value.
          *
-         * One full 4-researcher pass at breadth 4 / depth 2 projects ~1.1M
-         * input tokens. 1_500_000 leaves headroom; 400_000 forces breadth 2 /
-         * depth 1.
+         * NOTHING READS THIS TODAY. It is parsed by
+         * `lib/config-schema.ts::deepResearchConfigSchema` and typed, and that
+         * is all: no code projects a run's input tokens or compares them with
+         * this number, so no value here, `null` included, refuses or shortens a
+         * run. (`lib/research/budget.ts::decideResearchBudget`, which was meant
+         * to enforce it, was deleted in c98d30a8 because nothing ever called
+         * it.) What actually bounds a research run is `maxResearcherIterations`,
+         * `maxResearcherSteps`, `maxConcurrentResearchUnits` and
+         * `maxSearchQueries` below, plus the wall-clock deadline in
+         * `tools/platform/deep-research/research-clock.ts`. Raising or lowering
+         * this number changes nothing until a reader is wired in.
+         *
+         * For sizing, if a reader is added: one full 4-researcher pass at
+         * breadth 4 / depth 2 projects ~1.1M input tokens, so 1_500_000 would
+         * leave headroom and 400_000 would force breadth 2 / depth 1.
          */
         maxInputTokensPerRun: 1_500_000,
 
         /**
          * True when one provider key serves users who are not the operator.
-         * Under BYOK self-host this is false and the cap may be null.
+         * Under BYOK self-host this is false.
+         *
+         * Read by `currentDeployment` in
+         * `tools/platform/deep-research/deployment-mode.ts`, which hands it to
+         * `decideProviderGate` in `lib/signals/provider.ts`: when true, a
+         * signal source whose descriptor has `enabledInHosted: false` is refused.
+         * It does not gate spend and has no connection to
+         * `maxInputTokensPerRun`.
          */
         hosted: false,
 

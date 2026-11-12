@@ -14,7 +14,6 @@ const config = defineConfig({
   appTitle: "idea_check - validate your idea before you build it",
   appDescription:
     "Build and deploy AI chat applications in minutes. ChatJS provides authentication, streaming, tool calling, and all the features you need for production-ready AI conversations.",
-  appUrl: "https://www.demo.chatjs.dev",
   organization: {
     name: "ChatJS",
     contact: {

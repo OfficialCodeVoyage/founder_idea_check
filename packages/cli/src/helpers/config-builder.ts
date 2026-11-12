@@ -116,7 +116,6 @@ function generateConfig(
 function toConfigInput(input: {
   appName: string;
   appPrefix: string;
-  appUrl: string;
   withElectron: boolean;
   gateway: Gateway;
   coreFeatures: Record<CoreFeatureKey, boolean>;
@@ -135,7 +134,6 @@ function toConfigInput(input: {
   return {
     appName: input.appName,
     appPrefix: input.appPrefix,
-    appUrl: input.appUrl,
     features: {
       attachments: input.coreFeatures.attachments,
       parallelResponses: input.coreFeatures.parallelResponses,
@@ -171,7 +169,6 @@ function toConfigInput(input: {
 export function buildConfigTs(input: {
   appName: string;
   appPrefix: string;
-  appUrl: string;
   withElectron: boolean;
   gateway: Gateway;
   coreFeatures: Record<CoreFeatureKey, boolean>;

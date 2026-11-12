@@ -39,7 +39,6 @@ function buildConfigFor(
 	return buildConfigTs({
 		appName: "Contract Test",
 		appPrefix: "contract-test",
-		appUrl: "http://localhost:3000",
 		withElectron: false,
 		gateway,
 		coreFeatures: {

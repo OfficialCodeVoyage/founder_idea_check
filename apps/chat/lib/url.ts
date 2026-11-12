@@ -5,10 +5,10 @@ import { env } from "@/lib/env";
  * Priority: APP_URL > the Vercel project's production domain (production
  * deployments only) > VERCEL_URL > localhost.
  *
- * Every candidate is a URL this deployment owns. `config.appUrl` is not one of
- * them: it is the public site address written in `chat.config.ts` (metadata,
- * links) and a fork ships it pointing at someone else's domain, so it must never
- * become the auth base URL or a trusted origin (`lib/auth.ts::auth`).
+ * Every candidate is a URL this deployment owns. `chat.config.ts` deliberately
+ * has no `appUrl`: a committed URL is inherited by every fork pointing at a
+ * domain it does not own, so the page metadata (`app/layout.tsx::metadata`),
+ * the sitemap and auth (`lib/auth.ts::auth`) all read this function instead.
  */
 export function getBaseUrl(): string {
   if (env.APP_URL) {

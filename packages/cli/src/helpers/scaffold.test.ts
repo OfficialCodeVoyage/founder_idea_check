@@ -30,7 +30,6 @@ describe("buildConfigTs", () => {
 		const output = buildConfigTs({
 			appName: "My Chat",
 			appPrefix: "my-chat",
-			appUrl: "http://localhost:3000",
 			withElectron: false,
 			gateway: "vercel",
 			coreFeatures: {
@@ -73,7 +72,6 @@ describe("buildConfigTs", () => {
 		const output = buildConfigTs({
 			appName: "My Chat",
 			appPrefix: "my-chat",
-			appUrl: "http://localhost:3000",
 			withElectron: true,
 			gateway: "vercel",
 			coreFeatures: {
@@ -116,7 +114,6 @@ describe("buildConfigTs", () => {
 		const output = buildConfigTs({
 			appName: "My Chat",
 			appPrefix: "my-chat",
-			appUrl: "http://localhost:3000",
 			withElectron: false,
 			gateway: "openai-compatible",
 			coreFeatures: {

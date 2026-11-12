@@ -8,14 +8,20 @@ import { Toaster } from "sonner";
 import { ElectronAuthHandler } from "@/components/electron-auth-handler";
 import { ThemeProvider } from "@/components/theme-provider";
 import { config } from "@/lib/config";
+import { getBaseUrl } from "@/lib/url";
+
+// The public URL is this deployment's own (`lib/url.ts::getBaseUrl`), the same
+// one auth and the sitemap use. There is no `appUrl` in `chat.config.ts`: a
+// committed URL is inherited by every fork, pointing at a domain it does not own.
+const baseUrl = getBaseUrl();
 
 export const metadata: Metadata = {
-  metadataBase: new URL(config.appUrl),
+  metadataBase: new URL(baseUrl),
   title: config.appTitle ?? config.appName,
   description: config.appDescription,
   openGraph: {
     siteName: config.appName,
-    url: config.appUrl,
+    url: baseUrl,
     title: config.appTitle ?? config.appName,
     description: config.appDescription,
   },

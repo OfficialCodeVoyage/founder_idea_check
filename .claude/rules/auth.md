@@ -24,6 +24,7 @@ paths:
 - **A shared secret read from env must be checked as set before it is compared.** `CRON_SECRET` is optional, and
   `` `Bearer ${undefined}` `` is the string `Bearer undefined`. Pattern:
   `app/api/cron/cleanup/route.ts::isAuthorizedCronRequest` (refuse when unset, constant-time compare).
-- **Auth trusts only this deployment's own URL** (`lib/url.ts::getBaseUrl`). Never add `config.appUrl` to
-  `trustedOrigins` or use it as `baseURL`: a fork inherits it pointing at a domain it does not own.
+- **Auth trusts only this deployment's own URL** (`lib/url.ts::getBaseUrl`). `chat.config.ts` has no `appUrl` on
+  purpose: never add a URL from committed config to `trustedOrigins` or use it as `baseURL`, because a fork
+  inherits it pointing at a domain it does not own. Page metadata reads `getBaseUrl` too.
 - **Placeholder credentials count as unset** (`lib/auth.ts`); do not add a provider that treats them as real.

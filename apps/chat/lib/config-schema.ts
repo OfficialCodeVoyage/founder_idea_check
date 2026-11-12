@@ -421,7 +421,6 @@ export const configDescriptionSchema = z.object({
     .optional()
     .describe("Browser tab title (defaults to appName)"),
   appDescription: z.string().default("AI chat powered by ChatJS"),
-  appUrl: z.url().default("https://your-domain.com"),
   organization: z.object({
     name: z.string(),
     contact: z.object({
@@ -467,7 +466,6 @@ export const configSchema = z.object({
     .optional()
     .describe("Browser tab title (defaults to appName)"),
   appDescription: z.string().default("AI chat powered by ChatJS"),
-  appUrl: z.url().default("https://your-domain.com"),
 
   organization: z
     .object({

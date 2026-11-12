@@ -160,7 +160,6 @@ export const create = new Command()
 				.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
 				.join(" ");
 			const appPrefix = projectName;
-			const appUrl = "http://localhost:3000";
 
 			const gateway = await promptGateway(options.yes);
 			const coreFeatures = await promptCoreFeatures(options.yes);
@@ -250,7 +249,6 @@ export const create = new Command()
 				const configSource = buildConfigTs({
 					appName,
 					appPrefix,
-					appUrl,
 					withElectron,
 					gateway,
 					coreFeatures,

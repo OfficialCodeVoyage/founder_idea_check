@@ -23,10 +23,10 @@ const electronAuthPlugin = electron({
 }) as unknown as BetterAuthPlugin;
 /**
  * The auth base URL and every trusted origin come from this deployment's own
- * URL (`lib/url.ts::getBaseUrl`), never from `config.appUrl`: that value is
- * committed in `chat.config.ts`, a fork inherits it pointing at a domain it
- * does not own, and trusting it would let that domain make cookie-bearing auth
- * requests here. A production server with no URL of its own falls back to
+ * URL (`lib/url.ts::getBaseUrl`), never from a URL committed in
+ * `chat.config.ts` (it has no `appUrl`): a fork inherits a committed URL
+ * pointing at a domain it does not own, and trusting it would let that domain
+ * make cookie-bearing auth requests here. A production server with no URL of its own falls back to
  * localhost, which only makes its auth POSTs fail with INVALID_ORIGIN; say so
  * loudly instead of failing quietly. `scripts/check-env.ts` already fails the
  * build in that case.

@@ -188,7 +188,7 @@ N+1's system prompt.
 9. Still in `onFinish`, unless the turn was aborted, anonymous, a non-primary parallel reply, projectless, or its chat
    owner is not the project owner, the route registers `after(async () => ...)` that awaits, in sequence,
    `runPostTurnPhasePass` then `runPostTurnPersonaPass`, and charges their cost in `finally` through a second
-   `CostAccumulator` (`chargePostTurnCost`).
+   `CostAccumulator` (`chargeAccumulatedCost`).
 
 ### Phase gate decision (post-turn, inside `after()`)
 
@@ -496,7 +496,7 @@ as not-found for both "missing" and "not yours" (`apps/chat/trpc/routers/phase.r
 **Strategy:** fail closed, name the cause, never break the stream.
 
 **Patterns:**
-- Post-turn passes never throw: `runPostTurnPhasePass` catches and writes a fail-closed BLOCK; `chargePostTurnCost`
+- Post-turn passes never throw: `runPostTurnPhasePass` catches and writes a fail-closed BLOCK; `chargeAccumulatedCost`
   catches its own errors; `extractFacts` returns `[]` on any failure and reports through `onError`.
 - Route errors map to `ChatSDKError` responses (`apps/chat/lib/ai/errors.ts`); stream errors map through
   `getStreamErrorMessage` (`apps/chat/lib/ai/stream-errors.ts`) and clear `activeStreamId` so a client does not resume a dead stream.

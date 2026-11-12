@@ -18,10 +18,18 @@ const log = createModuleLogger("chat:title");
 export async function generateTitleFromUserMessage({
   message,
   userId,
+  costAccumulator,
 }: {
   message: ChatMessage;
   /** The signed-in user whose new chat this titles, and who pays for it. */
   userId: string;
+  /**
+   * The turn's own accumulator, when the title is generated in the same
+   * request as the turn (`/api/chat`). The call is then recorded there and
+   * charged with the turn, rounded to a whole cent ONCE with it. Without one
+   * (`/api/chat/prepare`, its own request) it is charged at once.
+   */
+  costAccumulator?: CostAccumulator;
 }) {
   const { text: title, usage } = await generateText({
     model: await getLanguageModel(config.ai.workflows.title),
@@ -38,22 +46,33 @@ Rules (strictly follow all):
     experimental_telemetry: { isEnabled: true },
   });
 
-  await chargeTitleCost({ userId, usage });
+  if (costAccumulator) {
+    costAccumulator.addLLMCost(
+      config.ai.workflows.title,
+      { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
+      "title"
+    );
+  } else {
+    await chargeTitleCost({ userId, usage });
+  }
 
   return title;
 }
 
 /**
- * Charges the title call to the user whose chat it titles. It used to be the
- * one model call on a new chat that was never charged: it runs before the
- * turn's `CostAccumulator` exists (and in `/api/chat/prepare`, in a different
- * request from the turn), so nothing ever recorded its usage.
+ * Charges a title call made outside a turn (`/api/chat/prepare`) to the user
+ * whose chat it titles. It used to be the one model call on a new chat that
+ * was never charged, because nothing recorded its usage.
  *
- * Settled on its own accumulator and deducted at once, the way the post-turn
- * passes are, so the whole-cent rounding in `CostAccumulator.settle` applies to
- * this call separately. NEVER THROWS: a failed charge is logged, and the chat
- * is still created with its title — refusing the founder's first message
- * because a credit write failed would be the worse failure.
+ * Settled on its own accumulator and deducted at once, so the whole-cent
+ * rounding in `CostAccumulator.settle` applies to this call separately: a
+ * title costs a small fraction of a cent and is charged 1¢. That is why the
+ * route path does not come here but records the call on the turn's
+ * accumulator, and why `/api/chat/prepare` admits a title only on a balance
+ * that still admits the turn after it. NEVER THROWS: a failed charge is
+ * logged, and the chat is still created with its title — refusing the
+ * founder's first message because a credit write failed would be the worse
+ * failure.
  */
 async function chargeTitleCost({
   userId,

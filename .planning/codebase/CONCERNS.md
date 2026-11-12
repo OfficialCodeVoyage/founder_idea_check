@@ -146,12 +146,12 @@ in the last section.
   `apps/chat/lib/ai/model-capabilities.ts::MODEL_CAPABILITIES` has 8 entries (one is an embedding model), so a signed-in caller who posts another
   `selectedModelId` runs on the operator's key and `CostAccumulator.settle()` returns it in `unpriced[]`, which is logged and
   deducted as zero.
-- Risk: the title call is now charged (its own accumulator in `generateTitleFromUserMessage`,
-  `apps/chat/app/(chat)/actions.ts`) but sends `JSON.stringify(message)` with no size cap, and runs from `/api/chat` and
-  from `/api/chat/prepare`. `apps/chat/app/(chat)/api/chat/prepare/route.ts` has no `canSpend`, no
+- Risk: the title call is charged (`generateTitleFromUserMessage`, `apps/chat/app/(chat)/actions.ts`: on the turn's
+  accumulator from `/api/chat`, on its own from `/api/chat/prepare`) but sends `JSON.stringify(message)` with no size
+  cap. `apps/chat/app/(chat)/api/chat/prepare/route.ts` requires a 2¢ balance before the title but has no
   `MAX_INPUT_TOKENS` check, no rate limit and stores the unvalidated message body. Simulation is charged by a flat estimate
   (`apps/chat/lib/research/simulation.ts::estimateSimulationCostCents`, 0.1 cent per seat-round) because the sidecar reports no
-  usage, and a run whose failure kind is not `no-reactions` or `too-few-reactions` is not charged
+  usage; it is reserved before the run and refunded only for a kind in `SIMULATION_NEVER_STARTED_KINDS`
   (`apps/chat/app/actions/run-simulation.ts`).
 - Risk: registration is open to any account of an enabled provider and there is no email or domain allow-list in
   `apps/chat/lib/auth.ts`; each account starts with `UserCredit.credits` = 50 cents (`apps/chat/lib/db/schema.ts`).

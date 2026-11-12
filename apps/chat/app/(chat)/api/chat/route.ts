@@ -186,11 +186,14 @@ async function handleChatValidation({
   userId,
   userMessage,
   projectId,
+  costAccumulator,
 }: {
   chatId: string;
   userId: string;
   userMessage: ChatMessage;
   projectId?: string;
+  /** The turn's accumulator; a new chat's title call is recorded on it. */
+  costAccumulator: CostAccumulator;
 }): Promise<{ error: Response | null; isNewChat: boolean }> {
   const log = createModuleLogger("api:chat:validation");
 
@@ -250,6 +253,13 @@ async function handleChatValidation({
     // this function returns — so a founder at zero credits was billed for a
     // title on the way to the 402. Checked after the ownership checks above,
     // so an unauthorised request still gets its 401, not a balance answer.
+    //
+    // The title is recorded on the TURN's accumulator, not charged here: on
+    // its own it was rounded up to 1¢ for a fraction of a cent, and with
+    // exactly 1¢ left that charge made the turn's own check refuse the turn
+    // the check below had just admitted. It is now rounded once with the turn
+    // and deducted with it in `finalizeMessageAndCredits`, and this is the
+    // turn's only balance check (`handleUserValidationAndCredits`).
     const creditError = await checkUserCanSpend(userId);
     if (creditError) {
       return { error: creditError, isNewChat };
@@ -259,6 +269,7 @@ async function handleChatValidation({
     const title = await generateTitleFromUserMessage({
       message: userMessage,
       userId,
+      costAccumulator,
     });
 
     await saveChatIfNotExists({ id: chatId, userId, title, projectId });
@@ -322,25 +333,33 @@ async function handleUserValidationAndCredits({
   userId,
   userMessage,
   projectId,
+  costAccumulator,
 }: {
   chatId: string;
   userId: string;
   userMessage: ChatMessage;
   projectId?: string;
+  costAccumulator: CostAccumulator;
 }): Promise<{ error: Response } | { isNewChat: boolean }> {
   const validationResult = await handleChatValidation({
     chatId,
     userId,
     userMessage,
     projectId,
+    costAccumulator,
   });
   if (validationResult.error) {
     return { error: validationResult.error };
   }
 
-  const creditError = await checkUserCanSpend(userId);
-  if (creditError) {
-    return { error: creditError };
+  // A new chat's balance was already checked in this request, before its
+  // title (`handleChatValidation`). Checking again could only refuse a turn
+  // that check admitted, after the chat and the founder's message were saved.
+  if (!validationResult.isNewChat) {
+    const creditError = await checkUserCanSpend(userId);
+    if (creditError) {
+      return { error: creditError };
+    }
   }
 
   return { isNewChat: validationResult.isNewChat };
@@ -420,6 +439,7 @@ async function createChatStream({
   mcpConnectors,
   streamId,
   onChunk,
+  costAccumulator,
 }: {
   messageId: string;
   chatId: string;
@@ -439,12 +459,15 @@ async function createChatStream({
   mcpConnectors: McpConnector[];
   streamId: string;
   onChunk?: () => void;
+  /**
+   * The turn's accumulator, created in `POST` before the title call. Building
+   * the system prompt below can spend into it too (the phase block embeds this
+   * turn's message to rank the fact store). Settled in onFinish
+   * (`finalizeMessageAndCredits`) with everything else.
+   */
+  costAccumulator: CostAccumulator;
 }) {
   const log = createModuleLogger("api:chat:stream");
-  // Created BEFORE the system prompt, because building it can spend: the
-  // phase block embeds this turn's message to rank the fact store. It is
-  // settled in onFinish (finalizeMessageAndCredits) with everything else.
-  const costAccumulator = new CostAccumulator();
   const system = await getSystemPrompt({
     isAnonymous,
     chatId,
@@ -616,7 +639,11 @@ async function createChatStream({
       // into a second accumulator and a second deduction, made in `finally` so
       // a pass that throws past its own guards is still charged for what it
       // spent. No second canSpend: the turn already passed it, and these
-      // passes are what keeps the founder's phase state true.
+      // passes are what keeps the founder's phase state true. Being rounded
+      // up to a whole cent on its own, this deduction costs the founder less
+      // than 1¢ more per project turn than one rounding with the turn would;
+      // folding it into the turn is not possible, because the turn is settled
+      // before these passes start.
       after(async () => {
         const postTurnCost = new CostAccumulator();
         try {
@@ -635,7 +662,11 @@ async function createChatStream({
             costAccumulator: postTurnCost,
           });
         } finally {
-          await chargePostTurnCost({ userId, costAccumulator: postTurnCost });
+          await chargeAccumulatedCost({
+            userId,
+            costAccumulator: postTurnCost,
+            label: "Post-turn",
+          });
         }
       });
     },
@@ -682,6 +713,15 @@ function emptyChatStreamResponse() {
   });
 }
 
+/**
+ * The turn's cost meter and who settles it. Created in `POST` before the new
+ * chat's title call, so the title is rounded and charged with the turn.
+ * `settledByStream` turns true once `createChatStream` has returned, and from
+ * then on the stream's onFinish charges it; until then `POST` does, so a
+ * title paid for on a request that ends before the stream is still charged.
+ */
+type TurnCost = { accumulator: CostAccumulator; settledByStream: boolean };
+
 async function executeChatRequest({
   chatId,
   userMessage,
@@ -699,6 +739,7 @@ async function executeChatRequest({
   requestDeadlineAt,
   timeoutId,
   mcpConnectors,
+  turnCost,
 }: {
   chatId: string;
   userMessage: ChatMessage;
@@ -717,6 +758,7 @@ async function executeChatRequest({
   requestDeadlineAt: number;
   timeoutId: NodeJS.Timeout;
   mcpConnectors: McpConnector[];
+  turnCost: TurnCost;
 }): Promise<Response> {
   const log = createModuleLogger("api:chat:execute");
   const messageId = assistantMessageId ?? generateUUID();
@@ -787,7 +829,11 @@ async function executeChatRequest({
     mcpConnectors,
     streamId,
     onChunk,
+    costAccumulator: turnCost.accumulator,
   });
+  // From here the stream's onFinish settles the accumulator; before here, an
+  // early return or a throw leaves it to `POST` (`chargeAccumulatedCost`).
+  turnCost.settledByStream = true;
 
   const publisher = redisPublisher;
   if (publisher) {
@@ -1101,18 +1147,24 @@ async function writePartialDocument({
 }
 
 /**
- * Settles and deducts what the post-turn passes spent. NEVER THROWS: it runs in
- * `after()`, where a rejection is unhandled. Logs an unpriced entry the same
- * way finalizeMessageAndCredits does, because the total is then an undercount.
+ * Settles and deducts what an accumulator outside `finalizeMessageAndCredits`
+ * recorded: the post-turn passes, or a turn whose request ended before its
+ * stream took the accumulator over (`TurnCost`). NEVER THROWS: it runs in
+ * `after()` or a `finally`, where a rejection would be unhandled or would
+ * replace the response. Logs an unpriced entry the same way
+ * finalizeMessageAndCredits does, because the total is then an undercount.
  */
-async function chargePostTurnCost({
+async function chargeAccumulatedCost({
   userId,
   costAccumulator,
+  label,
 }: {
   userId: string | null;
   costAccumulator: CostAccumulator;
+  /** Names the charge in the log: "Post-turn" or "Pre-stream turn". */
+  label: string;
 }): Promise<void> {
-  const log = createModuleLogger("api:chat:post-turn-credits");
+  const log = createModuleLogger("api:chat:accumulated-credits");
   try {
     if (!(userId && costAccumulator.hasEntries())) {
       return;
@@ -1121,18 +1173,15 @@ async function chargePostTurnCost({
     if (unpriced.length > 0) {
       log.error(
         { unpriced, cents },
-        "Some post-turn calls could not be priced; the deducted total is an undercount"
+        `Some ${label} calls could not be priced; the deducted total is an undercount`
       );
     }
-    log.info(
-      { entries: costAccumulator.getEntries(), cents },
-      "Post-turn cost"
-    );
+    log.info({ entries: costAccumulator.getEntries(), cents }, `${label} cost`);
     if (cents > 0) {
       await deductCredits(userId, cents);
     }
   } catch (error) {
-    log.error({ error }, "Failed to charge the post-turn passes");
+    log.error({ error }, `Failed to charge the ${label} cost`);
   }
 }
 
@@ -1443,11 +1492,13 @@ async function prepareChatPersistenceAndCredits({
   projectId,
   userId,
   userMessage,
+  costAccumulator,
 }: {
   chatId: string;
   projectId?: string;
   userId: string | null;
   userMessage: ChatMessage;
+  costAccumulator: CostAccumulator;
 }): Promise<{ error: Response } | { isNewChat: boolean }> {
   if (userId) {
     return await handleUserValidationAndCredits({
@@ -1455,6 +1506,7 @@ async function prepareChatPersistenceAndCredits({
       userId,
       userMessage,
       projectId,
+      costAccumulator,
     });
   }
 
@@ -1516,6 +1568,11 @@ async function prepareChatExecutionInputs({
 
 export async function POST(request: NextRequest) {
   const log = createModuleLogger("api:chat");
+  const turnCost: TurnCost = {
+    accumulator: new CostAccumulator(),
+    settledByStream: false,
+  };
+  let chargedUserId: string | null = null;
   try {
     const bodyResult = await readChatPostBody(request);
 
@@ -1556,11 +1613,13 @@ export async function POST(request: NextRequest) {
     }
 
     const { userId, isAnonymous, anonymousSession } = sessionSetup;
+    chargedUserId = isAnonymous ? null : userId;
     const persistenceResult = await prepareChatPersistenceAndCredits({
       chatId,
       projectId,
       userId,
       userMessage,
+      costAccumulator: turnCost.accumulator,
     });
 
     if ("error" in persistenceResult) {
@@ -1612,6 +1671,7 @@ export async function POST(request: NextRequest) {
       requestDeadlineAt,
       timeoutId,
       mcpConnectors: executionInputs.mcpConnectors,
+      turnCost,
     });
   } catch (error) {
     log.error(
@@ -1626,5 +1686,18 @@ export async function POST(request: NextRequest) {
     return new Response("Internal Server Error", {
       status: 500,
     });
+  } finally {
+    // A request that ended before its stream took the accumulator over (a
+    // refusal after the title, a replayed placeholder, a throw) has still paid
+    // for whatever it recorded — a new chat's title, the phase block's
+    // embedding. Charged here, once; when the stream did take over, its
+    // onFinish charges instead.
+    if (!turnCost.settledByStream) {
+      await chargeAccumulatedCost({
+        userId: chargedUserId,
+        costAccumulator: turnCost.accumulator,
+        label: "Pre-stream turn",
+      });
+    }
   }
 }

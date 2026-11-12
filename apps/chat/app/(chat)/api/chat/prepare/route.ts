@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import type { NextRequest } from "next/server";
 import type { ChatMessage } from "@/lib/ai/types";
 import { auth } from "@/lib/auth";
-import { canSpend } from "@/lib/db/credits";
+import { getCredits } from "@/lib/db/credits";
 import {
   getChatById,
   getMessageById,
@@ -15,6 +15,13 @@ import { createModuleLogger } from "@/lib/logger";
 import { generateTitleFromUserMessage } from "../../../actions";
 
 const log = createModuleLogger("api:chat:prepare");
+
+/**
+ * The least balance on which a new chat is titled here: 1¢ for the title's own
+ * rounded charge, and 1¢ left so the turns that follow pass `/api/chat`'s
+ * positive-balance check. See `ensurePrepareChat`.
+ */
+const PREPARE_MIN_BALANCE_CENTS = 2;
 
 type PrepareRequestBody = {
   id: string;
@@ -118,7 +125,15 @@ async function ensurePrepareChat({
   // no credit check at all, so a script could buy title calls here at zero
   // credits by posting fresh chat ids. Same 402 as `/api/chat`, and checked
   // after the ownership checks so an unauthorised request still gets its 401.
-  if (!(await canSpend(userId))) {
+  //
+  // THE BAR IS ONE CENT ABOVE `/api/chat`'s. This route is the first step of
+  // a parallel send (`lib/parallel-chat-requests.ts::runParallelRequestSpecs`),
+  // and the title here is charged on its own, rounded up to 1¢. A founder with
+  // exactly 1¢ would pay it and then have every turn of the same send refused
+  // with 402 at 0¢. Refusing here instead costs them nothing. It holds while a
+  // title costs at most 1¢ before rounding, which on the title model takes a
+  // first message of tens of thousands of tokens to break.
+  if ((await getCredits(userId)) < PREPARE_MIN_BALANCE_CENTS) {
     log.warn({ chatId, userId }, "POST /api/chat/prepare insufficient credits");
     return { error: new Response("Insufficient credits", { status: 402 }) };
   }

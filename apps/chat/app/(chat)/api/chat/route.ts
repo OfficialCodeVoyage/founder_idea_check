@@ -716,9 +716,10 @@ function emptyChatStreamResponse() {
 /**
  * The turn's cost meter and who settles it. Created in `POST` before the new
  * chat's title call, so the title is rounded and charged with the turn.
- * `settledByStream` turns true once `createChatStream` has returned, and from
- * then on the stream's onFinish charges it; until then `POST` does, so a
- * title paid for on a request that ends before the stream is still charged.
+ * `settledByStream` turns true when the chat stream is piped to a reader
+ * (`executeChatRequest`'s `sseStream`), and from then on the stream's onFinish
+ * charges it; until then `POST` does, so a title paid for on a request that
+ * ends before the stream is read is still charged.
  */
 type TurnCost = { accumulator: CostAccumulator; settledByStream: boolean };
 
@@ -831,9 +832,6 @@ async function executeChatRequest({
     onChunk,
     costAccumulator: turnCost.accumulator,
   });
-  // From here the stream's onFinish settles the accumulator; before here, an
-  // early return or a throw leaves it to `POST` (`chargeAccumulatedCost`).
-  turnCost.settledByStream = true;
 
   const publisher = redisPublisher;
   if (publisher) {
@@ -858,15 +856,56 @@ async function executeChatRequest({
     Connection: "keep-alive",
   } as const;
 
-  const streamContext = getStreamContext();
-  const sseStream = () => stream.pipeThrough(new JsonToSseTransformStream());
+  // WHO CHARGES THE TURN. The stream's onFinish settles the accumulator only
+  // if the chat stream is read to its end, so `settledByStream` flips at the
+  // one moment that becomes certain: when the stream is piped to a reader.
+  // Both readers drain it — the Response body, or the resumable stream's own
+  // read loop, which pulls from `makeStream()` whether or not anyone resumes.
+  // Until then `POST`'s `finally` charges what the accumulator holds.
+  const sseStream = () => {
+    turnCost.settledByStream = true;
+    return stream.pipeThrough(new JsonToSseTransformStream());
+  };
 
+  const streamContext = getStreamContext();
   if (streamContext) {
-    log.debug("Returning resumable stream");
-    return new Response(
-      await streamContext.resumableStream(streamId, sseStream),
-      { headers: sseHeaders }
-    );
+    // resumable-stream talks to Redis (incr, set, subscribe) before it calls
+    // `makeStream`. A Redis error there used to fail the request with a 500
+    // while `execute` had already started the model call, and nothing read
+    // the stream, so onFinish never charged the turn or the new chat's title.
+    // On a rejection (or a null, which a fresh stream id should never get)
+    // before `makeStream` ran, the same stream is served without resumability
+    // instead, so it is read and charged exactly once.
+    try {
+      const resumable = await streamContext.resumableStream(
+        streamId,
+        sseStream
+      );
+      if (resumable) {
+        log.debug("Returning resumable stream");
+        return new Response(resumable, { headers: sseHeaders });
+      }
+      if (turnCost.settledByStream) {
+        throw new Error(
+          "resumable stream returned no body after taking the chat stream"
+        );
+      }
+      log.warn(
+        { streamId },
+        "resumable stream returned null; serving it plain"
+      );
+    } catch (error) {
+      // `makeStream` already ran: the stream is being drained and onFinish
+      // will charge it. Piping it a second time would throw on a locked
+      // stream, so the error goes to `POST`, whose `finally` skips the charge.
+      if (turnCost.settledByStream) {
+        throw error;
+      }
+      log.error(
+        { error, streamId },
+        "resumable stream failed before it took the chat stream; serving it plain"
+      );
+    }
   }
 
   return new Response(sseStream(), { headers: sseHeaders });

@@ -325,6 +325,14 @@ describe("partial document labelling", () => {
     const title = partialDocumentTitle(REAL_TITLE);
     expect(title).toMatch(PARTIAL_AT_START);
     expect(title).toContain(REAL_TITLE);
+
+    // A live copy cut by this tab's own Stop says "stopped", not "stream died"
+    // (nothing died); any other live copy and every stored title keep the prefix.
+    const stopped = partialDocumentTitle(REAL_TITLE, "stopped");
+    expect(stopped).toMatch(PARTIAL_AT_START);
+    expect(stopped).toContain("stopped");
+    expect(stopped).not.toContain("stream died");
+    expect(partialDocumentTitle(REAL_TITLE, "died")).toBe(title);
   });
 
   it("names the document even when its title never arrived", () => {
@@ -342,6 +350,36 @@ describe("partial document labelling", () => {
     expect(body).toContain("THE DOCUMENT STOPS HERE");
     expect(body).toContain(salvage.content);
     expect(body).toContain(salvage.contentChars.toLocaleString("en-US"));
+    // A stored copy is the server's own, so it is exact.
+    expect(body).toContain("Nothing further was ever written");
+    expect(body).not.toContain("at least");
+  });
+
+  it("says a live copy holds only what reached this page, and that the saved one may be longer", () => {
+    // REGRESSION (live QA, re-check 6): after a Stop the side panel said "97
+    // characters in. Nothing further was ever written." while the server had
+    // saved 463. A copy a tab rebuilds from the message it was still receiving
+    // is not the server's, so it must not claim to be the whole document.
+    if (!salvage.salvaged) {
+      throw new Error("fixture should salvage");
+    }
+    const chars = salvage.contentChars.toLocaleString("en-US");
+    for (const copy of ["stopped", "died"] as const) {
+      const body = partialDocumentBody(salvage, copy);
+      expect(body).toContain(`at least ${chars} characters`);
+      expect(body).toContain("saved document may be longer");
+      expect(body).toContain("reload the chat");
+      expect(body).not.toContain("Nothing further was ever written");
+      expect(body).toContain(salvage.content);
+      expect(body.split("\n")[0].startsWith("## ")).toBe(true);
+    }
+    expect(partialDocumentBody(salvage, "stopped")).toContain("was stopped");
+    expect(partialDocumentBody(salvage, "stopped")).not.toContain(
+      "stream writing"
+    );
+    expect(partialDocumentBody(salvage, "died")).toContain(
+      "The stream writing this document stopped"
+    );
   });
 
   it("uses only markdown the text editor renders, not raw quote or rule marks", () => {

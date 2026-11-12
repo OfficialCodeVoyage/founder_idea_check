@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useArtifact } from "@/hooks/use-artifact";
 import type { ChatMessage } from "@/lib/ai/types";
 import {
+  type ClientCopy,
   describeInputStream,
   hasInputStreamEnded,
   type InputStreamVerdict,
@@ -48,15 +49,18 @@ type DeadStream = Extract<InputStreamVerdict, { died: true }>;
  * The panel fields for the copy rebuilt from the message itself: the
  * "[PARTIAL]" title and the bannered body, as `text` because the banner is
  * markdown. Shared by the button and by the settle effect below so the two
- * can never show different copies of the same partial.
+ * can never show different copies of the same partial. `copy` is set while the
+ * server's answer is not known yet: the copy holds what reached THIS page, which a
+ * Stop can leave shorter than the saved document, and says so (`ClientCopy`).
  */
 function unsavedCopyFields(
-  salvage: Extract<DeadStream["salvage"], { salvaged: true }>
+  salvage: Extract<DeadStream["salvage"], { salvaged: true }>,
+  copy: ClientCopy | undefined
 ) {
   return {
     documentId: "init",
-    title: partialDocumentTitle(salvage.title),
-    content: partialDocumentBody(salvage),
+    title: partialDocumentTitle(salvage.title, copy),
+    content: partialDocumentBody(salvage, copy),
     kind: "text" as const,
     status: "idle" as const,
   };
@@ -81,16 +85,28 @@ function DeadDocumentStream({
   verdict,
   isReadonly,
   messageId,
+  stopped,
 }: {
   verdict: DeadStream;
   isReadonly: boolean;
   messageId: string;
+  /** This tab's own Stop cut the stream (`metadata.streamStopped`). */
+  stopped: boolean;
 }) {
   const { setArtifact } = useArtifact();
   const { sendMessage } = useChatActions<ChatMessage>();
   const storeApi = useChatStoreApi<ChatMessage>();
   const chatStatus = useChatStatus();
   const { salvage, store } = verdict;
+  // WHETHER THE COPY IS THIS PAGE'S OWN. While the server's answer is not known
+  // (`unknown`: a turn that ended in this tab) the part holds what reached this
+  // page, and a Stop is acted on by the server up to a second later, so the
+  // saved document can be longer (97 characters here, 463 saved: live QA,
+  // re-check 6). A saved or marked part is the server's own and is exact.
+  let copy: ClientCopy | undefined;
+  if (store.state === "unknown") {
+    copy = stopped ? "stopped" : "died";
+  }
   // This card stays on screen while a continuation is on its way (see
   // `AssistantMessage`), so a second press must not queue a second request.
   const isRequestInFlight =
@@ -118,28 +134,28 @@ function DeadDocumentStream({
   // returns `prev` when nothing differs, so this does not loop.
   const ownedCopyRef = useRef<string | null>(null);
   useEffect(() => {
-    const copy = salvage.salvaged ? unsavedCopyFields(salvage) : null;
+    const fields = salvage.salvaged ? unsavedCopyFields(salvage, copy) : null;
     setArtifact((prev) => {
       if (prev.status === "streaming" && prev.messageId === messageId) {
-        if (!copy) {
+        if (!fields) {
           return { ...prev, status: "idle", isVisible: false };
         }
-        ownedCopyRef.current = copy.content;
-        return { ...prev, ...copy };
+        ownedCopyRef.current = fields.content;
+        return { ...prev, ...fields };
       }
       if (
-        !copy ||
+        !fields ||
         prev.status === "streaming" ||
-        prev.documentId !== copy.documentId ||
+        prev.documentId !== fields.documentId ||
         prev.content !== ownedCopyRef.current ||
-        (prev.content === copy.content && prev.title === copy.title)
+        (prev.content === fields.content && prev.title === fields.title)
       ) {
         return prev;
       }
-      ownedCopyRef.current = copy.content;
-      return { ...prev, ...copy };
+      ownedCopyRef.current = fields.content;
+      return { ...prev, ...fields };
     });
-  }, [messageId, salvage, setArtifact]);
+  }, [copy, messageId, salvage, setArtifact]);
 
   const openPartial = () => {
     if (!salvage.salvaged) {
@@ -164,12 +180,13 @@ function DeadDocumentStream({
       return;
     }
     // Nothing was saved (or the server's answer has not arrived yet), so this
-    // is a copy rebuilt from the message itself; the card's label and detail
+    // is a copy rebuilt from the message itself (`copy` is set when it is only
+    // what reached this page); the card's label and detail
     // say it is unsaved. It is this card's copy from here on, so the panel
     // keeps following the card's text (see the settle effect above).
-    const copy = unsavedCopyFields(salvage);
-    ownedCopyRef.current = copy.content;
-    setArtifact((prev) => ({ ...prev, ...copy, isVisible: true }));
+    const fields = unsavedCopyFields(salvage, copy);
+    ownedCopyRef.current = fields.content;
+    setArtifact((prev) => ({ ...prev, ...fields, isVisible: true }));
   };
 
   const resume = () => {
@@ -271,8 +288,6 @@ function PureDocumentTool({
     // answer "was it saved". A part loaded from storage has no id and no
     // marker: the server finished with it long ago and recorded nothing.
     reloadMayAnswer: Boolean(metadata.activeStreamId),
-    // A Stop reads "stopped", and a count the server has not confirmed is a
-    // lower bound (`describeInputStream`).
     stoppedHere: metadata.streamStopped === true,
   });
 
@@ -328,6 +343,7 @@ function PureDocumentTool({
       <DeadDocumentStream
         isReadonly={isReadonly}
         messageId={messageId}
+        stopped={metadata.streamStopped === true}
         verdict={verdict}
       />
     );

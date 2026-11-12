@@ -419,6 +419,15 @@ function whereItWent(store: PartialDocumentStore): string {
   }
 }
 
+/**
+ * WHICH KIND OF COPY A TAB IS SHOWING. Set only for the copy a tab rebuilds from
+ * the message it was still receiving (a `PartialDocumentStore` of `unknown`), whose
+ * length is what reached THIS page and not what the server holds. `stopped` is
+ * this tab's own Stop (`metadata.streamStopped`); `died` is any other end of the
+ * stream. A copy read back from a saved or marked part is exact and takes none.
+ */
+export type ClientCopy = "stopped" | "died";
+
 function deadDetail(
   salvage: SalvagedTextDocument,
   toolType: string | undefined,
@@ -619,15 +628,24 @@ function storeFor({
 
 const PARTIAL_PREFIX = "[PARTIAL — stream died]";
 
+/** The prefix of a live copy cut by this tab's own Stop: nothing died. */
+const PARTIAL_PREFIX_STOPPED = "[PARTIAL — stopped]";
+
 /**
  * The title a salvaged document is stored under.
  *
  * The prefix leads, so every place a title appears unadorned — the artifact
  * header, the document list, a share link — carries the warning without any of
- * them having to know this feature exists.
+ * them having to know this feature exists. The title of a live copy (see
+ * `ClientCopy`) says "stopped" for a Stop, because "stream died" is false of a
+ * turn the founder cut; every stored title keeps "stream died".
  */
-export function partialDocumentTitle(title: string | null): string {
-  return `${PARTIAL_PREFIX} ${title ?? "Untitled document"}`;
+export function partialDocumentTitle(
+  title: string | null,
+  copy?: ClientCopy
+): string {
+  const prefix = copy === "stopped" ? PARTIAL_PREFIX_STOPPED : PARTIAL_PREFIX;
+  return `${prefix} ${title ?? "Untitled document"}`;
 }
 
 /**
@@ -638,9 +656,17 @@ export function partialDocumentTitle(title: string | null): string {
  * out why there isn't one, at the exact character where the stream stopped.
  * Marking only the top would leave the far more common failure — reading to the
  * end and believing it ended — completely unguarded.
+ *
+ * A LIVE COPY (`copy`, see `ClientCopy`) is the one a tab rebuilds from the
+ * message it was still receiving, and it says only what is true of it: this is
+ * what reached THIS page, and the saved document may be longer. "Nothing further
+ * was ever written" is true of a copy the server wrote and false of this one (a
+ * Stop showed 97 characters here beside 463 saved, live QA re-check 6). Every
+ * stored copy keeps the exact wording.
  */
 export function partialDocumentBody(
-  salvage: Extract<SalvagedTextDocument, { salvaged: true }>
+  salvage: Extract<SalvagedTextDocument, { salvaged: true }>,
+  copy?: ClientCopy
 ): string {
   const chars = salvage.contentChars.toLocaleString("en-US");
   // Headings and paragraphs only. The text artifact opens in Lexical, whose
@@ -650,18 +676,26 @@ export function partialDocumentBody(
   const banner = [
     "## ⚠️ PARTIAL DOCUMENT — RECOVERED, NOT COMPLETE",
     "",
-    `The stream writing this document stopped after ${chars} characters. Everything below arrived; nothing after it ever did, and the last line is very likely cut mid-sentence.`,
+    copy
+      ? `${copy === "stopped" ? "The reply was stopped" : "The stream writing this document stopped"} after at least ${chars} characters had reached this page. Everything below arrived here; the saved document may be longer, so reload the chat to see it. The last line is very likely cut mid-sentence.`
+      : `The stream writing this document stopped after ${chars} characters. Everything below arrived; nothing after it ever did, and the last line is very likely cut mid-sentence.`,
     "",
     "This text was salvaged so it would not be lost. **Do not treat it as a finished document.** Ask the assistant to continue from the last line to complete it.",
   ].join("\n");
 
-  const footer = [
-    "## ⚠️ THE DOCUMENT STOPS HERE",
-    "",
-    `The stream was cut at this point, ${chars} characters in. Nothing further was ever written. The line above is where a continuation must resume.`,
-  ].join("\n");
+  const footer = copy
+    ? [
+        "## ⚠️ THIS COPY STOPS HERE",
+        "",
+        `What reached this page ends at this point, ${chars} characters in. The saved document may be longer: reload the chat to see it.`,
+      ]
+    : [
+        "## ⚠️ THE DOCUMENT STOPS HERE",
+        "",
+        `The stream was cut at this point, ${chars} characters in. Nothing further was ever written. The line above is where a continuation must resume.`,
+      ];
 
-  return `${banner}\n\n${salvage.content}\n\n${footer}\n`;
+  return `${banner}\n\n${salvage.content}\n\n${footer.join("\n")}\n`;
 }
 
 /**

@@ -86,10 +86,13 @@ const GPT_5_6_MODEL = /^(?:openai\/)?gpt-5\.6-/;
  *
  * The `gpt-5.6-*` family is the one this repo has established takes `none` (the
  * sidecar's `RESEARCH_SIM_REASONING_EFFORT` is derived as `none` for it, and
- * `lib/ai/model-capabilities.ts` records the 400 that names it). Any other model
- * gets no option: whether it takes the key at all is unknown, and a rejected
- * option would fail the whole topic's compression, which is worse than reasoning
- * tokens.
+ * `lib/ai/model-capabilities.ts` records the 400 that names it). That holds on
+ * the Responses API this call uses, for `gpt-5.6-terra`, the model compression
+ * runs on: live QA (re-check 6) sent `reasoningEffort: "none"` on four terra
+ * compression calls through the app's own path, and none raised an API error;
+ * the four reported 0, 0, 0 and 0 reasoning tokens. Any other model gets no
+ * option: whether it takes the key at all is unknown, and a rejected option would
+ * fail the whole topic's compression, which is worse than reasoning tokens.
  */
 export function getCompressionProviderOptions(
   modelId: string

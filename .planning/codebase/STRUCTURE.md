@@ -1,5 +1,5 @@
 <!-- refreshed: 2026-11-12 -->
-last_mapped_commit: 1f00fb4e
+last_mapped_commit: c9be663d
 # Codebase Structure
 
 **Analysis Date:** 2026-11-12

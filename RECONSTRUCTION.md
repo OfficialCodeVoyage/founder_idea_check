@@ -1,4 +1,6 @@
 # RECONSTRUCTION.md — navigation map for Claude Code sessions
+<!-- bearings-sha: c9be663d3ef3f45112fa8ff6ce55cabcc30f7556 -->
+<!-- bearings-date: 2026-11-12 -->
 
 Read this before navigating or editing unfamiliar parts of the codebase. It is a map with pointers, not a copy of
 CLAUDE.md — rules live there (and in `.claude/rules/`), geography lives here.

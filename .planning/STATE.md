@@ -33,6 +33,8 @@ _Last updated: 2026-11-12 (`release/public-prep-261112`)_
   until the release gate passes.** Why: the target repository is public, so the first push publishes
   every commit it carries. The gate proves the history holds no private material and that the tested
   tree is the one that ships.
+  RESOLVED: 2026-11-12 — the release gate passed on the rebuilt public history (identities, blurred times,
+  private strings, secrets, per-commit verification), and the tested tree is the tip.
 
 ## Session log (newest first, one line each, keep ≤20)
 - 2026-11-12 — Agent-operating structure installed (hooks, rules, state, docs skeleton).

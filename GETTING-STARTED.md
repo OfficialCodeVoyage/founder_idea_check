@@ -1,218 +1,217 @@
 # Getting started
 
-From `git clone` to a running app you can click through — **without an API key** —
-in about five minutes, plus one clearly-marked step to turn the AI on.
+From `git clone` to your first conversation with the gate, one step at a time. The commands are the same ones the
+[README](README.md) lists; this page adds what you should see after each one, and what to do when you do not.
 
-Everything below is copy-paste. Commands run from the repo root unless stated.
+Everything runs on your machine. Plan on about 15 minutes, most of it the first Docker build, and on an OpenAI API key:
+the app calls OpenAI for every answer.
 
----
+## What you need
 
-## 0. Prerequisites
+| You need | Check it with | Notes |
+| --- | --- | --- |
+| Bun 1.3.14 or newer | `bun --version` | The repo pins `packageManager: bun@1.3.14`. npm and pnpm refuse to install it. |
+| Node.js 20.9 or newer | `node --version` | Next.js runs on it. |
+| Docker with Compose v2 | `docker compose version` | Postgres, Redis and the research service run in containers. |
+| An OpenAI API key | | On an account with billing enabled. |
+| macOS, Linux or WSL 2 | | The scripts are written for bash. |
 
-`bun` and Docker. The repo pins `packageManager: bun@1.3.1`; **pnpm and npm will refuse to install.**
+If Bun is missing:
 
 ```bash
-curl -fsSL https://bun.sh/install | bash   # if bun is not already installed
+curl -fsSL https://bun.sh/install | bash
 export PATH="$HOME/.bun/bin:$PATH"
 ```
 
----
-
-## 1. Services (Postgres + Redis)
-
-Both run on **offset ports** so they cannot collide with anything already on 5432/6379.
+## 1. Get the code
 
 ```bash
-docker compose up -d postgres redis
-```
-
-That brings up `ic-pg` (Postgres 17 + pgvector, host port **5433**) and `ic-redis`
-(Valkey, a Redis-compatible server, host port **6380**). Both use named volumes, so
-your data survives a recreate. Plain `docker compose up -d` also builds and starts
-the research sidecar. SearXNG (AGPL-3.0) is in neither command; it is an opt-in
-overlay, `docker-compose.searxng.yml`.
-
-> The Postgres image is `pgvector/pgvector:pg17`, not `postgres:17-alpine`. It is
-> plain Postgres 17 plus the `vector` extension, which `ProjectFact.embedding`
-> needs — on the stock image the first migration fails with
-> `type "vector" does not exist`.
-
-Stop them with `docker compose stop`. `docker compose down` removes the
-containers but keeps the `pgdata` / `redisdata` volumes — your data stays put.
-
----
-
-## 2. Install
-
-```bash
+git clone https://github.com/OfficialCodeVoyage/founder_idea_check.git
+cd founder_idea_check
 bun install
 ```
 
----
+Run every command from here on in the repository root unless a step says otherwise.
 
-## 3. Environment
-
-`.env.local` at the **repo root** is committed and already has everything needed to boot:
-`DATABASE_URL`, `AUTH_SECRET`, `REDIS_URL`, `MCP_ENCRYPTION_KEY`.
-
-> There is **no** `apps/chat/.env.local`. The root file is the only one. Every script in
-> this guide loads it for you; a bare `bun scripts/whatever.ts` inside `apps/chat` will not.
-
-Nothing to edit yet. The AI key comes in step 7.
-
----
-
-## 4. Database
+## 2. Set up your environment file
 
 ```bash
-bun run db:migrate      # creates the 17 tables
+cp .env.example .env.local
 ```
 
-Iterating on `lib/db/schema.ts` instead of writing a migration? Use `bun run db:push`.
-(Both wrap `dotenv -e .env.local`, which is required — `drizzle.config.ts` on its own
-resolves `.env.local` relative to `apps/chat`, where no such file exists.)
+Open `.env.local` and set two values:
 
----
+- `AUTH_SECRET`: any long random string. `openssl rand -base64 32` prints one.
+- `OPENAI_API_KEY`: from <https://platform.openai.com/api-keys>.
 
-## 5. Seed the demo data
+Leave `DATABASE_URL` as it is: it already points at the Postgres that the next step starts. Everything else in the file
+is optional and commented out.
+
+`.env.local` lives at the repository root and nowhere else. There is no `apps/chat/.env.local`, and every script in
+this guide loads the root file for you. The file is gitignored: never commit it.
+
+## 3. Start Postgres, Redis and the research service
 
 ```bash
-bun run db:seed
+docker compose up -d --wait
 ```
 
-Creates, idempotently (run it as often as you like):
+The first run builds the research service image, which takes a few minutes. Compose returns when all three containers
+are healthy. `docker compose ps` should list three services:
 
-| row | value |
-| --- | --- |
-| `user` | `dev@localhost` — **the same account `/api/dev-login` signs you into** |
-| `UserCredit` | 50 credits ($0.50), the default for a new user |
-| `Project` | `Demo idea` |
-| `ProjectPhase` | phase 1 `problem-validation`, `status=active`, no verdict yet |
+| Service | What it is | Where |
+| --- | --- | --- |
+| `ic-pg` | Postgres 17 with the pgvector extension | `127.0.0.1:5433` |
+| `ic-redis` | Valkey, a Redis-compatible server | `127.0.0.1:6380` |
+| research | the Python service that gathers demand signals | `127.0.0.1:8099` |
 
-It prints the project URL. Copy it — you need it in step 6.
+All three listen on your own machine only. The ports are offset (5433, not 5432) so they do not collide with a
+Postgres or Redis you already run. Data is kept in named volumes, so it survives a stop or a recreate.
 
----
+Check the research service:
 
-## 6. Run the app
+```bash
+curl -s http://127.0.0.1:8099/v1/health
+```
+
+You should see `"ok": true` and a `sources` list in which `hackernews` and `web-keyless` have
+`"operator_enabled": true`. Those are the two sources that need no key; see [What the research can do](#what-the-research-can-do).
+
+> The Postgres image is `pgvector/pgvector:pg17`, not the stock `postgres` image. It is Postgres 17 plus the `vector`
+> extension that fact embeddings need. On a stock image the schema step fails with `type "vector" does not exist`.
+
+## 4. Create the database schema
+
+```bash
+bun run db:migrate
+```
+
+You should see `Running migrations...` and then `Migrations completed in <n> ms`. To look at what it made:
+
+```bash
+docker exec ic-pg psql -U postgres -d ideacheck -c '\dt'
+```
+
+The list includes `Project`, `ProjectFact` and `ProjectPhaseAttempt`. `db:migrate` is the right command for a new
+database. Do not use `db:push` to create one; [`docs/DATABASE.md`](docs/DATABASE.md) says why.
+
+## 5. Start the app
 
 ```bash
 bun run dev:local
 ```
 
-Serves on **http://localhost:3100** (port 3000 is usually taken by something else).
-Override with `PORT=3210 bun run dev:local`.
-
-Use `dev:local`, not `next dev` by hand — the script does two things you cannot skip:
-
-- loads the repo-root `.env.local` directly, **bypassing turbo**, whose strict env mode
-  forwards only the variables listed in `turbo.json`;
-- exports `APP_URL` matching the port it actually serves on. better-auth builds
-  `trustedOrigins` from `APP_URL` and otherwise assumes `http://localhost:3000` — on any
-  other port every cookie-bearing POST to `/api/auth`, **sign-out included**, fails with
-  `403 INVALID_ORIGIN`.
-
-`bun run dev` (the turbo path, pinned to port 3000) also works and also sets `APP_URL`.
-
-### Sign in
-
-Open **http://localhost:3100/api/dev-login**.
-
-That is the whole login. It upserts `dev@localhost`, writes a `session` row, signs the
-`better-auth.session_token` cookie itself, and redirects to `/`. It returns `404` unless
-`NODE_ENV === "development"`, so it does not exist in a production build.
-
-There is also a **"Dev login"** pill in the bottom-left of `/login` that does the same thing.
-
-> **No OAuth button is shown, and that is deliberate.** `chat.config.ts` previously
-> enabled GitHub while `.env.local` held placeholder credentials, so the login page
-> advertised a "Continue with GitHub" button that redirected to github.com with a bogus
-> `client_id` and could never succeed. To use real GitHub sign-in: create an OAuth app,
-> put `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET` in `.env.local`, and set
-> `authentication.github: true` in `apps/chat/chat.config.ts`.
-> (Placeholder-looking values are ignored by `lib/auth.ts` on purpose, so a half-filled
-> `.env.local` can never resurrect a dead button.)
-
-### See the phase rail
-
-Open the project URL that `db:seed` printed:
+You should see an environment check, a line naming the address, and then Next.js reporting that it is ready:
 
 ```
-http://localhost:3100/project/<the-uuid-from-step-5>
+▶ http://localhost:3100   (sign in: http://localhost:3100/api/dev-login)
 ```
 
-The rail renders **`Phase 1 of 8 · BLOCKED · "no assessment yet — keep going"`**. That is
-the correct, honest state before any model has judged anything — and it renders with no
-API key at all.
+The check prints warnings rather than stopping, and one is expected: it tells you no social sign-in provider is enabled
+and to use `/api/dev-login`, which is what step 6 does. If it lists `aiGateway (openai): OPENAI_API_KEY`, the key is
+missing or empty in `.env.local`. The first page takes a while to compile.
 
-You can also make your own project from the sidebar ("New project"), which needs a
-signed-in session — anonymous visitors are redirected from `/project/...` to `/login`.
+Use `dev:local`, not `next dev` by hand. It loads the root `.env.local` directly (turbo, which `bun run dev` goes
+through, passes a task only the variables listed in `turbo.json`), and it sets `APP_URL` to the address it serves on.
+The app trusts only that address, so on any other one signing out and other authenticated form posts fail with
+`403 INVALID_ORIGIN`. Port 3100 is the default; `PORT=3210 bun run dev:local` picks another.
 
----
+## 6. Sign in
 
-## 7. ⭐ The one key step
+Open <http://localhost:3100/api/dev-login>.
 
-Open the repo-root `.env.local` and add one line:
+That is the whole login. It creates a local user, `dev@localhost`, signs a session cookie and sends you to the home
+page. It exists only while the app runs in development (it answers 404 otherwise). Use `localhost` in the address bar,
+not `127.0.0.1`.
+
+No "Continue with GitHub" or Google button is shown, on purpose: all social providers are off. To use real GitHub
+sign-in, create an OAuth app, put `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET` in `.env.local`, and set
+`authentication.github: true` in `apps/chat/chat.config.ts`.
+
+## 7. Start a project
+
+1. In the sidebar choose **New project**, give it a name and create it. You land on a new-chat screen for that project.
+2. Describe your idea in the message box and send it. Start with the problem: who has it, how often, what they do about
+   it today. The assistant asks follow-up questions.
+3. Above the conversation a strip shows `Phase 1 of 8` and a badge. A new project reads **NOT ASSESSED**. After each
+   answer the gate runs in the background; the strip says `checking…` for up to about half a minute, and then the badge
+   becomes **BLOCKED**, **THIN** or **READY**. The verdict card at the foot of the conversation lists what is missing
+   and asks the next question. When the only thing missing is fieldwork you have not done yet, it asks how you will
+   collect it, not for numbers.
+4. Inside a project the sidebar adds four screens:
+   - **Phases**: the eight phases, their exit criteria, and every refusal the gate has given you.
+   - **Facts**: what the app has recorded, with its confidence and who asserted it. You can correct a value, delete a
+     fact, or add one the current phase records, for example after interviews you ran offline. Facts you correct or
+     add are marked as yours. Adding one does not advance the phase.
+   - **Canvas**: facts, persona and the tasks that would unblock the current phase.
+   - **Simulation**: persona reactions to a pitch. This needs the heavy research build; see [README-DEV.md](README-DEV.md).
+5. **Export repo**, in the strip, opens a dialog that previews every generated file and lets you download them one at a
+   time. It works from the first fact on, and says in writing what is missing.
+
+## 8. Raise your credit balance
+
+The app keeps a spending cap as a balance in your local database, in cents. A new user starts with 50 (that is $0.50)
+and there is no top-up screen, so a long session ends with `Insufficient credits` (HTTP 402). Raise it:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...
+docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 2000;'
 ```
 
-Restart the dev server (`Ctrl-C`, then `bun run dev:local`). **That is it.** No config
-edit, no migration, no `bun install`, no second key.
+That sets the balance to 2000 cents, $20.00; use any number you like. The balance is an estimate of what OpenAI will
+bill you, not what it does bill: your OpenAI account is the real meter.
 
-You should see the boot warning `aiGateway (anthropic): ANTHROPIC_API_KEY` disappear.
+## What the research can do
 
----
+Out of the box the research service runs two sources: Hacker News, and a keyless web search that asks DuckDuckGo. Hacker
+News mostly holds developers and startup people. DuckDuckGo's HTML endpoint is often answered with a challenge page on
+a home or office network, and then the app reports that lane as blocked, not as "nothing found". Treat what comes back
+as leads, not proof, especially if your buyer is not a developer.
 
-## What works **without** a key
+To widen it (a SearXNG for general web search, a GitHub token, the Reddit archive, persona simulation), see "The
+research sidecar, in a container or a virtualenv" in [`README-DEV.md`](README-DEV.md). The sources and their policy are
+in [`apps/research/README.md`](apps/research/README.md).
 
-- `docker`, `bun install`, `db:migrate`, `db:push`, `db:seed`
-- The dev server boots. Missing keys are warnings, not a hard exit.
-- Sign-in (`/api/dev-login`), sidebar, project creation, project pages
-- The phase rail, rendering the real `phase.getState` tRPC response from the database
-- `bun run test:types`, `bun run lint`, `bun run test:unit` — the entire unit suite runs
-  with **every** AI env var unset. Model-dependent code paths are exercised through an
-  injectable seam with `MockLanguageModelV3`.
-- `bun run test:e2e` — the Playwright smoke tests run anonymously (one-time
-  `cd apps/chat && bunx playwright install` first; without it every test fails with
-  `browserType.launch: Executable doesn't exist`, which is a missing browser, not a bug)
+## What works without a key
 
-## What needs the key
+The app boots, you can sign in, create projects and browse every screen, and `bun run verify` and
+`bun run test:unit` run with every AI variable unset. Anything that calls a model needs the key: sending a message, the
+gate's judge, fact extraction, titles, follow-up suggestions and research.
 
-Anything that calls a model:
+## Stop, restart, reset
 
-- Sending a chat message
-- The **phase gate judge** and the **fact extractor** (`lib/phases/runtime.ts`) — these
-  run after each assistant turn and are what move the rail off `BLOCKED`
-- Chat title generation, followup suggestions
-
-Until the key is present, the rail stays on `BLOCKED · "no assessment yet — keep going"`.
-
----
+- `Ctrl-C` stops the app. Start it again with `bun run dev:local`.
+- `docker compose stop` stops the three services; `docker compose up -d --wait` starts them again.
+- `docker compose down` removes the containers and keeps your data.
+- `docker compose down -v` also deletes the database and Redis volumes. After it, run `bun run db:migrate` again.
 
 ## Troubleshooting
 
-| symptom | cause | fix |
+| Symptom | Cause | Fix |
 | --- | --- | --- |
-| `EADDRINUSE :::3100` | something else on the port | `PORT=3210 bun run dev:local` |
-| Sign-out returns `403 INVALID_ORIGIN` | app served on a port that `APP_URL` does not match | use `bun run dev:local`, which exports `APP_URL` for you |
-| `/project/...` bounces to `/login` | not signed in | http://localhost:3100/api/dev-login |
-| Rail never leaves `BLOCKED` | no `ANTHROPIC_API_KEY`, or a model id the gateway does not serve | step 7; then check the dev-server log |
-| `Insufficient credits` (402) | a new user is funded with 50 cents and there is no top-up UI | `docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 100000;'` — the column is CENTS, so this is $1000.00; the sidebar renders it as `$1000.00` |
-| `DATABASE_URL is not set` from a script | you ran it inside `apps/chat` without the root env | use the root `bun run db:*` scripts |
-| Empty model picker | `lib/ai/models.generated.ts` was built for a different gateway | `bun run fetch:models` |
+| `bun install` refuses or complains about the package manager | npm or pnpm, or an older Bun | Install Bun 1.3.14 or newer. |
+| `port is already allocated` on 5433, 6380 or 8099 | something else is using it | Stop that, then `docker compose up -d --wait`. |
+| `type "vector" does not exist` during `db:migrate` | the Postgres on port 5433 is not the pgvector image | Use the one from `docker compose`; see step 3. |
+| `Invalid environment variables` naming `AUTH_SECRET` | it is blank in `.env.local` | Set it (step 2) and start again. |
+| `EADDRINUSE :::3100` | something else is on the port | `PORT=3210 bun run dev:local`. |
+| Signing out returns `403 INVALID_ORIGIN` | you are browsing at `127.0.0.1`, or at a port the app was not started for | Use `localhost` and the address `dev:local` printed. |
+| A project page sends you back to the home page | you are not signed in | Open <http://localhost:3100/api/dev-login>. |
+| The badge stays **NOT ASSESSED**, or says `no verdict for this turn` | the gate could not run, usually a missing or wrong `OPENAI_API_KEY` | Read the error in the terminal running `dev:local`, fix the key, send another message. |
+| `Insufficient credits` (402) | the local balance is used up | Step 8. |
+| Research lanes report as blocked or refused | the default sources are limited | See [What the research can do](#what-the-research-can-do). |
+| `DATABASE_URL is not defined` from the migrator | you ran it inside `apps/chat`, which has no env file of its own | Run `bun run db:migrate` from the repository root. |
 
----
+## Commands
 
-## Command reference
-
-| command | what it does |
+| Command | What it does |
 | --- | --- |
-| `bun run dev:local` | dev server on 3100 (`PORT=` to override), env loaded, `APP_URL` set |
-| `bun run dev` | dev server on 3000 via turbo |
-| `bun run db:migrate` | apply migrations |
-| `bun run db:push` | push `schema.ts` straight to the DB (dev only) |
-| `bun run db:seed` | idempotent demo user + project + phase row |
-| `bun run test:types` | `tsc --noEmit` across all workspaces |
-| `bun run test:unit` | vitest + bun test across all workspaces |
-| `bun run lint` | biome / ultracite |
+| `bun run dev:local` | dev server on port 3100 (`PORT=` to change it), env loaded, `APP_URL` set |
+| `bun run dev` | dev server on port 3000 through turbo and the worktree port wrapper |
+| `bun run db:migrate` | apply the migrations to a new database |
+| `bun run db:seed` | optional: creates the dev user, a balance row and a project called Demo idea |
+| `bun run verify` | lint and type-check; run it before you say work is done |
+| `bun run test:unit` | the TypeScript unit tests |
+| `bun run test:types` | `tsc --noEmit` everywhere; do not run it while a dev server is running |
+| `bun run lint` | Biome through Ultracite |
+
+Ports, worktrees, the research service in a virtualenv, tests and the development database are in
+[`README-DEV.md`](README-DEV.md).

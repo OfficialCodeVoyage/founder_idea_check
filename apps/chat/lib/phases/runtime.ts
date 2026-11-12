@@ -291,10 +291,16 @@ function toStoredFacts(
 export async function buildPhaseSystemBlock({
   projectId,
   latestUserMessage,
+  costAccumulator,
 }: {
   projectId: string;
   /** Ranks the fact block against what this turn is actually about. */
   latestUserMessage?: string;
+  /**
+   * The TURN'S accumulator, still open at this point (the route settles it in
+   * onFinish), so the query embedding is charged with the turn that needed it.
+   */
+  costAccumulator?: CostAccumulator;
 }): Promise<string> {
   const [factRows, phaseRows] = await Promise.all([
     getProjectFacts({ projectId }),
@@ -327,8 +333,18 @@ export async function buildPhaseSystemBlock({
   const block = embeddingProvider
     ? await selectAndRenderFactsWith(
         new EmbeddingFactSelector({
-          embed: async (texts) =>
-            (await embeddingProvider.embed(texts)).vectors,
+          embed: async (texts) => {
+            const result = await embeddingProvider.embed(texts);
+            // Recorded only once the call has succeeded: a call that threw is
+            // the fallback path, and its spend (if any) is not reported to us.
+            if (result.tokens) {
+              costAccumulator?.addAPICost(
+                "fact-embeddings-query",
+                embeddingCostCents(result.tokens)
+              );
+            }
+            return result.vectors;
+          },
           onFallback: (error) =>
             log.error(
               { error, projectId, phaseKey: phase.key },

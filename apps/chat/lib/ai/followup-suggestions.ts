@@ -3,9 +3,13 @@ import { z } from "zod";
 import { getLanguageModel } from "@/lib/ai/providers";
 import type { StreamWriter } from "@/lib/ai/types";
 import { config } from "@/lib/config";
+import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
+import { createModuleLogger } from "@/lib/logger";
 import { generateUUID, getTextContentFromModelMessage } from "@/lib/utils";
 
 const FOLLOWUP_CONTEXT_MESSAGES = 2;
+
+const log = createModuleLogger("ai:followup-suggestions");
 
 /**
  * PURE. The last few conversational turns, AS PLAIN TEXT ONLY.
@@ -70,9 +74,15 @@ export async function generateFollowupSuggestions(
 export async function streamFollowupSuggestions({
   followupSuggestionsResult,
   writer,
+  costAccumulator,
 }: {
   followupSuggestionsResult: ReturnType<typeof generateFollowupSuggestions>;
   writer: StreamWriter;
+  /**
+   * The turn's accumulator. This call is a model call like any other and was
+   * the one in the turn that never reached it, so its tokens went unbilled.
+   */
+  costAccumulator?: CostAccumulator;
 }) {
   const dataPartId = generateUUID();
   const result = await followupSuggestionsResult;
@@ -88,5 +98,21 @@ export async function streamFollowupSuggestions({
           ) ?? [],
       },
     });
+  }
+
+  if (!costAccumulator) {
+    return;
+  }
+  // Awaited HERE, inside the route's `execute`, so the entry is recorded
+  // before onFinish settles the accumulator. Suggestions are optional, so a
+  // failure to read usage is logged rather than allowed to fail the turn.
+  try {
+    costAccumulator.addLLMCost(
+      config.ai.tools.followupSuggestions.default,
+      await result.totalUsage,
+      "followup-suggestions"
+    );
+  } catch (error) {
+    log.error({ error }, "could not read follow-up suggestion usage; unbilled");
   }
 }

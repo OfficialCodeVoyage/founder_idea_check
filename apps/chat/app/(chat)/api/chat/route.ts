@@ -347,10 +347,12 @@ async function getSystemPrompt({
   isAnonymous,
   chatId,
   userMessage,
+  costAccumulator,
 }: {
   isAnonymous: boolean;
   chatId: string;
   userMessage: ChatMessage;
+  costAccumulator: CostAccumulator;
 }): Promise<string> {
   let system = systemPrompt();
   if (!isAnonymous) {
@@ -379,6 +381,7 @@ async function getSystemPrompt({
       const phaseBlock = await buildPhaseSystemBlock({
         projectId: currentChat.projectId,
         latestUserMessage: messageText(userMessage),
+        costAccumulator,
       });
       system = `${system}\n\n${phaseBlock}`;
     }
@@ -426,10 +429,16 @@ async function createChatStream({
   onChunk?: () => void;
 }) {
   const log = createModuleLogger("api:chat:stream");
-  const system = await getSystemPrompt({ isAnonymous, chatId, userMessage });
-
-  // Create cost accumulator to track all LLM and API costs
+  // Created BEFORE the system prompt, because building it can spend: the
+  // phase block embeds this turn's message to rank the fact store. It is
+  // settled in onFinish (finalizeMessageAndCredits) with everything else.
   const costAccumulator = new CostAccumulator();
+  const system = await getSystemPrompt({
+    isAnonymous,
+    chatId,
+    userMessage,
+    costAccumulator,
+  });
 
   // Build the data stream that will emit tokens
   const stream = createUIMessageStream<ChatMessage>({
@@ -526,6 +535,7 @@ async function createChatStream({
         await streamFollowupSuggestions({
           followupSuggestionsResult,
           writer: dataStream,
+          costAccumulator,
         });
       }
     },

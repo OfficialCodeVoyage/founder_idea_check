@@ -539,10 +539,11 @@ describe("describeGateVerdict — the gap is said once", () => {
     expect(view.gaps).toHaveLength(2);
   });
 
-  it("splits a reason the 300-char cap truncated mid-gap", () => {
-    // sanitizeSentence caps the reason, so attempt 1's five joined gaps arrive
-    // cut off inside one of them. Matching the whole gap string would fail and
-    // the truncated run-on would sit above the same gaps rendered properly.
+  it("splits a reason that was cut off inside the first gap", () => {
+    // A reason past the projection's cap arrives cut off inside one of its gaps
+    // (attempt 1's five joined gaps did, when the cap was 300 characters).
+    // Matching the whole gap string would fail and the truncated run-on would
+    // sit above the same gaps rendered properly.
     const gap = `${"a".repeat(60)} the rest of this gap never fits`;
     const view = verdict({
       criteriaAssessed: 8,

@@ -73,8 +73,8 @@ type AssessedView = Extract<GateVerdictView, { assessed: true }>;
  * and the card printed that sentence AND the same gaps as a list. On attempt 7
  * of the live deadlock the reason and `missing[0]` were the same clause, so
  * half of a small card was one sentence twice; on attempt 1 the reason was five
- * joined gaps truncated mid-sentence by the 300-character cap, sitting above
- * the same five rendered properly.
+ * joined gaps, truncated mid-sentence by a 300-character cap that has since
+ * moved to the prompt alone, sitting above the same five rendered properly.
  *
  * `view.headline` is the split, decided on the TEXT in rail.ts and never on the
  * list's length — suppressing every one-item list would delete the ordinary

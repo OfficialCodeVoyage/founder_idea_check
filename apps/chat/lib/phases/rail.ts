@@ -416,9 +416,14 @@ export type GateVerdictView =
  * card was one sentence twice and the count appeared twice — on the single
  * surface whose whole job is to name the gap ONCE, clearly.
  *
- * It is worse on a long list. `sanitizeSentence` caps the reason at 300
- * characters, so attempt 1's five joined gaps arrive TRUNCATED MID-GAP, and
- * that truncated run-on sat above the same five gaps rendered properly.
+ * It is worse on a long list. The reason used to be capped at 300 characters,
+ * so attempt 1's five joined gaps arrived TRUNCATED MID-GAP, and that truncated
+ * run-on sat above the same five gaps rendered properly. The projection's cap is
+ * now 2,000 characters (`MAX_PROJECTED_LENGTH` in lib/phases/directive.ts, cut
+ * at a word and marked with an ellipsis) and 300 applies to the prompt alone
+ * (`forPrompt` there), so only a reason longer than that arrives cut; the
+ * split below must still work on one, which is why it matches a probe of the
+ * first gap and not the whole of it.
  *
  * THE FIX IS TO SPLIT, NOT TO DROP. The reason's own summary half — "5 of 8
  * exit criteria are unmet" — is information the list does not carry, and the
@@ -443,16 +448,22 @@ export type VerdictHeadline =
 /**
  * How much of a gap must appear verbatim in the reason to be its tail.
  *
- * A whole-string match is wrong here because the reason is capped at 300 chars
- * and the first gap can be cut in half by that cap. Forty characters of exact
- * agreement is not something two different sentences do by accident.
+ * A whole-string match is wrong here because a very long reason is cut at the
+ * projection's cap (2,000 characters, `MAX_PROJECTED_LENGTH`) and the first gap
+ * can be cut in half by that cap. Forty characters of exact agreement is not
+ * something two different sentences do by accident.
  */
 const GAP_PROBE_LENGTH = 40;
 
 /** Trailing punctuation left behind once the gap tail is cut off. */
 const DANGLING = /[\s:;,\u2014-]+$/;
 
-function splitHeadline(
+/**
+ * PURE. The reason with its gap tail cut off, so the gaps are said once. Shared
+ * by the verdict card (`describeGateVerdict`) and the rail's popover, which prints
+ * the same reason beside the same first gap and had the same duplication.
+ */
+export function splitHeadline(
   gaps: readonly string[],
   reason: string | null
 ): VerdictHeadline {

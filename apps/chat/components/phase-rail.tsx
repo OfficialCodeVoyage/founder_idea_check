@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useId } from "react";
 import { HandoffExportDialog } from "@/components/export/handoff-export-dialog";
 import { usePhaseGate } from "@/components/phase/phase-gate-provider";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
-import { describeRail, type RailStatus } from "@/lib/phases/rail";
+import {
+  describeRail,
+  type RailStatus,
+  splitHeadline,
+} from "@/lib/phases/rail";
 import { cn } from "@/lib/utils";
 
 const PERCENT = 100;
@@ -51,6 +56,8 @@ export function PhaseRail({
   // `isStreaming` edge-trigger moved with them — see that file for why the
   // wait is edge-triggered rather than timed.
   const gate = usePhaseGate();
+  // Before the early return below: a hook may not be called conditionally.
+  const detailId = useId();
   const data = gate?.data ?? null;
   const wait = gate?.wait ?? { kind: "idle" as const };
 
@@ -69,7 +76,19 @@ export function PhaseRail({
     total: data.total,
     workflowComplete: data.workflowComplete,
   });
-  const reason = data.reason ?? GATE_NOT_RUN;
+  // THE POPOVER SAYS THE FIRST GAP ONCE. `decideGate` writes its reason as
+  // "<summary>: <every gap joined by '; '>.", and `rail.detail` is the first of
+  // those gaps, so printing both repeated it. `splitHeadline` is the verdict
+  // card's cure for the same duplication, decided on the text: only the summary
+  // half is printed here, and a reason that is nothing but the gap is left to
+  // `rail.detail`. No reason at all keeps the line the old tooltip carried.
+  const headline = splitHeadline(data.missing, data.reason);
+  let summary: string | null = null;
+  if (headline.kind === "none") {
+    summary = GATE_NOT_RUN;
+  } else if (headline.kind === "summary") {
+    summary = headline.text;
+  }
 
   return (
     <div
@@ -141,14 +160,22 @@ export function PhaseRail({
             with the window, while at 390px the `100vw - 2rem` width left the
             16px it was meant to. The same 16px now holds at every width.
           */}
+          {/*
+            `aria-labelledby`: Radix gives this panel `role="dialog"`, and a
+            dialog with no name fails axe's `aria-dialog-name`. The gap sentence
+            below is what the founder opened it to read, so it is the name.
+          */}
           <PopoverContent
             align="start"
+            aria-labelledby={detailId}
             className="max-h-(--radix-popover-content-available-height) w-[min(24rem,calc(100vw-2rem))] overflow-y-auto text-xs"
             collisionPadding={16}
           >
-            <p className="font-medium">{rail.detail}</p>
-            {reason && reason !== rail.detail ? (
-              <p className="mt-1 text-muted-foreground">{reason}</p>
+            <p className="font-medium" id={detailId}>
+              {rail.detail}
+            </p>
+            {summary && summary !== rail.detail ? (
+              <p className="mt-1 text-muted-foreground">{summary}</p>
             ) : null}
             {data.nextQuestion ? (
               <p className="mt-1 text-muted-foreground">

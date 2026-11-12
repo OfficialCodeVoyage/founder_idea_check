@@ -50,6 +50,15 @@ import { type GateFixture, PHASE_ONE_FIXTURES } from "./fixtures/gate-phase-01";
  * has moved fixture between runs — so it is a rate of about 1 in 12, not one
  * bad fixture. It has never flipped toward advance on a bad or mediocre
  * transcript, which is the direction that would matter.
+ *
+ * RESULTS as of 2026-11-12, after the judge started seeing document markers
+ * (with the instruction that assistant-written documents are not founder
+ * evidence): no bad transcript advances 100% (4/4), exact verdict 83% (10/12),
+ * within band 83%, deterministic 92%. Cost 91,884 in / 25,224 out tokens. Both
+ * misses are GOOD fixtures judged WARN instead of PASS on the advisory criterion
+ * that interviewees independently described the same problem — stricter, never
+ * toward advancing a weak transcript. Not yet separated from model drift since
+ * August; an A/B run with and without the marker instruction would tell.
  */
 
 const GATE_MODEL_ID = config.ai.workflows.chat;

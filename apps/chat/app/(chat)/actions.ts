@@ -76,6 +76,18 @@ async function chargeTitleCost({
         "The title call could not be priced; the deducted total is an undercount"
       );
     }
+    // Logged at the same level as the turn's and the post-turn charges
+    // ("Cost accumulator total cost", "Post-turn cost"), so a QA run can
+    // confirm from the server log that the title call was charged and to whom.
+    log.info(
+      {
+        userId,
+        modelId: config.ai.workflows.title,
+        cents,
+        entries: cost.getEntries(),
+      },
+      "Title cost"
+    );
     if (cents > 0) {
       await deductCredits(userId, cents);
     }

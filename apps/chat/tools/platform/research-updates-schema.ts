@@ -71,7 +71,11 @@ const WritingSchema = TaskUpdateSchema.extend({
  * THREE STATES THAT MUST NEVER COLLAPSE INTO EACH OTHER, which is why this is a
  * union and not a row of numbers:
  *
- * - `returned`       the lane ran and produced this many signals.
+ * - `returned`       the lane ran and produced this many signals. `signals` counts
+ *                    the ones KEPT. When a per-search lane limit left some out
+ *                    (`limitLanes` in lib/signals/audience.ts), `leftOut` says how
+ *                    many and why, so "3 signals" is never read as "that is all
+ *                    the lane found". Optional, so an older transcript parses.
  * - `found-nothing`  the lane ran and the topic genuinely has no coverage there.
  *                    A LEGITIMATE FINDING the *Verifying Demand* gate acts on,
  *                    and apps/research/README.md calls preserving it the one
@@ -89,7 +93,17 @@ const WritingSchema = TaskUpdateSchema.extend({
  * on.
  */
 const LaneOutcomeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("returned"), signals: z.number() }),
+  z.object({
+    kind: z.literal("returned"),
+    signals: z.number(),
+    leftOut: z
+      .object({
+        count: z.number(),
+        /** Completes "because ...": the founder reads it verbatim. */
+        because: z.string(),
+      })
+      .optional(),
+  }),
   z.object({ kind: z.literal("found-nothing") }),
   z.object({
     kind: z.literal("refused"),

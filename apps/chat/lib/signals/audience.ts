@@ -38,11 +38,22 @@ import type { DemandSignal, ProviderDescriptor, SignalSourceId } from "./types";
  *      cannot keyword-search all of Reddit. Choosing subreddits for a project
  *      IS the segment question, so it is answered next to the weights.
  *
- * NOTHING IS EVER DROPPED. A weight is a multiplier on the sidecar's own
- * relevance and never reaches zero, so a Hacker News thread that is genuinely
+ * NOTHING IS EVER DROPPED SILENTLY. A weight is a multiplier on the sidecar's
+ * own relevance and never reaches zero, so a Hacker News thread that is genuinely
  * four times more relevant than the Reddit alternative still leads. Every lane
  * still runs, and every lane still appears in the per-lane report
  * (`describeLanes`) whatever its weight. Deprioritised is not disabled.
+ *
+ * ONE THING IS CAPPED, AND SAYS SO: a weight alone did not stop the two narrow
+ * developer lanes (Hacker News, GitHub) from filling a run's sources for a buyer
+ * who is not a developer. Live QA failed three runs in a row, the third with 49
+ * of 93 sources from Hacker News, 27 of them AI-tool and government stories,
+ * because the researcher's long queries carry framing words that match any
+ * story; word lists alone did not converge. So `SourceRanking.laneLimits` keeps
+ * only a lane's top results per search for such a buyer (`limitLanes`). It is
+ * never silent: the researcher model is told how many results of which lane were
+ * left out and why, the log records it, and the per-lane report the founder sees
+ * says how many were kept and how many left out.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -315,6 +326,21 @@ export type SourceRanking = {
    */
   weights: Readonly<Record<SignalSourceId, number>>;
   /**
+   * THE MOST RESULTS ONE SEARCH KEEPS FROM A LANE, per lane, for the lanes that
+   * have a limit; a lane that is absent has none. Only the narrow developer lanes
+   * ever have one, and only for a buyer who is not (known to be) a developer.
+   * Applied per query, after the weighted ordering, keeping the lane's
+   * top-ranked results (`limitLanes`). What it leaves out is reported, never
+   * dropped silently: see `limitLanes` and `sidecarWebSearch`.
+   */
+  laneLimits: Readonly<Partial<Record<SignalSourceId, number>>>;
+  /**
+   * Why the limits above apply, as a clause that completes "because ...": the
+   * words the researcher model and the founder read next to the count that was
+   * left out. EMPTY when `laneLimits` is.
+   */
+  laneLimitReason: string;
+  /**
    * Subreddits the Arctic Shift lane is asked about. EMPTY MEANS DO NOT ASK —
    * see `sourceOptionsFor`.
    */
@@ -347,6 +373,19 @@ const NON_TECHNICAL_WEIGHTS: Readonly<Record<SignalSourceId, number>> = {
 };
 
 /**
+ * The limit that goes with those weights. A weight orders; it does not bound how
+ * many results a lane contributes, and for a buyer who is not a developer these
+ * two lanes have nothing to add beyond a few of their best. Three per search is
+ * the most the buyer's own lanes are not crowded by. See the header.
+ */
+const NON_TECHNICAL_LANE_LIMITS: Readonly<
+  Partial<Record<SignalSourceId, number>>
+> = {
+  hackernews: 3,
+  github: 3,
+};
+
+/**
  * FOR A DEVELOPER-TOOLS BUYER. Hacker News is not demoted here — for this buyer
  * it is the right room, and the point of ranking by audience is that it cuts
  * both ways.
@@ -362,6 +401,7 @@ const TECHNICAL_WEIGHTS: Readonly<Record<SignalSourceId, number>> = {
   "arctic-shift": 0.8,
   "web-keyless": 0.75,
 };
+// A technical buyer has NO lane limit: for this buyer those lanes are the room.
 
 /**
  * WHEN NO BUYER HAS BEEN ESTABLISHED — a named ordering with a defence, not a
@@ -391,9 +431,12 @@ export const NEUTRAL_RANKING: SourceRanking = {
     hackernews: 0.55,
     github: 0.55,
   },
+  // Looser than for a buyer known not to be a developer: the buyer might be one.
+  laneLimits: { hackernews: 5, github: 5 },
+  laneLimitReason: "the buyer is not known",
   communities: [],
   rationale:
-    "No buyer segment is established for this project, so sources are ranked neutrally: the general web first because it commits to no audience, then Reddit, then Hacker News and GitHub — which are narrow developer corpora and must not lead when the buyer is unknown. Naming a target user would rank these for that buyer and would let the Reddit archive be asked about specific subreddits, which it needs before it will search at all.",
+    "No buyer segment is established for this project, so sources are ranked neutrally: the general web first because it commits to no audience, then Reddit, then Hacker News and GitHub — which are narrow developer corpora and must not lead when the buyer is unknown, and each keeps at most 5 results per search. Naming a target user would rank these for that buyer and would let the Reddit archive be asked about specific subreddits, which it needs before it will search at all.",
 };
 
 /**
@@ -495,14 +538,18 @@ export function rankSourcesFor(view: AudienceView): SourceRanking {
   if (view.audience === "technical") {
     return {
       weights: TECHNICAL_WEIGHTS,
+      laneLimits: {},
+      laneLimitReason: "",
       communities,
       rationale: `The buyer is technical (matched: ${view.evidence}), so Hacker News and GitHub rank first — for this buyer they are the room the buyer is actually in. ${reddit}`,
     };
   }
   return {
     weights: NON_TECHNICAL_WEIGHTS,
+    laneLimits: NON_TECHNICAL_LANE_LIMITS,
+    laneLimitReason: "this buyer is not a developer",
     communities,
-    rationale: `The buyer is not a developer (matched: ${view.evidence}), so Reddit ranks first, the general web second, and Hacker News last — an HN thread about this market is usually other founders, not the buyer. Hacker News still runs and still appears; it needs about four times the relevance of a Reddit result to lead. ${reddit}`,
+    rationale: `The buyer is not a developer (matched: ${view.evidence}), so Reddit ranks first, the general web second, and Hacker News last — an HN thread about this market is usually other founders, not the buyer. Hacker News still runs and still appears; it needs about four times the relevance of a Reddit result to lead, and Hacker News and GitHub each keep at most 3 results per search. ${reddit}`,
   };
 }
 
@@ -558,6 +605,8 @@ function rankScore(signal: DemandSignal, ranking: SourceRanking): number {
  * still in the list and still in the lane report. Stable, so the sidecar's own
  * relevance ordering within a lane survives untouched: this is a weighting
  * INPUT on top of `app/pipeline/rerank.py`, not a second opinion about it.
+ *
+ * What a lane may CONTRIBUTE is a separate, reported step: `limitLanes`.
  */
 export function rankSignals(
   signals: readonly DemandSignal[],
@@ -589,4 +638,38 @@ export function sourceOptionsFor(
     return;
   }
   return { "arctic-shift": { subreddits: [...ranking.communities] } };
+}
+
+/**
+ * PURE. Applies `SourceRanking.laneLimits` to ONE query's ranked signals: a lane
+ * with a limit keeps its first `limit` signals in the given order (so, after
+ * `rankSignals`, its top-ranked) and the rest are LEFT OUT. A lane without a limit
+ * keeps everything. The kept signals stay in their ranked order.
+ *
+ * THIS IS THE ONE PLACE A SIGNAL CAN LEAVE THE LIST, so it returns what it left
+ * out, per lane, and the caller must say so to everyone who reads the results
+ * (`sidecarWebSearch`: the researcher model, the log and the per-lane report).
+ * `kept.length + sum(leftOut) === signals.length`, always.
+ */
+export function limitLanes(
+  signals: readonly DemandSignal[],
+  ranking: SourceRanking
+): {
+  kept: DemandSignal[];
+  leftOut: Partial<Record<SignalSourceId, number>>;
+} {
+  const keptPerLane: Partial<Record<SignalSourceId, number>> = {};
+  const leftOut: Partial<Record<SignalSourceId, number>> = {};
+  const kept: DemandSignal[] = [];
+  for (const signal of signals) {
+    const limit = ranking.laneLimits[signal.sourceId];
+    const soFar = keptPerLane[signal.sourceId] ?? 0;
+    if (limit !== undefined && soFar >= limit) {
+      leftOut[signal.sourceId] = (leftOut[signal.sourceId] ?? 0) + 1;
+      continue;
+    }
+    keptPerLane[signal.sourceId] = soFar + 1;
+    kept.push(signal);
+  }
+  return { kept, leftOut };
 }

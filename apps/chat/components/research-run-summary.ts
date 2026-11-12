@@ -229,7 +229,20 @@ const OUTCOME_RANK: Record<LaneOutcome["kind"], number> = {
 
 function mergeOutcome(earlier: LaneOutcome, later: LaneOutcome): LaneOutcome {
   if (earlier.kind === "returned" && later.kind === "returned") {
-    return { kind: "returned", signals: earlier.signals + later.signals };
+    // Kept and left-out counts both sum across steps; the later reason is the
+    // current one (the audience is read once per run, so it rarely differs).
+    const leftOut =
+      earlier.leftOut || later.leftOut
+        ? {
+            count: (earlier.leftOut?.count ?? 0) + (later.leftOut?.count ?? 0),
+            because: (later.leftOut ?? earlier.leftOut)?.because ?? "",
+          }
+        : undefined;
+    return {
+      kind: "returned",
+      signals: earlier.signals + later.signals,
+      ...(leftOut ? { leftOut } : {}),
+    };
   }
   // Ties go to the later observation, so a refusal reason stays current.
   return OUTCOME_RANK[later.kind] >= OUTCOME_RANK[earlier.kind]

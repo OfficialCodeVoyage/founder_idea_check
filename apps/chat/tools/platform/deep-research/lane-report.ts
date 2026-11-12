@@ -37,8 +37,19 @@ import type { LaneReport } from "../research-updates-schema";
  */
 export function describeLanes(input: {
   descriptors: readonly ProviderDescriptor[];
+  /** The signals KEPT, after any per-search lane limit. */
   signals: readonly DemandSignal[];
   failures: readonly SignalFailure[];
+  /**
+   * How many signals a per-search lane limit left out, per source id, and why
+   * (`limitLanes` in lib/signals/audience.ts). A lane that returned signals
+   * says so next to its kept count, so a founder reads "3 signals kept, 5 left
+   * out" and not a bare "3".
+   */
+  leftOut?: {
+    bySource: Readonly<Record<string, number>>;
+    because: string;
+  };
   /**
    * False when no harvest was run at all — a malformed tool call is refused
    * before any fetch. Every lane is then `not-attempted`, because rendering
@@ -58,6 +69,7 @@ function outcomeFor(
   input: {
     signals: readonly DemandSignal[];
     failures: readonly SignalFailure[];
+    leftOut?: { bySource: Readonly<Record<string, number>>; because: string };
     attempted: boolean;
   }
 ): LaneReport["outcome"] {
@@ -72,7 +84,14 @@ function outcomeFor(
   // one harvest per query, the same source can serve one query and be
   // rate-limited on the next, and "it produced these" is the honest headline.
   if (returned > 0) {
-    return { kind: "returned", signals: returned };
+    const count = input.leftOut?.bySource[descriptor.id] ?? 0;
+    return count > 0 && input.leftOut
+      ? {
+          kind: "returned",
+          signals: returned,
+          leftOut: { count, because: input.leftOut.because },
+        }
+      : { kind: "returned", signals: returned };
   }
 
   const failure = input.failures.find(

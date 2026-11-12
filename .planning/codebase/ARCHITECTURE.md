@@ -264,7 +264,8 @@ N+1's system prompt.
    `SourceError` is `{ok: false, source_id, kind, detail}`, both HTTP 200.
 8. Back in the app `parseSignalResponse` validates the body (a `source_id` mismatch or unknown shape is
    `schema-drift`), `harvestSignals` drops uncitable signals, dedupes by URL and sets `inconclusive`, `rankSignals`
-   reweights, and `toSearchResults` dedupes again. Lane results stream as `data-researchUpdate` parts (`type: "lanes"`,
+   reweights, `limitLanes` keeps a narrow lane's top results per query (3 for a non-developer buyer, 5 for an unknown one;
+   what it leaves out is reported to the model, the log and the lane report), and `toSearchResults` dedupes again. Lane results stream as `data-researchUpdate` parts (`type: "lanes"`,
    `apps/chat/tools/platform/research-updates-schema.ts`) and the tool returns `{searches, sourceRanking}`, or
    `{searches: [], error}` when nothing usable came back.
 9. Deadlines (`research-clock.ts::planResearchClock`), each stepped back from the previous: `reportDueAt` =

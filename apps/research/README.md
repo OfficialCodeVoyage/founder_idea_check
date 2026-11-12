@@ -181,6 +181,30 @@ report, and can still lead on merit: a Hacker News thread roughly four times mor
 relevant than the Reddit alternative still comes first for a parent buyer.
 Deprioritised is not disabled.
 
+**A weight orders; it does not bound.** Three live runs in a row still filled
+about half of a parents-of-readers run's sources with Hacker News stories (49 of
+93 in the third, 27 of them AI-tool and government stories), because the
+researcher's long queries carry framing words that match any story and word lists
+alone did not converge. So the two narrow developer lanes also have a **per-search
+limit** (`SourceRanking.laneLimits`, applied per query by `limitLanes` after the
+weighted order, keeping the lane's top-ranked results):
+
+| buyer | Hacker News | GitHub |
+|---|---|---|
+| not a developer | at most 3 per search | at most 3 per search |
+| **not established** | at most 5 per search | at most 5 per search |
+| a developer | no limit | no limit |
+
+The limit is never silent. The researcher model's tool result says how many
+results of which lane were left out and why (`omittedByLaneLimit`,
+`laneLimitNote`: "this buyer is not a developer" or "the buyer is not known"), the
+app log records it, and the per-lane report the founder sees reads, for example,
+"3 signals kept, 2 left out (this buyer is not a developer)". The run header's
+source count and the Sources chip both count what was kept. Note that the limit
+only bites when a lane returns more than it, and a search asks each lane for
+`maxResults` (5 by default), so the unknown-buyer limit of 5 is inert until a
+researcher asks for more.
+
 ### `options`, and why the Arctic Shift lane used to refuse everything
 
 `SignalRequest.options` is a free-form dict passed straight to

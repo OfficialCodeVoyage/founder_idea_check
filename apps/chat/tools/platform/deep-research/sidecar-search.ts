@@ -6,9 +6,11 @@ import { env } from "@/lib/env";
 import { createModuleLogger } from "@/lib/logger";
 import {
   type AudienceView,
+  limitLanes,
   orderProviders,
   rankSignals,
   rankSourcesFor,
+  type SourceRanking,
   sourceOptionsFor,
 } from "@/lib/signals/audience";
 import { runSignalHarvest } from "@/lib/signals/provider";
@@ -17,7 +19,11 @@ import {
   describeUnknownSourceIds,
 } from "@/lib/signals/providers";
 import { createSidecarSignalFetcher } from "@/lib/signals/sidecar";
-import type { DemandSignal, SignalFailure } from "@/lib/signals/types";
+import type {
+  DemandSignal,
+  SignalFailure,
+  SignalSourceId,
+} from "@/lib/signals/types";
 import { generateUUID } from "@/lib/utils";
 import type { LaneReport } from "../research-updates-schema";
 import { currentDeployment } from "./deployment-mode";
@@ -203,6 +209,98 @@ function duplicatesNote(omittedAsDuplicates: number): {
   return {
     omittedAsDuplicates,
     note: `${omittedAsDuplicates} ${hits} left out of this query's results because an earlier query of this step already returned the same page. The page is listed there; its absence here is not a finding that this wording found nothing.`,
+  };
+}
+
+/**
+ * PURE. WHAT A PER-SEARCH LANE LIMIT LEFT OUT, in words for the researcher model:
+ * how many results of which lane, why, and that their absence is not a finding.
+ * Nothing when nothing was left out.
+ *
+ * The limit is never silent (`limitLanes` in lib/signals/audience.ts): the model
+ * is about to write prose about this evidence, and "Hacker News has three stories
+ * on this" is a different claim when it had eight and was shown three.
+ * `omittedByLaneLimit` is the same count keyed by the lane's label, for a reader
+ * that wants the numbers.
+ */
+function laneLimitNote(
+  leftOut: Partial<Record<SignalSourceId, number>>,
+  ranking: SourceRanking
+): {
+  omittedByLaneLimit?: Record<string, number>;
+  laneLimitNote?: string;
+} {
+  const entries = ALL_PROVIDERS.flatMap((descriptor) => {
+    const count = leftOut[descriptor.id] ?? 0;
+    return count > 0
+      ? [{ id: descriptor.id, label: descriptor.label, count }]
+      : [];
+  });
+  if (entries.length === 0) {
+    return {};
+  }
+  const total = entries.reduce((sum, entry) => sum + entry.count, 0);
+  const left = entries
+    .map(
+      (entry) =>
+        `${entry.count} ${entry.label} result${entry.count === 1 ? "" : "s"}`
+    )
+    .join(" and ");
+  const caps = entries
+    .map(
+      (entry) =>
+        `${entry.label} keeps at most ${ranking.laneLimits[entry.id]} per search`
+    )
+    .join(" and ");
+  return {
+    omittedByLaneLimit: Object.fromEntries(
+      entries.map((entry) => [entry.label, entry.count])
+    ),
+    laneLimitNote: `${left} ${total === 1 ? "was" : "were"} left out of this query's results because ${ranking.laneLimitReason} (${caps}). They were the lowest-ranked results of that lane. Their absence is not a finding that nothing more was said there.`,
+  };
+}
+
+/**
+ * PER QUERY: the weighted order, then each narrow lane's limit (`limitLanes`),
+ * which keeps its top-ranked results and counts the rest. Returns each query's
+ * kept signals and what it left out, the step's left-out total per source id, and
+ * every kept signal. The total is LOGGED here when anything was left out; the
+ * caller reports it to the model (`laneLimitNote`) and to the founder (the lane
+ * report's `leftOut`).
+ */
+function applyLaneLimits(
+  harvests: readonly { signals: readonly DemandSignal[] }[],
+  ranking: SourceRanking,
+  queries: readonly string[]
+): {
+  limited: ReturnType<typeof limitLanes>[];
+  leftOutBySource: Record<string, number>;
+  keptSignals: DemandSignal[];
+} {
+  const limited = harvests.map((harvest) =>
+    limitLanes(rankSignals(harvest.signals, ranking), ranking)
+  );
+  const leftOutBySource: Record<string, number> = {};
+  for (const { leftOut } of limited) {
+    for (const [sourceId, count] of Object.entries(leftOut)) {
+      leftOutBySource[sourceId] = (leftOutBySource[sourceId] ?? 0) + count;
+    }
+  }
+  if (Object.keys(leftOutBySource).length > 0) {
+    log.info(
+      {
+        queries,
+        leftOutBySource,
+        laneLimits: ranking.laneLimits,
+        because: ranking.laneLimitReason,
+      },
+      "sidecarWebSearch left results out under a per-search lane limit"
+    );
+  }
+  return {
+    limited,
+    leftOutBySource,
+    keptSignals: limited.flatMap(({ kept }) => kept),
   };
 }
 
@@ -430,17 +528,22 @@ Avoid:
         registry's writing order was the ranking for every project alike.
 
         `rankSourcesFor` replaces that with one explicit decision, made in
-        lib/signals/audience.ts and explained there. It reaches THREE places
+        lib/signals/audience.ts and explained there. It reaches FOUR places
         below and nowhere else:
           - the descriptor order, which is both the fan-out order and the order
             of the per-lane report the founder reads;
           - `sourceOptions`, which is what finally lets the Arctic Shift lane
             run at all — it refuses any query with no subreddits, and choosing
             subreddits for a project IS the segment question;
-          - `rankSignals`, a weighting on top of the sidecar's own relevance.
+          - `rankSignals`, a weighting on top of the sidecar's own relevance;
+          - `limitLanes`, a per-search limit on the narrow developer lanes for a
+            buyer who is not (known to be) a developer.
 
-        NOTHING IS FILTERED at any of the three. Every lane still runs, still
-        reports, and can still lead on merit.
+        NOTHING IS FILTERED by the first three. Every lane still runs, still
+        reports, and can still lead on merit. THE FOURTH LEAVES RESULTS OUT, and
+        is never silent about it: the model is told how many of which lane and
+        why (`laneLimitNote`), it is logged, and the lane report the founder
+        reads says how many were kept and how many left out.
       */
       const ranking = rankSourcesFor(audience ?? NO_AUDIENCE);
       const descriptors = orderProviders(ALL_PROVIDERS, ranking);
@@ -561,12 +664,22 @@ Avoid:
         )
       );
 
+      // PER QUERY: weighted order, then each narrow lane's limit (`limitLanes`),
+      // which keeps its top-ranked results and counts the rest. What is left out is
+      // reported three ways below: to the researcher model (`laneLimitNote`), to
+      // the log, and to the founder (the lane report's `leftOut`).
+      const { limited, leftOutBySource, keptSignals } = applyLaneLimits(
+        harvests,
+        ranking,
+        queries
+      );
+
       // One set for the step, read in query order, so the first query's
       // results are the ones that stay. See `toSearchResults`.
       const seenUrls = new Set<string>();
-      const searches = harvests.map((harvest, index) => {
+      const searches = limited.map(({ kept, leftOut }, index) => {
         const { results, omittedAsDuplicates } = toSearchResults(
-          rankSignals(harvest.signals, ranking),
+          kept,
           seenUrls
         );
         return {
@@ -576,6 +689,7 @@ Avoid:
           },
           results,
           ...duplicatesNote(omittedAsDuplicates),
+          ...laneLimitNote(leftOut, ranking),
         };
       });
 
@@ -598,9 +712,14 @@ Avoid:
         toolCallId,
         describeLanes({
           descriptors,
-          signals: harvests.flatMap((harvest) => harvest.signals),
+          // What was KEPT, so a lane's count and the run's source count agree.
+          signals: keptSignals,
           failures,
           attempted: true,
+          leftOut: {
+            bySource: leftOutBySource,
+            because: ranking.laneLimitReason,
+          },
         })
       );
 

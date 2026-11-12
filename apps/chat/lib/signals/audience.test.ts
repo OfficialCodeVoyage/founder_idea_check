@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  limitLanes,
   NEUTRAL_RANKING,
   orderProviders,
   rankSignals,
@@ -359,5 +360,65 @@ describe("rankSignals", () => {
       ranking
     );
     expect(ranked.map((s) => s.id)).toEqual(["first", "second"]);
+  });
+});
+
+describe("limitLanes", () => {
+  const hackerNews = (count: number) =>
+    Array.from({ length: count }, (_, index) =>
+      signal("hackernews", 0.9 - index * 0.1, `hn-${index}`)
+    );
+
+  it("keeps a non-developer buyer's top 3 Hacker News results and counts the rest", () => {
+    const ranking = rankSourcesFor(
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
+    );
+    const input = rankSignals(
+      [
+        ...hackerNews(5),
+        signal("github", 0.5, "gh-0"),
+        signal("arctic-shift", 0.2, "r-0"),
+      ],
+      ranking
+    );
+    const { kept, leftOut } = limitLanes(input, ranking);
+
+    // The three BEST Hacker News results stay, in their ranked order.
+    expect(
+      kept.filter((s) => s.sourceId === "hackernews").map((s) => s.id)
+    ).toEqual(["hn-0", "hn-1", "hn-2"]);
+    expect(leftOut).toEqual({ hackernews: 2 });
+    expect(ranking.laneLimitReason).toBe("this buyer is not a developer");
+    // NEVER SILENT AND NEVER LOSSY IN THE COUNT: kept plus left out is the input.
+    expect(kept.length + 2).toBe(input.length);
+  });
+
+  it("limits an unknown buyer's narrow lanes to 5, with its own reason", () => {
+    const { kept, leftOut } = limitLanes(hackerNews(7), NEUTRAL_RANKING);
+    expect(kept).toHaveLength(5);
+    expect(leftOut).toEqual({ hackernews: 2 });
+    expect(NEUTRAL_RANKING.laneLimitReason).toBe("the buyer is not known");
+  });
+
+  it("limits nothing for a developer buyer", () => {
+    const ranking = rankSourcesFor(
+      readAudience({
+        targetUserFact: "Platform engineers who operate Kubernetes clusters.",
+        conversation: [],
+      })
+    );
+    const { kept, leftOut } = limitLanes(hackerNews(8), ranking);
+    expect(kept).toHaveLength(8);
+    expect(leftOut).toEqual({});
+  });
+
+  it("never limits the lanes a non-developer buyer reads", () => {
+    const ranking = rankSourcesFor(
+      readAudience({ targetUserFact: PARENT_TARGET_USER, conversation: [] })
+    );
+    const reddit = Array.from({ length: 6 }, (_, index) =>
+      signal("arctic-shift", 0.5, `r-${index}`)
+    );
+    expect(limitLanes(reddit, ranking).kept).toHaveLength(6);
   });
 });

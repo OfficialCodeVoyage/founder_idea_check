@@ -128,7 +128,11 @@ async function runTool(
     input: unknown,
     ctx: { toolCallId: string }
   ) => Promise<{
-    searches: { results: { url: string; title: string }[] }[];
+    searches: {
+      results: { url: string; title: string }[];
+      omittedByLaneLimit?: Record<string, number>;
+      laneLimitNote?: string;
+    }[];
     sourceRanking?: string;
     error?: string;
   }>;
@@ -214,6 +218,104 @@ describe("sidecarWebSearch, ranked by the buyer", () => {
       ids.indexOf("web-keyless")
     );
     expect(ids.at(-1)).toBe("hackernews");
+  });
+
+  describe("the per-search limit on Hacker News for a buyer who is not a developer", () => {
+    const FIVE_STORIES = Array.from({ length: 5 }, (_, index) =>
+      signal({
+        id: `hn-${index}`,
+        url: `https://news.ycombinator.com/item?id=${index}`,
+        relevance: 0.9 - index * 0.1,
+      })
+    );
+
+    function webResultCount(written: Written[]): number {
+      const completed = written.find(
+        (w) => w.data?.type === "web" && w.data?.status === "completed"
+      );
+      return (completed?.data.results as unknown[]).length;
+    }
+
+    it("keeps the top 3, and tells the model, the founder and the count what it left out", async () => {
+      const { stream, written } = recordingStream();
+      const tool = sidecarWebSearch({
+        dataStream: stream,
+        writeTopLevelUpdates: false,
+        audience: PARENT_AUDIENCE,
+        fetchImpl: recordingFetch({ hackernews: FIVE_STORIES }, {}),
+      });
+
+      const result = await runTool(tool);
+      const search = result.searches[0];
+
+      // The three best stay; the two lowest-ranked are gone.
+      expect(search.results.map((r) => r.url)).toEqual([
+        "https://news.ycombinator.com/item?id=0",
+        "https://news.ycombinator.com/item?id=1",
+        "https://news.ycombinator.com/item?id=2",
+      ]);
+      // NOT SILENT, to the model: how many, of which lane, and why.
+      expect(search.omittedByLaneLimit).toEqual({ "Hacker News": 2 });
+      expect(search.laneLimitNote).toContain(
+        "2 Hacker News results were left out"
+      );
+      expect(search.laneLimitNote).toContain("this buyer is not a developer");
+      expect(search.laneLimitNote).toContain("not a finding");
+      // NOT SILENT, to the founder: kept versus left out, in the lane report.
+      const hackerNews = lanesFrom(written).find(
+        (lane) => lane.sourceId === "hackernews"
+      );
+      expect(hackerNews?.outcome).toEqual({
+        kind: "returned",
+        signals: 3,
+        leftOut: { count: 2, because: "this buyer is not a developer" },
+      });
+      // The run header and the Sources chip both count what was kept.
+      expect(webResultCount(written)).toBe(3);
+    });
+
+    it("limits an unknown buyer to 5 and a developer buyer not at all", async () => {
+      const eight = Array.from({ length: 8 }, (_, index) =>
+        signal({
+          id: `hn-${index}`,
+          url: `https://news.ycombinator.com/item?id=${index}`,
+          relevance: 0.9 - index * 0.05,
+        })
+      );
+
+      const unknown = recordingStream();
+      const unknownResult = await runTool(
+        sidecarWebSearch({
+          dataStream: unknown.stream,
+          writeTopLevelUpdates: false,
+          fetchImpl: recordingFetch({ hackernews: eight }, {}),
+        })
+      );
+      expect(unknownResult.searches[0].results).toHaveLength(5);
+      expect(unknownResult.searches[0].omittedByLaneLimit).toEqual({
+        "Hacker News": 3,
+      });
+      expect(unknownResult.searches[0].laneLimitNote).toContain(
+        "the buyer is not known"
+      );
+
+      const developer = recordingStream();
+      const developerResult = await runTool(
+        sidecarWebSearch({
+          dataStream: developer.stream,
+          writeTopLevelUpdates: false,
+          audience: DEVELOPER_AUDIENCE,
+          fetchImpl: recordingFetch({ hackernews: eight }, {}),
+        })
+      );
+      expect(developerResult.searches[0].results).toHaveLength(8);
+      expect(developerResult.searches[0].omittedByLaneLimit).toBeUndefined();
+      expect(developerResult.searches[0].laneLimitNote).toBeUndefined();
+      expect(
+        lanesFrom(developer.written).find((l) => l.sourceId === "hackernews")
+          ?.outcome
+      ).toEqual({ kind: "returned", signals: 8 });
+    });
   });
 
   it("reverses that for a developer buyer", async () => {

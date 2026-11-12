@@ -116,6 +116,10 @@ Decisions that are cheap to undo by accident. The hard-to-reverse ones are ADRs.
   queue it replaced took N times as long for the same cost (`NOTICE` records the change to the ChatJS code).
 - Every refusal from the sidecar is a named, human-readable reason that reaches the founder verbatim, per source. See
   Incident 7 in `docs/INCIDENTS.md` for what happens when it does not.
+- Source ranking (`lib/signals/audience.ts`) weights lanes by the buyer and, for a buyer who is not a developer or is
+  unknown, limits Hacker News and GitHub to a few results per search. A weight never drops a source; the limit does
+  leave results out and never silently: the researcher model, the log and the per-lane report all say how many and why
+  (`apps/research/README.md`, "Ranking sources against the founder's buyer").
 
 ## Where to add X
 

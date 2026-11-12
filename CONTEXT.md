@@ -23,7 +23,7 @@ Use these words in code, UI and docs. Definitions come from the code named in ea
 | Simulation | Synthetic persona reactions to a pitch (OASIS in the sidecar). A hypothesis generator; `usableAsEvidence` is always false. | never "validation", never "evidence" |
 | Demand signal | One public item showing someone has the problem: title, url, snippet, date, engagement, relevance; no author (`DemandSignal`). | not a "lead", not a "review" |
 | Source | A sidecar adapter that fetches signals, with a stable id (`hackernews`, `github`, `arctic-shift`…). | not a citation |
-| Lane | One source's stream of signals as shown, weighted and ordered in a research report (`lib/signals/audience.ts`). | not a phase |
+| Lane | One source's stream of signals as shown, weighted and ordered in a research report; a narrow developer lane also has a per-search limit for a buyer who is not a developer, reported when it leaves results out (`lib/signals/audience.ts`). | not a phase |
 | Sidecar | The Python service in `apps/research` the chat app calls over HTTP for signals and simulation. | not "backend" |
 | Hosted mode | The deployment setting (`RESEARCH_HOSTED`, default true) under which risky sources are barred. | not "production" |
 | Deep research | The multi-step web research tool inherited from ChatJS (`tools/platform/deep-research/`). | not the signal harvest |

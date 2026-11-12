@@ -38,8 +38,14 @@ const ICON: Record<LaneOutcome["kind"], typeof CircleCheck> = {
  */
 function outcomeLabel(outcome: LaneOutcome): string {
   switch (outcome.kind) {
-    case "returned":
-      return `${outcome.signals} signal${outcome.signals === 1 ? "" : "s"}`;
+    case "returned": {
+      const signals = `${outcome.signals} signal${outcome.signals === 1 ? "" : "s"}`;
+      // A per-search lane limit left some out: say how many were kept and how
+      // many were not, and why, so "3 signals" never reads as all the lane had.
+      return outcome.leftOut
+        ? `${signals} kept, ${outcome.leftOut.count} left out (${outcome.leftOut.because})`
+        : signals;
+    }
     case "found-nothing":
       return "searched, found nothing";
     case "refused":

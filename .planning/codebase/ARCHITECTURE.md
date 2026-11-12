@@ -186,10 +186,13 @@ N+1's system prompt.
    `stopWhen` = 5 steps or a `deepResearch` report result and `maxOutputTokens` clamped to the model ceiling.
 7. The result is merged into the UI message stream with metadata; follow-up suggestions stream afterwards when
    `config.ai.tools.followupSuggestions.enabled` (`apps/chat/lib/ai/followup-suggestions.ts`).
-8. `onFinish` of `createUIMessageStream` runs once, when the drained branch reaches the end of the stream (after the
-   model's finish part has recorded its usage), and runs `finalizeMessageAndCredits`: `rescueDeadToolInputStreams` (salvages a
-   frozen `createTextDocument` input as a labelled partial document, `apps/chat/lib/artifacts/text/salvage.ts`), `updateMessage`,
-   `CostAccumulator.settle()`, `deductCredits`.
+8. `onFinish` of `createUIMessageStream` runs once, when the drained branch reaches the end of the stream (or earlier,
+   from the SDK's finish transform `cancel`, when the stream errors partway), and runs `finalizeMessageAndCredits`:
+   `rescueDeadToolInputStreams` (salvages a frozen `createTextDocument` input as a labelled partial document,
+   `apps/chat/lib/artifacts/text/salvage.ts`), `updateMessage`, then `chargeTurnOnce`. That waits until `execute` has
+   ended (`spendRecorded`, so the model's usage is in), settles the accumulator, sets `TurnCost.charged` and deducts.
+   The drain calls `chargeTurnOnce` again when it ends; it deducts only if nothing has, which covers a stream error that
+   never reached `onFinish`.
 9. Still in `onFinish`, unless the turn was aborted, anonymous, a non-primary parallel reply, projectless, or its chat
    owner is not the project owner, the route registers `after(async () => ...)` that awaits, in sequence,
    `runPostTurnPhasePass` then `runPostTurnPersonaPass`, and charges their cost in `finally` through a second

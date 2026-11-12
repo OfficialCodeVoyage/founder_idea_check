@@ -1,6 +1,7 @@
 import {
   convertToModelMessages,
   createUIMessageStream,
+  type InferUIMessageChunk,
   JsonToSseTransformStream,
 } from "ai";
 import { headers } from "next/headers";
@@ -439,7 +440,7 @@ async function createChatStream({
   mcpConnectors,
   streamId,
   onChunk,
-  costAccumulator,
+  turnCost,
 }: {
   messageId: string;
   chatId: string;
@@ -460,14 +461,43 @@ async function createChatStream({
   streamId: string;
   onChunk?: () => void;
   /**
-   * The turn's accumulator, created in `POST` before the title call. Building
-   * the system prompt below can spend into it too (the phase block embeds this
-   * turn's message to rank the fact store). Settled in onFinish
-   * (`finalizeMessageAndCredits`) with everything else.
+   * The turn's cost, created in `POST` before the title call. Building the
+   * system prompt below can spend into its accumulator too (the phase block
+   * embeds this turn's message to rank the fact store). Charged once by
+   * `chargeTurnOnce`, from onFinish or from `executeChatRequest`'s drain.
    */
-  costAccumulator: CostAccumulator;
-}) {
+  turnCost: TurnCost;
+}): Promise<{
+  stream: ReadableStream<InferUIMessageChunk<ChatMessage>>;
+  spendRecorded: Promise<void>;
+}> {
   const log = createModuleLogger("api:chat:stream");
+  const costAccumulator = turnCost.accumulator;
+
+  // WHEN THE TURN'S SPENDING IS ALL RECORDED. The model's "main-chat" usage
+  // reaches the accumulator from the finish part, in `messageMetadata` below,
+  // while `dataStream.merge` reads the model's UI stream, and the follow-up
+  // suggestions are recorded later still, inside `execute`. onFinish does not
+  // mark that moment: it runs from the finish transform's `flush` at the end,
+  // but also from its `cancel`, which an error partway through the stream
+  // reaches at once while the model goes on (verified with ai@6.0.219 on Node:
+  // onFinish ran with no usage recorded, then the usage landed). So a charge
+  // waits for `execute` to end, which awaits `result.consumeStream()`, and
+  // then one macrotask: the finish part was queued for the merge loop by the
+  // time `consumeStream` resolved (both read tee branches of the same model
+  // stream), and that loop and its transforms run on microtasks, which all
+  // drain before a timer fires. Resolves whether `execute` succeeds or throws.
+  let markExecuteEnded: () => void = () => undefined;
+  const executeEnded = new Promise<void>((resolve) => {
+    markExecuteEnded = resolve;
+  });
+  const spendRecorded = executeEnded.then(
+    () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      })
+  );
+
   const system = await getSystemPrompt({
     isAnonymous,
     chatId,
@@ -478,100 +508,104 @@ async function createChatStream({
   // Build the data stream that will emit tokens
   const stream = createUIMessageStream<ChatMessage>({
     execute: async ({ writer: dataStream }) => {
-      // Confirm chat persistence on first message (chat + user message are persisted before streaming begins)
-      if (isNewChat) {
-        dataStream.write({
-          id: generateUUID(),
-          type: "data-chatConfirmed",
-          data: { chatId },
-          transient: true,
-        });
-      }
+      try {
+        // Confirm chat persistence on first message (chat + user message are persisted before streaming begins)
+        if (isNewChat) {
+          dataStream.write({
+            id: generateUUID(),
+            type: "data-chatConfirmed",
+            data: { chatId },
+            transient: true,
+          });
+        }
 
-      const { result, contextForLLM } = await createCoreChatAgent({
-        system,
-        userMessage,
-        previousMessages,
-        selectedModelId,
-        explicitlyRequestedTools,
-        userId,
-        chatId,
-        isAnonymous,
-        abortSignal: abortController.signal,
-        requestDeadlineAt,
-        messageId,
-        dataStream,
-        onError: (error) => {
-          log.error({ error }, "streamText error");
-        },
-        onChunk,
-        onContextTrimmed: (omittedMessages) => {
-          // Never silent: this is the one place the assistant is knowingly
-          // shown less than the whole conversation, and the phase gate judges
-          // the whole of it.
-          log.info(
-            { chatId, omittedMessages },
-            "chat context trimmed to budget — older messages are carried by the project fact store"
-          );
-        },
-        mcpConnectors,
-        costAccumulator,
-      });
-
-      const initialMetadata: ChatMessage["metadata"] = {
-        createdAt: new Date(),
-        parentMessageId: userMessage.id,
-        parallelGroupId,
-        parallelIndex,
-        isPrimaryParallel,
-        selectedModel: selectedModelId,
-        activeStreamId: isAnonymous ? null : streamId,
-      };
-
-      dataStream.merge(
-        result.toUIMessageStream({
-          sendReasoning: true,
-          messageMetadata: ({ part }) => {
-            // send custom information to the client on start:
-            if (part.type === "start") {
-              return initialMetadata;
-            }
-
-            // when the message is finished, send additional information:
-            if (part.type === "finish") {
-              // Add main stream LLM usage to accumulator
-              if (part.totalUsage) {
-                costAccumulator.addLLMCost(
-                  selectedModelId,
-                  part.totalUsage,
-                  "main-chat"
-                );
-              }
-              return {
-                ...initialMetadata,
-                usage: part.totalUsage,
-                activeStreamId: null,
-              };
-            }
+        const { result, contextForLLM } = await createCoreChatAgent({
+          system,
+          userMessage,
+          previousMessages,
+          selectedModelId,
+          explicitlyRequestedTools,
+          userId,
+          chatId,
+          isAnonymous,
+          abortSignal: abortController.signal,
+          requestDeadlineAt,
+          messageId,
+          dataStream,
+          onError: (error) => {
+            log.error({ error }, "streamText error");
           },
-        })
-      );
-      await result.consumeStream();
-
-      const response = await result.response;
-      const responseMessages = response.messages;
-
-      // Generate and stream follow-up suggestions
-      if (config.ai.tools.followupSuggestions.enabled) {
-        const followupSuggestionsResult = generateFollowupSuggestions([
-          ...contextForLLM,
-          ...responseMessages,
-        ]);
-        await streamFollowupSuggestions({
-          followupSuggestionsResult,
-          writer: dataStream,
+          onChunk,
+          onContextTrimmed: (omittedMessages) => {
+            // Never silent: this is the one place the assistant is knowingly
+            // shown less than the whole conversation, and the phase gate judges
+            // the whole of it.
+            log.info(
+              { chatId, omittedMessages },
+              "chat context trimmed to budget — older messages are carried by the project fact store"
+            );
+          },
+          mcpConnectors,
           costAccumulator,
         });
+
+        const initialMetadata: ChatMessage["metadata"] = {
+          createdAt: new Date(),
+          parentMessageId: userMessage.id,
+          parallelGroupId,
+          parallelIndex,
+          isPrimaryParallel,
+          selectedModel: selectedModelId,
+          activeStreamId: isAnonymous ? null : streamId,
+        };
+
+        dataStream.merge(
+          result.toUIMessageStream({
+            sendReasoning: true,
+            messageMetadata: ({ part }) => {
+              // send custom information to the client on start:
+              if (part.type === "start") {
+                return initialMetadata;
+              }
+
+              // when the message is finished, send additional information:
+              if (part.type === "finish") {
+                // Add main stream LLM usage to accumulator
+                if (part.totalUsage) {
+                  costAccumulator.addLLMCost(
+                    selectedModelId,
+                    part.totalUsage,
+                    "main-chat"
+                  );
+                }
+                return {
+                  ...initialMetadata,
+                  usage: part.totalUsage,
+                  activeStreamId: null,
+                };
+              }
+            },
+          })
+        );
+        await result.consumeStream();
+
+        const response = await result.response;
+        const responseMessages = response.messages;
+
+        // Generate and stream follow-up suggestions
+        if (config.ai.tools.followupSuggestions.enabled) {
+          const followupSuggestionsResult = generateFollowupSuggestions([
+            ...contextForLLM,
+            ...responseMessages,
+          ]);
+          await streamFollowupSuggestions({
+            followupSuggestionsResult,
+            writer: dataStream,
+            costAccumulator,
+          });
+        }
+      } finally {
+        markExecuteEnded();
       }
     },
     generateId: () => messageId,
@@ -582,7 +616,8 @@ async function createChatStream({
         userId,
         isAnonymous,
         chatId,
-        costAccumulator,
+        turnCost,
+        spendRecorded,
         selectedModelId,
         parallelGroupId,
         parallelIndex,
@@ -696,7 +731,7 @@ async function createChatStream({
     },
   });
 
-  return stream;
+  return { stream, spendRecorded };
 }
 
 function emptyChatStreamResponse() {
@@ -721,8 +756,17 @@ function emptyChatStreamResponse() {
  * onFinish charges it, whoever reads the response; until then `POST` does, so
  * a title paid for on a request that ends before the stream exists is still
  * charged.
+ *
+ * `charged` turns true in `chargeTurnOnce`, synchronously after the settle and
+ * before the deduction is attempted. Once the stream has taken over, two paths
+ * can reach the charge (onFinish, and the background drain when it ends), and
+ * this flag is what lets only the first one deduct.
  */
-type TurnCost = { accumulator: CostAccumulator; settledByStream: boolean };
+type TurnCost = {
+  accumulator: CostAccumulator;
+  settledByStream: boolean;
+  charged: boolean;
+};
 
 async function executeChatRequest({
   chatId,
@@ -812,7 +856,7 @@ async function executeChatRequest({
       : undefined;
 
   // Build the data stream that will emit tokens
-  const stream = await createChatStream({
+  const { stream, spendRecorded } = await createChatStream({
     messageId,
     chatId,
     userMessage,
@@ -831,7 +875,7 @@ async function executeChatRequest({
     mcpConnectors,
     streamId,
     onChunk,
-    costAccumulator: turnCost.accumulator,
+    turnCost,
   });
 
   const publisher = redisPublisher;
@@ -884,18 +928,37 @@ async function executeChatRequest({
   // does) and the invocation is kept alive until it ends. A branch nobody
   // reads buffers one turn's output; a cancelled branch buffers nothing.
   //
-  // `settledByStream` flips here, with the drain: from this point onFinish
-  // will charge the turn; before it, `POST`'s `finally` charges what the
+  // An error partway through the stream (the SDK's message processor rejects
+  // a malformed chunk) still reaches the finish transform's `cancel`, so
+  // onFinish runs then, before the model has finished; `chargeTurnOnce` waits
+  // for `spendRecorded` before it settles, so that charge is whole too. When
+  // the drain ends, resolved or rejected, it calls `chargeTurnOnce` as well:
+  // a no-op after onFinish charged, and the charge when a stream error never
+  // ran onFinish. On Node it does run it; Bun did not call the transformer's
+  // `cancel` hook in the same check, so that path rests on a runtime detail
+  // and is not left to it.
+  //
+  // `settledByStream` flips here, with the drain: from this point onFinish or
+  // the drain charges the turn; before it, `POST`'s `finally` charges what the
   // accumulator holds.
   const [clientStream, settlementStream] = stream.tee();
   turnCost.settledByStream = true;
   after(
-    settlementStream.pipeTo(new WritableStream()).catch((error: unknown) => {
-      log.error(
-        { error, streamId },
-        "chat stream failed before its end; onFinish may not have charged the turn"
-      );
-    })
+    settlementStream
+      .pipeTo(new WritableStream())
+      .catch((error: unknown) => {
+        log.error({ error, streamId }, "chat stream failed before its end");
+      })
+      .then(() =>
+        chargeTurnOnce({
+          turnCost,
+          spendRecorded,
+          userId,
+          isAnonymous,
+          chatId,
+          from: "drain",
+        })
+      )
   );
 
   let clientStreamTaken = false;
@@ -1260,12 +1323,101 @@ async function chargeAccumulatedCost({
   }
 }
 
+/**
+ * The turn's one charge, once its stream has taken the accumulator over
+ * (`TurnCost.settledByStream`). Called from onFinish
+ * (`finalizeMessageAndCredits`) and from `executeChatRequest`'s drain when it
+ * ends; whichever reaches it first deducts, and the other does nothing.
+ *
+ * ONCE, BY A CHECK-AND-SET WITH NO AWAIT IN IT. Both callers can be in flight
+ * together (an error partway through the stream runs onFinish early and
+ * rejects the drain), and `CostAccumulator.settle()` does not consume what it
+ * prices: a second settle returns the same total. So `charged` is read and set
+ * in one synchronous step after the settle resolves and before the deduction
+ * is attempted; JavaScript runs nothing else in between, so a second caller
+ * resuming from its own settle sees it set. A deduction that then fails is
+ * logged and not retried: one missed charge, never two.
+ *
+ * WAITS FOR `spendRecorded` before it settles (see `createChatStream`), so an
+ * onFinish that ran early from the finish transform's `cancel` still charges
+ * the model's usage. NEVER THROWS: it runs in onFinish and in `after()`.
+ * Anonymous turns are settled and logged but never deducted: their credit is
+ * taken from the cookie before the stream starts, because a cookie cannot be
+ * set once the response has begun.
+ */
+async function chargeTurnOnce({
+  turnCost,
+  spendRecorded,
+  userId,
+  isAnonymous,
+  chatId,
+  from,
+}: {
+  turnCost: TurnCost;
+  spendRecorded: Promise<void>;
+  userId: string | null;
+  isAnonymous: boolean;
+  chatId: string;
+  /** Which path called: onFinish normally, the drain as the fallback. */
+  from: "onFinish" | "drain";
+}): Promise<void> {
+  const log = createModuleLogger("api:chat:finalize");
+  try {
+    if (turnCost.charged) {
+      return;
+    }
+    await spendRecorded;
+    // Settle the accumulator (all LLM calls + external API costs)
+    const { cents: totalCost, unpriced } = await turnCost.accumulator.settle();
+    if (turnCost.charged) {
+      return;
+    }
+    turnCost.charged = true;
+
+    log.info(
+      { entries: turnCost.accumulator.getEntries() },
+      "Cost accumulator entries"
+    );
+    log.info({ totalCost }, "Cost accumulator total cost");
+
+    // AN UNPRICED CALL IS LOGGED LOUDLY, NOT SWALLOWED. The turn still
+    // completes — refusing to answer because a price is missing from a static
+    // table would be a worse failure than undercharging — but `totalCost` is
+    // then a known undercount, and this is the only place that says so. It
+    // firing at all means a model reached production without an entry in
+    // lib/ai/model-capabilities.ts.
+    if (unpriced.length > 0) {
+      log.error(
+        { unpriced, totalCost },
+        "Some LLM calls could not be priced; the deducted total is an undercount"
+      );
+    }
+
+    if (from === "drain") {
+      log.warn(
+        { chatId, totalCost },
+        "turn charged by the stream drain: onFinish did not charge it"
+      );
+    }
+
+    if (userId && !isAnonymous) {
+      await deductCredits(userId, totalCost);
+    }
+  } catch (error) {
+    log.error(
+      { error, chatId, from },
+      "Failed to finalize credits for the turn"
+    );
+  }
+}
+
 async function finalizeMessageAndCredits({
   messages,
   userId,
   isAnonymous,
   chatId,
-  costAccumulator,
+  turnCost,
+  spendRecorded,
   selectedModelId,
   parallelGroupId,
   parallelIndex,
@@ -1275,7 +1427,8 @@ async function finalizeMessageAndCredits({
   userId: string | null;
   isAnonymous: boolean;
   chatId: string;
-  costAccumulator: CostAccumulator;
+  turnCost: TurnCost;
+  spendRecorded: Promise<void>;
   selectedModelId: AppModelId;
   parallelGroupId: string | null;
   parallelIndex: number | null;
@@ -1289,8 +1442,9 @@ async function finalizeMessageAndCredits({
   // what the turn cost. Both steps used to share one `try`, so a failed
   // `updateMessage` (or a dead-tool rescue that threw) jumped straight past the
   // deduction and the turn was free. The deduction is still made exactly once:
-  // the persistence step never settles or deducts, and the charge step runs
-  // once whatever the persistence step did.
+  // the persistence step never settles or deducts, and the charge step
+  // (`chargeTurnOnce`, shared with the stream drain) runs whatever the
+  // persistence step did and deducts only if nothing has yet.
   try {
     await persistFinishedAssistantMessage({
       messages,
@@ -1309,36 +1463,14 @@ async function finalizeMessageAndCredits({
     );
   }
 
-  try {
-    // Settle the accumulator (all LLM calls + external API costs)
-    const { cents: totalCost, unpriced } = await costAccumulator.settle();
-    const entries = costAccumulator.getEntries();
-
-    log.info({ entries }, "Cost accumulator entries");
-    log.info({ totalCost }, "Cost accumulator total cost");
-
-    // AN UNPRICED CALL IS LOGGED LOUDLY, NOT SWALLOWED. The turn still
-    // completes — refusing to answer because a price is missing from a static
-    // table would be a worse failure than undercharging — but `totalCost` is
-    // then a known undercount, and this is the only place that says so. It
-    // firing at all means a model reached production without an entry in
-    // lib/ai/model-capabilities.ts.
-    if (unpriced.length > 0) {
-      log.error(
-        { unpriced, totalCost },
-        "Some LLM calls could not be priced; the deducted total is an undercount"
-      );
-    }
-
-    // Deduct credits for authenticated users
-    if (userId && !isAnonymous) {
-      await deductCredits(userId, totalCost);
-    }
-
-    // Note: Anonymous credits are pre-deducted before streaming starts (cookies can't be set after response begins)
-  } catch (error) {
-    log.error({ error, chatId }, "Failed to finalize credits for the turn");
-  }
+  await chargeTurnOnce({
+    turnCost,
+    spendRecorded,
+    userId,
+    isAnonymous,
+    chatId,
+    from: "onFinish",
+  });
 }
 
 /**
@@ -1646,6 +1778,7 @@ export async function POST(request: NextRequest) {
   const turnCost: TurnCost = {
     accumulator: new CostAccumulator(),
     settledByStream: false,
+    charged: false,
   };
   let chargedUserId: string | null = null;
   try {
@@ -1765,8 +1898,8 @@ export async function POST(request: NextRequest) {
     // A request that ended before its stream took the accumulator over (a
     // refusal after the title, a replayed placeholder, a throw) has still paid
     // for whatever it recorded — a new chat's title, the phase block's
-    // embedding. Charged here, once; when the stream did take over, its
-    // onFinish charges instead.
+    // embedding. Charged here, once; when the stream did take over,
+    // `chargeTurnOnce` charges instead (from onFinish or the stream drain).
     if (!turnCost.settledByStream) {
       await chargeAccumulatedCost({
         userId: chargedUserId,

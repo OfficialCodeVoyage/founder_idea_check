@@ -1,5 +1,9 @@
-"use server";
-
+// Server-only, deliberately NOT "use server": every export here takes the
+// userId it acts for as an argument, so as server actions any client could
+// read or rewrite another user's connectors and OAuth sessions. Callers
+// (`trpc/routers/mcp.router.ts`, `lib/ai/mcp/*`, the chat and MCP OAuth route
+// handlers) resolve the session first and pass its user id.
+import "server-only";
 import type {
   OAuthClientInformation,
   OAuthClientMetadata,

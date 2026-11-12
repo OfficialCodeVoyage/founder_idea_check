@@ -53,11 +53,13 @@ export function isFileOwnedBy(key: string, userId: string): boolean {
 }
 
 /**
- * When stored keys started carrying an owner tag (commit 1049fae9). From then
- * on `uploadFile` only creates tagged keys, so an untagged key is a file
- * stored before this instant.
+ * The day stored keys started carrying an owner tag (commit 1049fae9). From
+ * then on `uploadFile` only creates tagged keys, so an untagged key is a file
+ * stored before the change. The cutoff is the START of that day (UTC), which
+ * is earlier than the change itself: it can only trust fewer pre-tag
+ * references, never one written after the change.
  */
-export const OWNER_TAG_ROLLOUT = new Date("2026-11-12T09:34:27Z");
+export const OWNER_TAG_ROLLOUT = new Date("2026-11-12T00:00:00Z");
 
 /**
  * Whether one stored reference to `key` (a Part row) in a chat owned by

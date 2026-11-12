@@ -14,7 +14,6 @@ import {
 import { Favicon } from "@/components/favicon";
 import { parseToolId } from "@/lib/ai/mcp-name-id";
 import { useTRPC } from "@/trpc/react";
-import { getGoogleFaviconUrl } from "../get-google-favicon-url";
 
 interface DynamicToolPartProps {
   isReadonly: boolean;
@@ -28,21 +27,16 @@ export function DynamicToolPart({ part }: DynamicToolPartProps) {
 
   const parsed = useMemo(() => parseToolId(part.toolName), [part.toolName]);
 
-  const iconUrl = useMemo(() => {
+  const connectorUrl = useMemo(() => {
     if (!(parsed && connectors)) {
       return;
     }
 
-    const connector = connectors.find((c) => c.nameId === parsed.namespace);
-    if (!connector) {
-      return;
-    }
-
-    return getGoogleFaviconUrl(connector.url);
+    return connectors.find((c) => c.nameId === parsed.namespace)?.url;
   }, [parsed, connectors]);
 
-  const icon = iconUrl ? (
-    <Favicon className="size-4 rounded-sm" url={iconUrl} />
+  const icon = connectorUrl ? (
+    <Favicon className="size-4 rounded-sm" url={connectorUrl} />
   ) : (
     <WrenchIcon className="size-4 text-muted-foreground" />
   );

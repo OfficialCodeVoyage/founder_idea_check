@@ -48,7 +48,6 @@ const nextConfig: NextConfig = {
       {
         hostname: "*.public.blob.vercel-storage.com",
       },
-      { hostname: "www.google.com" },
       {
         hostname: "models.dev",
       },

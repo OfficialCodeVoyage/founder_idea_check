@@ -9,7 +9,6 @@ import { config } from "@/lib/config";
 import { useSession } from "@/providers/session-provider";
 import { useTRPC } from "@/trpc/react";
 import { Favicon } from "./favicon";
-import { getGoogleFaviconUrl } from "./get-google-favicon-url";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -89,37 +88,30 @@ function PureConnectorsDropdown() {
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        {connectors.map((connector) => {
-          const faviconUrl =
-            connector.type === "http" ? getGoogleFaviconUrl(connector.url) : "";
-          return (
-            <DropdownMenuItem
-              className="flex items-center gap-2"
-              key={connector.id}
-              onSelect={(e) => e.preventDefault()}
-            >
-              <div className="flex size-5 shrink-0 items-center justify-center">
-                {faviconUrl ? (
-                  <>
-                    <Favicon className="size-4 rounded-sm" url={faviconUrl} />
-                    <Globe className="hidden size-4 text-muted-foreground" />
-                  </>
-                ) : (
-                  <Globe className="size-4 text-muted-foreground" />
-                )}
-              </div>
-              <span className="flex-1 truncate text-sm">{connector.name}</span>
-              <Switch
-                checked={connector.enabled}
-                className="scale-75"
-                onCheckedChange={(enabled) =>
-                  toggleEnabled({ id: connector.id, enabled })
-                }
-                onClick={(e) => e.stopPropagation()}
-              />
-            </DropdownMenuItem>
-          );
-        })}
+        {connectors.map((connector) => (
+          <DropdownMenuItem
+            className="flex items-center gap-2"
+            key={connector.id}
+            onSelect={(e) => e.preventDefault()}
+          >
+            <div className="flex size-5 shrink-0 items-center justify-center">
+              {connector.type === "http" ? (
+                <Favicon className="size-4 rounded-sm" url={connector.url} />
+              ) : (
+                <Globe className="size-4 text-muted-foreground" />
+              )}
+            </div>
+            <span className="flex-1 truncate text-sm">{connector.name}</span>
+            <Switch
+              checked={connector.enabled}
+              className="scale-75"
+              onCheckedChange={(enabled) =>
+                toggleEnabled({ id: connector.id, enabled })
+              }
+              onClick={(e) => e.stopPropagation()}
+            />
+          </DropdownMenuItem>
+        ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <InternalLink

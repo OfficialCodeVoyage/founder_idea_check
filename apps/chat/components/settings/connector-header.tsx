@@ -3,7 +3,6 @@
 import { Globe } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Favicon } from "../favicon";
-import { getGoogleFaviconUrl } from "../get-google-favicon-url";
 import { getUrlWithoutParams } from "../get-url-without-params";
 
 export function ConnectorHeader({
@@ -19,16 +18,11 @@ export function ConnectorHeader({
   isCustom: boolean;
   statusText?: string;
 }) {
-  const faviconUrl = type === "http" ? getGoogleFaviconUrl(url) : "";
-
   return (
     <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-        {faviconUrl ? (
-          <>
-            <Favicon className="size-5 rounded-sm" url={faviconUrl} />
-            <Globe className="hidden size-5 text-muted-foreground" />
-          </>
+        {type === "http" ? (
+          <Favicon className="size-5 rounded-sm" url={url} />
         ) : (
           <Globe className="size-5 text-muted-foreground" />
         )}

@@ -9,7 +9,7 @@ import {
   Lock,
   Shield,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +24,6 @@ import { config } from "@/lib/config";
 import type { McpConnector } from "@/lib/db/schema";
 import { useTRPC } from "@/trpc/react";
 import { Favicon } from "../favicon";
-import { getGoogleFaviconUrl } from "../get-google-favicon-url";
 import { getUrlWithoutParams } from "../get-url-without-params";
 
 export function McpConnectDialog({
@@ -38,13 +37,6 @@ export function McpConnectDialog({
 }) {
   const trpc = useTRPC();
   const [isRedirecting, setIsRedirecting] = useState(false);
-
-  const faviconUrl = useMemo(() => {
-    if (!connector) {
-      return "";
-    }
-    return connector.type === "http" ? getGoogleFaviconUrl(connector.url) : "";
-  }, [connector]);
 
   const { mutateAsync: authorize, isPending } = useMutation(
     trpc.mcp.authorize.mutationOptions({
@@ -70,11 +62,8 @@ export function McpConnectDialog({
         <DialogHeader className="overflow-hidden">
           <div className="flex items-center gap-3 overflow-hidden">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
-              {faviconUrl ? (
-                <>
-                  <Favicon className="size-5 rounded-sm" url={faviconUrl} />
-                  <Globe className="hidden size-5 text-muted-foreground" />
-                </>
+              {connector?.type === "http" ? (
+                <Favicon className="size-5 rounded-sm" url={connector.url} />
               ) : (
                 <Globe className="size-5 text-muted-foreground" />
               )}

@@ -14,7 +14,6 @@ import {
   DrawerTrigger,
 } from "@/components/ui/drawer";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { getFaviconUrl } from "@/lib/url-utils";
 import { cn } from "@/lib/utils";
 import type { SearchResultItem } from "@/tools/platform/research-updates-schema";
 import { Favicon } from "./favicon";
@@ -42,7 +41,7 @@ const SourcesList = ({
       >
         <div className="flex items-start gap-3">
           <div className="mt-1 shrink-0">
-            <Favicon url={getFaviconUrl(source)} />
+            <Favicon url={source.url} />
           </div>
           <div className="flex flex-col gap-1">
             <h4 className="font-medium text-sm leading-tight">
@@ -126,10 +125,7 @@ function ShowSourcesButton({
       <FaviconGroup
         className="mr-1.5"
         maxVisible={3}
-        sources={sources.map((s) => ({
-          url: s.url,
-          title: s.title,
-        }))}
+        sources={sources.map((s) => ({ url: s.url }))}
       />
       <span className="text-muted-foreground text-xs group-hover:text-foreground">
         {sources.length} Sources

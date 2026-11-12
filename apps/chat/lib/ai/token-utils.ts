@@ -5,6 +5,10 @@ import { RecursiveCharacterTextSplitter } from "./text-splitter";
 const MinChunkSize = 140;
 const encoder = getEncoding("o200k_base");
 
+/** Slice length for a whitespace-free run; see `encodedLength`. */
+const MAX_UNBROKEN_RUN = 64;
+const LONG_UNBROKEN_RUN = new RegExp(`\\S{${MAX_UNBROKEN_RUN + 1},}`, "g");
+
 /**
  * The tokens `encoder` makes of `text`, with special-token markers such as
  * `<|endoftext|>` counted as the plain text they are.
@@ -17,9 +21,51 @@ const encoder = getEncoding("o200k_base");
  * Passing empty allowed and disallowed lists encodes a marker as the
  * characters it is (`<|`, `endoftext`, `|>`), never as a control token, so a
  * count can no longer throw on what a message says.
+ *
+ * LONG RUNS WITHOUT WHITESPACE ARE ENCODED IN SLICES. js-tiktoken's byte-pair
+ * merge is quadratic in the length of one pre-tokenized piece, and a run of
+ * letters with no space or punctuation is one piece: 10,000 such characters
+ * took 3.4 to 4.4 s, 20,000 took 13.9 to 15.1 s and 40,000 took 61 s on
+ * js-tiktoken 1.0.21, synchronously, on the request's thread (pasted base-32,
+ * a DNA string, a model looping on one letter). Every whitespace-free run
+ * longer than `MAX_UNBROKEN_RUN` is therefore cut into slices of that length
+ * and each slice encoded on its own, which bounds the cost per character.
+ * Ordinary prose has no such run and is encoded in one call, exactly as
+ * before; a sliced run can gain or lose about one token per cut (under 1% on
+ * 40,000 random letters), since a real token is rarely that long.
  */
 function encodedLength(text: string): number {
-  return encoder.encode(text, [], []).length;
+  let tokens = 0;
+  let start = 0;
+  for (const run of text.matchAll(LONG_UNBROKEN_RUN)) {
+    tokens += encodePlain(text.slice(start, run.index));
+    tokens += encodeInSlices(run[0]);
+    start = run.index + run[0].length;
+  }
+  return tokens + encodePlain(text.slice(start));
+}
+
+function encodePlain(text: string): number {
+  return text.length > 0 ? encoder.encode(text, [], []).length : 0;
+}
+
+function encodeInSlices(run: string): number {
+  let tokens = 0;
+  let start = 0;
+  while (start < run.length) {
+    let end = Math.min(start + MAX_UNBROKEN_RUN, run.length);
+    // Never split a surrogate pair: half an emoji would encode as U+FFFD.
+    if (end < run.length && isHighSurrogate(run.charCodeAt(end - 1))) {
+      end += 1;
+    }
+    tokens += encodePlain(run.slice(start, end));
+    start = end;
+  }
+  return tokens;
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd8_00 && code <= 0xdb_ff;
 }
 
 /**

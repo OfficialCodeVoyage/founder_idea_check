@@ -80,12 +80,30 @@ function isLoopbackHost(hostHeader: string | null): boolean {
  *  - `Host` must name a loopback host. A LAN caller who addresses the machine
  *    by its IP fails here, and so does a DNS-rebinding page in the founder's
  *    own browser (its Host is the attacker's domain).
- *  - `X-Forwarded-For` must be present and every hop loopback. Next fills it
- *    from the socket's remote address when the client sent none
- *    (`next/dist/server/base-server.js`, `??=`), so a LAN caller who does not
- *    forge it is refused. A caller CAN forge both headers, which is why a
- *    loopback value here proves nothing on its own and the bind stays the
- *    control that matters.
+ *  - `X-Forwarded-For` must be present and every hop loopback. A caller who
+ *    does not forge it is refused unless they really are on this machine.
+ *    A caller CAN forge both headers, which is why a loopback value here
+ *    proves nothing on its own and the bind stays the control that matters.
+ *
+ * WHY "MUST BE PRESENT" DOES NOT LOCK THE FOUNDER OUT — read from the
+ * installed next 16.3 source, not assumed:
+ *  - `next/dist/server/base-server.js::BaseServer.handleRequestImpl` runs for
+ *    every request and does
+ *    `req.headers['x-forwarded-for'] ??= originalRequest.socket.remoteAddress`.
+ *    So XFF is SET from the socket when the client sent none, and a
+ *    client-sent value is KEPT as-is: not replaced, not appended to.
+ *  - In dev the request reaches it through
+ *    `next/dist/server/lib/router-server.js::requestHandlerImpl` (whose
+ *    `filterInternalHeaders` list does not include XFF) and
+ *    `next/dist/server/next-server.js::NextNodeServer.normalizeReq`, which
+ *    wraps the real IncomingMessage, so `socket` is the real socket.
+ *  - `next/dist/server/base-http/node.js::NodeNextRequest` shares the
+ *    IncomingMessage's `headers` object, and
+ *    `next/dist/build/templates/app-route.js` builds this handler's Request
+ *    from it via `NextRequestAdapter.fromNodeNextRequest`, so the value set
+ *    above is the one read here (`::1` or `127.0.0.1` for a local browser).
+ * Re-check this after a Next.js major upgrade: if that `??=` goes away, this
+ * rule refuses every sign-in.
  */
 function isLoopbackRequest(request: Request): boolean {
   if (!isLoopbackHost(request.headers.get("host"))) {

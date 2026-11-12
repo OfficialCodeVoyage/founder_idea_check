@@ -20,7 +20,9 @@ paths:
   but 0/false/no/off) make `proxy.ts` return early and the chat layout run with no session, and give
   `DATABASE_URL`/`AUTH_SECRET` test defaults (`lib/env-schema.ts`). Never set them in a deployed environment.
 - **`/api/dev-login` exists only when `NODE_ENV === "development"`** (404 otherwise). It signs a session cookie
-  for `dev@localhost` with `AUTH_SECRET`. Keep that guard first in the handler.
+  for `dev@localhost` with `AUTH_SECRET`. Keep that guard first in the handler. Second guard: it also 404s unless
+  `Host` is a loopback name and `X-Forwarded-For` (set by Next from the socket when absent) is loopback; the real
+  control is the dev scripts' `next dev --hostname localhost` bind. Never drop `--hostname localhost` from them.
 - **A shared secret read from env must be checked as set before it is compared.** `CRON_SECRET` is optional, and
   `` `Bearer ${undefined}` `` is the string `Bearer undefined`. Pattern:
   `app/api/cron/cleanup/route.ts::isAuthorizedCronRequest` (refuse when unset, constant-time compare).

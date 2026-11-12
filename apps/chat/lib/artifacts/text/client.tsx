@@ -5,6 +5,7 @@ import { Artifact } from "@/components/create-artifact";
 import { DocumentSkeleton } from "@/components/document-skeleton";
 import { copyArtifactToClipboard } from "@/lib/artifacts/copy-to-clipboard";
 import { config } from "@/lib/config";
+import { cn } from "@/lib/utils";
 
 const DiffView = dynamic(
   () => import("@/components/diffview").then((m) => ({ default: m.DiffView })),
@@ -21,6 +22,29 @@ const Editor = dynamic(
     ssr: false,
   }
 );
+
+/**
+ * THE PAGE MEASURES THE PANEL, NOT THE WINDOW.
+ *
+ * The side panel is about 360px wide in a 1280px window, and the page's
+ * padding used to key off the window (`md:p-20`): 160px of it, leaving a column
+ * about 200px wide with a 36px title (prose's `h1`) set in it, one or two words
+ * to a line. The wrapper below is a container, so the padding and the title
+ * size follow the panel's own width instead. From 768px up the padding is the
+ * 80px it always was, and the title is the 36px prose gives an `h1` from about
+ * 600px up, so a panel at full width looks as before. Below that the title
+ * shrinks smoothly to a floor of 24px and the padding drops to the 16px a
+ * phone already used.
+ *
+ * `cqi` is 1% of the nearest container's inline size, so the title clamp reads
+ * this wrapper. The title selector is scoped to this wrapper on purpose: the
+ * same editor renders inline in the chat (`DocumentPreview`), where nothing
+ * about the panel's width applies.
+ */
+const PAGE_CONTAINER_CLASS = "@container flex w-full flex-col items-center";
+const PAGE_CLASS = "m-auto flex max-w-3xl flex-row px-4 py-8 @3xl:p-20";
+const TITLE_SIZE_CLASS = "[&_h1]:text-[length:clamp(1.5rem,6cqi,2.25rem)]";
+
 export const textArtifact = new Artifact<"text">({
   kind: "text",
   description: "Useful for text content, like drafting essays and emails.",
@@ -44,22 +68,26 @@ export const textArtifact = new Artifact<"text">({
       const newContent = getDocumentContentById(currentVersionIndex);
 
       return (
-        <div className="m-auto flex max-w-3xl flex-row px-4 py-8 md:p-20">
-          <DiffView newContent={newContent} oldContent={oldContent} />
+        <div className={PAGE_CONTAINER_CLASS}>
+          <div className={PAGE_CLASS}>
+            <DiffView newContent={newContent} oldContent={oldContent} />
+          </div>
         </div>
       );
     }
 
     return (
-      <div className="m-auto flex max-w-3xl flex-row px-4 py-8 md:p-20">
-        <Editor
-          content={content}
-          currentVersionIndex={currentVersionIndex}
-          isCurrentVersion={isCurrentVersion}
-          isReadonly={isReadonly}
-          onSaveContent={onSaveContent}
-          status={status}
-        />
+      <div className={PAGE_CONTAINER_CLASS}>
+        <div className={cn(PAGE_CLASS, TITLE_SIZE_CLASS)}>
+          <Editor
+            content={content}
+            currentVersionIndex={currentVersionIndex}
+            isCurrentVersion={isCurrentVersion}
+            isReadonly={isReadonly}
+            onSaveContent={onSaveContent}
+            status={status}
+          />
+        </div>
       </div>
     );
   },

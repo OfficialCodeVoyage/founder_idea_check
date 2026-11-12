@@ -18,7 +18,8 @@ import type {
   ToolOutput,
 } from "@/lib/ai/types";
 import { isSelectedModelValue } from "@/lib/ai/types";
-import { deleteFilesByUrls } from "@/lib/file-storage";
+import { deleteFilesByUrls, isFileOwnedBy } from "@/lib/file-storage";
+import { keyFromFileUrl } from "@/lib/file-url";
 import { createModuleLogger } from "@/lib/logger";
 import { chatMessageToDbMessage } from "@/lib/message-conversion";
 import { selectActiveThread } from "@/lib/thread-utils";
@@ -1319,19 +1320,25 @@ function collectFilePartUrls(
 }
 
 /**
- * Every stored-file link one chat's messages hold: file parts, and the media
- * links in generateImage / generateVideo tool outputs. Read by
- * `lib/file-access.ts::canReadStoredFile` to decide whether a chat really
- * contains a file. Bounded to one chat's file and media parts.
+ * Every stored-file link one chat's messages hold — file parts, and the media
+ * links in generateImage / generateVideo tool outputs — with when its Part row
+ * was written. `createdAt` is the database's own insert time (the part mapping
+ * never sets it), which `lib/file-storage.ts::isFileReferenceTrusted` relies
+ * on for pre-tag keys. Read by `lib/file-access.ts::canReadStoredFile` and by
+ * cloning. Bounded to one chat's file and media parts.
  */
-export async function getFileUrlsByChatId({
+export async function getFileReferencesByChatId({
   chatId,
 }: {
   chatId: string;
-}): Promise<string[]> {
+}): Promise<{ url: string; createdAt: Date }[]> {
   const mediaTools: ToolName[] = ["generateImage", "generateVideo"];
   const rows = await db
-    .select({ file_url: part.file_url, tool_output: part.tool_output })
+    .select({
+      file_url: part.file_url,
+      tool_output: part.tool_output,
+      createdAt: part.createdAt,
+    })
     .from(part)
     .innerJoin(message, eq(part.messageId, message.id))
     .where(
@@ -1341,22 +1348,19 @@ export async function getFileUrlsByChatId({
       )
     );
 
-  const urls: string[] = [];
+  const references: { url: string; createdAt: Date }[] = [];
   for (const row of rows) {
-    if (row.file_url) {
-      urls.push(row.file_url);
-    }
     const output = row.tool_output as {
       imageUrl?: unknown;
       videoUrl?: unknown;
     } | null;
-    for (const url of [output?.imageUrl, output?.videoUrl]) {
+    for (const url of [row.file_url, output?.imageUrl, output?.videoUrl]) {
       if (typeof url === "string") {
-        urls.push(url);
+        references.push({ url, createdAt: row.createdAt });
       }
     }
   }
-  return urls;
+  return references;
 }
 
 export async function getAllAttachmentUrls(): Promise<string[]> {
@@ -1387,8 +1391,29 @@ export async function getAllAttachmentUrls(): Promise<string[]> {
   }
 }
 
+/**
+ * Deletes the stored files that one chat's messages (all of `messages` belong
+ * to the same chat) hold — but only files the chat's owner stored
+ * (`lib/file-storage.ts::isFileOwnedBy`). Message parts are client-supplied:
+ * a reference to someone else's key, or to an untagged pre-tag key, proves
+ * nothing about who owns it, so deleting a chat or a message must never delete
+ * such a file. Pre-tag files are therefore never deleted here. No owner found
+ * means nothing is deleted.
+ */
 async function deleteAttachmentsFromMessages(messages: DBMessage[]) {
   try {
+    const chatId = messages[0]?.chatId;
+    if (!chatId) {
+      return;
+    }
+    const [owner] = await db
+      .select({ userId: chat.userId })
+      .from(chat)
+      .where(eq(chat.id, chatId));
+    if (!owner) {
+      return;
+    }
+
     const attachmentUrls = collectMessageAttachmentUrls(messages);
 
     // Collect file URLs from Part table for these messages via shared helper
@@ -1398,8 +1423,12 @@ async function deleteAttachmentsFromMessages(messages: DBMessage[]) {
       attachmentUrls.push(...collectFilePartUrls(fileParts));
     }
 
-    // Deduplicate in case the same file URL is referenced multiple times
-    const uniqueUrls = [...new Set(attachmentUrls)];
+    // Deduplicate in case the same file URL is referenced multiple times, and
+    // keep only the chat owner's own files.
+    const uniqueUrls = [...new Set(attachmentUrls)].filter((url) => {
+      const key = keyFromFileUrl(url);
+      return key !== null && isFileOwnedBy(key, owner.userId);
+    });
     if (uniqueUrls.length > 0) {
       await deleteFilesByUrls(uniqueUrls);
     }

@@ -4,12 +4,18 @@ import type { ChatMessage } from "./ai/types";
 
 const SOURCE_OWNER = "user-1";
 const SOURCE_OWNER_KEY = "Ab3_xY9-kLmN0pQr.l_u0a2bkphKLFKsBI4q5Tue9.png";
+const TRUSTED_LEGACY_KEY = "l_u0a2bkphKLFKsBI4q5Tue9.png";
+const CLONE_OWNERS = {
+  ownerId: "user-2",
+  sourceOwnerId: SOURCE_OWNER,
+  trustedLegacyKeys: new Set([TRUSTED_LEGACY_KEY]),
+};
 
 const fileStorage = vi.hoisted(() => ({
   downloadFile: vi.fn(),
   uploadFile: vi.fn(),
   // The source owner stored only the key that starts with their tag.
-  isFileSharedByChatOwner: (key: string, ownerId: string) =>
+  isFileOwnedBy: (key: string, ownerId: string) =>
     ownerId === "user-1" && key.startsWith("Ab3_xY9-kLmN0pQr."),
 }));
 
@@ -256,7 +262,7 @@ describe("cloneAttachmentsInMessages", () => {
           ],
         },
       ],
-      { ownerId: "user-2", sourceOwnerId: SOURCE_OWNER }
+      CLONE_OWNERS
     );
 
     assert.deepEqual(fileStorage.downloadFile.mock.calls, [[SOURCE_OWNER_KEY]]);
@@ -295,7 +301,7 @@ describe("cloneAttachmentsInMessages", () => {
           ],
         },
       ] as Array<{ parts: ChatMessage["parts"] }>,
-      { ownerId: "user-2", sourceOwnerId: SOURCE_OWNER }
+      CLONE_OWNERS
     );
 
     assert.deepEqual(fileStorage.downloadFile.mock.calls, [[SOURCE_OWNER_KEY]]);
@@ -314,6 +320,9 @@ describe("cloneAttachmentsInMessages", () => {
     fileStorage.uploadFile.mockReset();
     const foreignUrl =
       "/api/files/content?key=Zz9_zZ9-zZzZzZzZ.l_u0a2bkphKLFKsBI4q5Tue9.png";
+    // A pre-tag key the source chat holds only through an untrusted reference.
+    const untrustedLegacyUrl =
+      "/api/files/content?key=Qq9_qQ9-qQqQqQqQqQqQqQqQ.png";
 
     const [message] = await cloneAttachmentsInMessages(
       [
@@ -325,17 +334,23 @@ describe("cloneAttachmentsInMessages", () => {
               mediaType: "image/png",
               url: foreignUrl,
             },
+            {
+              type: "file",
+              filename: "old.png",
+              mediaType: "image/png",
+              url: untrustedLegacyUrl,
+            },
           ],
         },
       ],
-      { ownerId: "user-2", sourceOwnerId: SOURCE_OWNER }
+      CLONE_OWNERS
     );
 
     assert.equal(fileStorage.downloadFile.mock.calls.length, 0);
     assert.equal(fileStorage.uploadFile.mock.calls.length, 0);
-    assert.equal(
-      message.parts[0]?.type === "file" ? message.parts[0].url : null,
-      foreignUrl
+    assert.deepEqual(
+      message.parts.map((part) => (part.type === "file" ? part.url : null)),
+      [foreignUrl, untrustedLegacyUrl]
     );
   });
 });

@@ -1,12 +1,8 @@
 import type { FileUIPart } from "ai";
 import type { ChatMessage } from "./ai/types";
 import { FILE_STORAGE_PREFIX } from "./constants";
-import {
-  downloadFile,
-  isFileSharedByChatOwner,
-  uploadFile,
-} from "./file-storage";
-import { keyFromFileUrl } from "./file-url";
+import { downloadFile, isFileOwnedBy, uploadFile } from "./file-storage";
+import { keyFromFileUrl, ownerTagFromFileKey } from "./file-url";
 import { generateUUID } from "./utils";
 
 function cloneMessages<
@@ -239,24 +235,31 @@ function cloneDocuments<
   return clonedDocuments;
 }
 
-/** Who the copy is for and whose chat it is copied from. */
+/** Who the copy is for, and what the source chat may hand over. */
 interface CloneOwners {
   /** The user the cloned chat belongs to; copies are stored under them. */
   ownerId: string;
   /** The owner of the source chat. */
   sourceOwnerId: string;
+  /**
+   * The untagged pre-tag keys the source chat holds through trusted
+   * references (`lib/file-access.ts::getTrustedLegacyFileKeys`).
+   */
+  trustedLegacyKeys: ReadonlySet<string>;
 }
 
 /**
  * Copies one stored file into the cloner's storage and returns the copy's
  * link, or null when the link is not copied (and stays as it was).
  *
- * The cloner may only read the source chat's files that its owner put there
- * (`lib/file-storage.ts::isFileSharedByChatOwner`). Message parts are
+ * The cloner may only copy the source chat's files that its owner put there,
+ * the same rule as reading them (`lib/file-access.ts::canReadStoredFile`): a
+ * tagged key must be the source owner's (`lib/file-storage.ts::isFileOwnedBy`)
+ * and an untagged pre-tag key must be in `trustedLegacyKeys`. Message parts are
  * client-supplied, so a public chat could otherwise launder someone else's
  * file: paste their key into your own chat, share it, clone it, and the copy
- * is yours. A key the source owner did not store is left alone; it is not
- * readable in the clone either (`lib/file-access.ts::canReadStoredFile`).
+ * is yours. Any other key is left alone; it is not readable in the clone
+ * either.
  */
 async function copyStoredFile(
   url: string,
@@ -269,7 +272,11 @@ async function copyStoredFile(
     // External files are not managed by this instance; the link is kept.
     return null;
   }
-  if (!isFileSharedByChatOwner(key, owners.sourceOwnerId)) {
+  const mayCopy =
+    ownerTagFromFileKey(key) === null
+      ? owners.trustedLegacyKeys.has(key)
+      : isFileOwnedBy(key, owners.sourceOwnerId);
+  if (!mayCopy) {
     console.warn("Stored file is not the source chat owner's; not copied");
     return null;
   }

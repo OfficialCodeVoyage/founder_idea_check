@@ -20,7 +20,7 @@ vi.mock("server-only", () => ({}));
 
 const queries = vi.hoisted(() => ({
   getChatById: vi.fn(),
-  getFileUrlsByChatId: vi.fn(),
+  getFileReferencesByChatId: vi.fn(),
 }));
 vi.mock("@/lib/db/queries", () => queries);
 
@@ -36,10 +36,15 @@ function get(url: string) {
   return new Request(new URL(url, "https://chat.example"));
 }
 
+/** A stored reference, written by the database at `createdAt`. */
+function ref(url: string, createdAt = new Date()) {
+  return { url, createdAt };
+}
+
 describe("file access through a chat", () => {
   beforeEach(() => {
     queries.getChatById.mockReset();
-    queries.getFileUrlsByChatId.mockReset();
+    queries.getFileReferencesByChatId.mockReset();
   });
 
   async function ownersFileInChat(visibility: "public" | "private") {
@@ -49,7 +54,7 @@ describe("file access through a chat", () => {
       userId: OWNER,
       visibility,
     });
-    queries.getFileUrlsByChatId.mockResolvedValue([uploaded.url]);
+    queries.getFileReferencesByChatId.mockResolvedValue([ref(uploaded.url)]);
     return uploaded.url;
   }
 
@@ -86,7 +91,7 @@ describe("file access through a chat", () => {
       userId: VIEWER,
       visibility: "public",
     });
-    queries.getFileUrlsByChatId.mockResolvedValue([victims.url]);
+    queries.getFileReferencesByChatId.mockResolvedValue([ref(victims.url)]);
 
     const url = fileUrlInChat(victims.url, CHAT_ID);
     assert.equal(
@@ -103,28 +108,32 @@ describe("file access through a chat", () => {
     assert.equal((await createFileContentResponse(get(url), null)).status, 404);
   });
 
-  it("serves a pre-tag file only through a chat that references it", async () => {
+  it("serves a pre-tag file only through a reference written before the owner tag existed", async () => {
     const legacyUrl = "/api/files/content?key=l_u0a2bkphKLFKsBI4q5Tue9.txt";
+    const viaChat = get(fileUrlInChat(legacyUrl, CHAT_ID));
     queries.getChatById.mockResolvedValue({
       id: CHAT_ID,
       userId: OWNER,
-      visibility: "private",
+      visibility: "public",
     });
-    queries.getFileUrlsByChatId.mockResolvedValue([legacyUrl]);
 
     // Without a chat, a pre-tag key proves no owner.
-    assert.equal(
-      (await createFileContentResponse(get(legacyUrl), OWNER)).status,
-      404
-    );
-    // Through the owner's chat it is allowed (and 404s here only because the
-    // memory store does not hold it, after the access check passed).
-    const response = await createFileContentResponse(
-      get(fileUrlInChat(legacyUrl, CHAT_ID)),
-      OWNER
-    );
-    assert.equal(response.status, 404);
-    assert.equal(await response.text(), "File not found");
+    const noChat = await createFileContentResponse(get(legacyUrl), OWNER);
+    assert.equal(await noChat.text(), "Not found");
+
+    // A reference written after the rollout (a pasted pre-tag link) is refused.
+    queries.getFileReferencesByChatId.mockResolvedValue([ref(legacyUrl)]);
+    const pasted = await createFileContentResponse(viaChat.clone(), VIEWER);
+    assert.equal(await pasted.text(), "Not found");
+
+    // A reference written before it passes the access check; the memory
+    // store does not hold the file, so storage then answers "File not found".
+    queries.getFileReferencesByChatId.mockResolvedValue([
+      ref(legacyUrl, new Date("2026-01-01T00:00:00Z")),
+    ]);
+    const original = await createFileContentResponse(viaChat, VIEWER);
+    assert.equal(original.status, 404);
+    assert.equal(await original.text(), "File not found");
   });
 
   it("answers 401 to a signed-out request with no chat, and denies on lookup errors", async () => {

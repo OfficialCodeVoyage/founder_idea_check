@@ -46,7 +46,8 @@ export interface TurnViewer {
  * A chat turn's file parts come from the client, so a URL on this app's file
  * route is inlined only when the caller could open that file themselves
  * (`lib/file-access.ts::canReadStoredFile`, asked about the turn's own chat):
- * a key the caller stored, or a pre-tag untagged key that chat references.
+ * a key the caller stored, or a pre-tag untagged key that chat has referenced
+ * since before the owner tag existed.
  * Anything else on that route — someone else's key, a malformed link, any key
  * on an anonymous turn — is refused and replaced with a text part saying so,
  * never fetched. A key the caller stored is decided without a lookup.

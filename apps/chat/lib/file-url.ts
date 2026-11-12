@@ -7,10 +7,12 @@ export const FILE_CONTENT_PATH = "/api/files/content";
  * stored it without any other lookup.
  *
  * Files stored before the tag existed have a bare `<random id>[.ext]` key
- * (LEGACY_STORAGE_KEY). They are still managed keys — chats that reference
- * them must keep working — but they name no owner, so `ownerTagFromFileKey`
- * returns null for them and no rule that trusts a tag ever accepts one. Only
- * new keys are created by `lib/file-storage.ts::uploadFile`, always tagged.
+ * (LEGACY_STORAGE_KEY). They are still managed keys — the chats that held them
+ * must keep working — but they name no owner, so `ownerTagFromFileKey` returns
+ * null for them, no rule that trusts a tag ever accepts one, and only a
+ * reference written before the tag existed admits one
+ * (`lib/file-storage.ts::isFileReferenceTrusted`). New keys are created only by
+ * `lib/file-storage.ts::uploadFile`, always tagged.
  */
 export const FILE_OWNER_TAG_LENGTH = 16;
 const TAGGED_STORAGE_KEY =

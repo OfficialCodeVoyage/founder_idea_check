@@ -20,6 +20,7 @@ import {
   updateChatVisiblityById,
   updateMessageCanceledAt,
 } from "@/lib/db/queries";
+import { getTrustedLegacyFileKeys } from "@/lib/file-access";
 import { dbChatToUIChat } from "@/lib/message-conversion";
 import { generateUUID } from "@/lib/utils";
 import {
@@ -326,6 +327,14 @@ export const chatRouter = createTRPCRouter({
       });
 
       // Create a new chat for the user
+      // Which pre-tag files the source chat may hand over is read before
+      // anything is written; a lookup error fails the clone instead of
+      // copying blindly.
+      const trustedLegacyKeys = await getTrustedLegacyFileKeys({
+        chatId: input.chatId,
+        chatOwnerId: sourceChat.userId,
+      });
+
       const newChatId = generateUUID();
 
       // Insert the new chat
@@ -349,7 +358,11 @@ export const chatRouter = createTRPCRouter({
       // Clone attachments in messages (this has side effects - network calls to blob storage)
       const messagesWithClonedAttachments = await cloneAttachmentsInMessages(
         clonedMessages,
-        { ownerId: ctx.user.id, sourceOwnerId: sourceChat.userId }
+        {
+          ownerId: ctx.user.id,
+          sourceOwnerId: sourceChat.userId,
+          trustedLegacyKeys,
+        }
       );
 
       // Save cloned messages first, then documents due to foreign key dependency

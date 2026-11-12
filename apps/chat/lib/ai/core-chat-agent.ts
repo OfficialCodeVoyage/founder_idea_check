@@ -123,7 +123,8 @@ export async function createCoreChatAgent({
   });
 
   // Replace file URLs with binary data. Only files this user could open
-  // themselves are inlined (their own, or a pre-tag file this chat references:
+  // themselves are inlined (their own, or a pre-tag file this chat has held
+  // since before the owner tag existed:
   // lib/file-access.ts::canReadStoredFile); an anonymous turn (userId null)
   // inlines none.
   const fileViewer = { userId, chatId: isAnonymous ? null : (chatId ?? null) };

@@ -69,7 +69,8 @@ async function resolveImageModel(selectedModel?: string): Promise<{
  * Reads an edit-reference image. A file this app stores is read from storage
  * directly, and only when the requesting user could open it themselves
  * (`lib/file-access.ts::canReadStoredFile`, asked about the turn's own chat):
- * a file they stored, or a pre-tag file that chat references. The reference
+ * a file they stored, or a pre-tag file that chat has held since before the
+ * owner tag existed. The reference
  * comes from the client (an attachment) or from the chat's stored messages
  * (`lastGeneratedImage`), so neither is trusted on its own. Storage is read
  * directly because `/api/files/content` needs the browser's session, which

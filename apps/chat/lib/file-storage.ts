@@ -53,29 +53,41 @@ export function isFileOwnedBy(key: string, userId: string): boolean {
 }
 
 /**
- * Whether a reference to `key` inside a chat owned by `chatOwnerId` counts as
- * the file's owner sharing it with that chat's viewers. Only the chat's owner
- * (and the assistant answering them) writes that chat's messages, but those
- * messages are client-supplied, so a reference alone proves nothing: anyone can
- * paste someone else's key into their own chat. A tagged key therefore counts
- * only when its tag is the chat owner's.
- *
- * A legacy untagged key (`lib/file-url.ts::LEGACY_STORAGE_KEY`) names no owner,
- * so any chat that references one vouches for it. RESIDUAL, stated plainly: a
- * signed-in user who learns a pre-tag file's key can paste it into a chat of
- * their own and then read it there (and so can viewers of that chat if it is
- * shared). New files are always tagged, so this only covers files stored
- * before the tag existed.
+ * When stored keys started carrying an owner tag (commit 1049fae9). From then
+ * on `uploadFile` only creates tagged keys, so an untagged key is a file
+ * stored before this instant.
  */
-export function isFileSharedByChatOwner(
-  key: string,
-  chatOwnerId: string
-): boolean {
-  const tag = ownerTagFromFileKey(key);
-  if (tag === null) {
-    return isFileStorageKey(key);
+export const OWNER_TAG_ROLLOUT = new Date("2026-11-12T09:34:27Z");
+
+/**
+ * Whether one stored reference to `key` (a Part row) in a chat owned by
+ * `chatOwnerId` counts as the file's owner sharing it with that chat's
+ * viewers. Message parts are client-supplied, so a reference alone proves
+ * nothing: anyone can paste someone else's key or link into their own chat.
+ *
+ * - A tagged key counts only when its tag is the chat owner's.
+ * - An untagged pre-tag key (`lib/file-url.ts::LEGACY_STORAGE_KEY`) names no
+ *   owner. It counts only when the Part row referencing it was written before
+ *   OWNER_TAG_ROLLOUT. `referencedAt` must be `Part.createdAt`, which the
+ *   database sets on insert (`lib/utils/message-mapping.ts` never writes it);
+ *   `Message.createdAt` is NOT usable here, because the chat route takes it
+ *   from the client's message metadata. A reference written after the rollout
+ *   — such as a pasted pre-tag link — never counts, so a pre-tag file stays
+ *   readable only in the chats that held it before the rollout.
+ */
+export function isFileReferenceTrusted({
+  key,
+  chatOwnerId,
+  referencedAt,
+}: {
+  key: string;
+  chatOwnerId: string;
+  referencedAt: Date;
+}): boolean {
+  if (ownerTagFromFileKey(key) !== null) {
+    return isFileOwnedBy(key, chatOwnerId);
   }
-  return tag === fileOwnerTag(chatOwnerId);
+  return isFileStorageKey(key) && referencedAt < OWNER_TAG_ROLLOUT;
 }
 
 function createStorageKey(filename: string, ownerId: string): string {

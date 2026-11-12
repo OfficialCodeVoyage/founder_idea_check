@@ -15,7 +15,11 @@ import {
   transformMessagesIntoResearchTopicPrompt,
 } from "./prompts";
 import { describeMissingReportDocument } from "./report-outcome";
-import { type ResearchClock, reportWordBudget } from "./research-clock";
+import {
+  describeCuts,
+  type ResearchClock,
+  reportWordBudget,
+} from "./research-clock";
 import { runSupervisor } from "./supervisor-agent";
 import {
   type AgentOptions,
@@ -449,8 +453,11 @@ function reportTimeInstructions(
   return `${limit}
 
 <Search cut short for time>
-The research stopped searching early to leave time for this report: ${clock.cuts.join("; ")}.
-Say so near the top of the report, in a short section titled "Research cut short", in plain words: name what was cut, in your own words, from the list above and nothing more. Say that a search or a topic did not run only if the list says so; a researcher stopped mid-step lost its last step, which is not the same as a search that never ran. Do not present a topic that was not searched as a topic with no evidence.
+The research did not finish everything it planned, mostly to stop early and leave time for this report:
+${describeCuts(clock.cuts)
+  .map((line) => `- ${line}`)
+  .join("\n")}
+Say so near the top of the report, in a short section titled "Research cut short", in plain words: name what was cut, in your own words, from the list above and nothing more. When a line names topics, name each of those topics (a few words each, in your own words), so the reader can see which part of the question rests on less evidence; when it names none, do not guess one. Say that a search or a topic did not run only if the list says so; a researcher stopped mid-step lost its last step, which is not the same as a search that never ran. Do not present a topic that was not searched as a topic with no evidence.
 </Search cut short for time>`;
 }
 

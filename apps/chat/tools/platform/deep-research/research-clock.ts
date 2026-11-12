@@ -68,6 +68,19 @@ const WORDS_PER_TOKEN = 0.75;
 /** Below this a report cannot say anything useful; asked for anyway. */
 const MIN_REPORT_WORDS = 400;
 
+/**
+ * One thing a cut left behind: the research topic it hit (null when the cut is
+ * not about one topic, such as a search step refused for time) and the numbers
+ * the caller knew (`stepsFinished`, `unfinishedStepSeconds`).
+ */
+export type CutOccurrence = {
+  topic: string | null;
+  detail: Readonly<Record<string, number | string>>;
+};
+
+/** A reason, and every occurrence of it. One record per reason. */
+export type CutRecord = { reason: string; occurrences: CutOccurrence[] };
+
 export type ResearchClock = {
   /** When the route aborts the request. The backstop. */
   readonly requestDeadlineAt: number;
@@ -77,10 +90,13 @@ export type ResearchClock = {
   readonly reportDueAt: number;
   readonly now: () => number;
   /**
-   * What was cut short for time, in the order it happened. Empty means
-   * nothing was. The report prompt quotes these so the report can say so.
+   * What was cut short, in the order it first happened, ONE RECORD PER REASON.
+   * Empty means nothing was. The report prompt quotes these (`describeCuts`) so
+   * the report can say so. Several researchers can be stopped for the same
+   * reason; each keeps its own occurrence under that one record, so the report
+   * can name every topic that was affected and not only the first.
    */
-  readonly cuts: string[];
+  readonly cuts: CutRecord[];
 };
 
 /** PURE apart from reading `now`. */
@@ -125,27 +141,77 @@ export function searchStepTimeoutMs(clock: ResearchClock): number {
   return Math.min(SEARCH_STEP_TIMEOUT_MS, msUntil(clock, clock.searchStopAt));
 }
 
+/** Longest topic text kept for the report, which only has to recognise it. */
+const MAX_CUT_TOPIC_CHARS = 160;
+
+const WHITESPACE_RUN = /\s+/g;
+/** Punctuation and space left dangling once a topic is cut at a word. */
+const DANGLING_PUNCTUATION = /[\s,;:—-]+$/;
+
+/** PURE. A research topic (a paragraph) cut to a recognisable clause. */
+function clipTopic(topic: string): string {
+  const flat = topic.replace(WHITESPACE_RUN, " ").trim();
+  if (flat.length <= MAX_CUT_TOPIC_CHARS) {
+    return flat;
+  }
+  const room = flat.slice(0, MAX_CUT_TOPIC_CHARS - 1);
+  const lastSpace = room.lastIndexOf(" ");
+  const kept =
+    lastSpace > MAX_CUT_TOPIC_CHARS / 2 ? room.slice(0, lastSpace) : room;
+  return `${kept.replace(DANGLING_PUNCTUATION, "")}…`;
+}
+
 /**
- * Notes a cut once; the same reason twice is one fact.
+ * Notes a cut. The same fact twice is one fact; the same reason for a DIFFERENT
+ * topic is a second occurrence under the same record.
+ *
+ * ONE RECORD PER REASON, EVERY OCCURRENCE KEPT. This used to keep the first
+ * caller's reason and drop every later call with the same reason, so when two
+ * researchers were stopped mid-step only the first was logged and reported, and
+ * the report could not say which topics lost their last step. A call now adds
+ * its `topic` and `detail` to the reason's record unless an identical one is
+ * already there (a search step refused for time twice, with nothing to tell the
+ * two apart, is still one fact).
+ *
+ * `topic` is what the report names, so a founder can see WHICH topic is thin
+ * (`describeCuts`). It is clipped here, and it is not written to the log: the
+ * log line carries the reason, the seconds since the request arrived and the
+ * second the search stop was due (both on the request's own clock, the same one
+ * the arithmetic at the top of this file counts on), and whatever else the caller
+ * knows about what was in flight (`detail`).
  *
  * LOGGED, WITH WHERE IN THE REQUEST IT HAPPENED. A cut used to reach the report
- * prompt and nothing else, so when a run was cut short nobody could say which
- * of the cuts had fired or how far into the request it was. The log
- * line carries the reason, the seconds since the request arrived and the second
- * the search stop was due (both on the request's own clock, the same one the
- * arithmetic at the top of this file counts on), and whatever the caller knows
- * about what was in flight (`detail`). The reasons are the strings the callers
- * in the researcher, the supervisor and the search tool pass.
+ * prompt and nothing else, so when a run was cut short nobody could say which of
+ * the cuts had fired or how far into the request it was. The reasons are the
+ * strings the callers in the researcher, the supervisor and the search tool
+ * pass. Most are about time; one (a researcher's first reply cut off at its
+ * output limit) is not, and is recorded here all the same because the report has
+ * to say that a topic went unresearched.
  */
 export function recordCut(
   clock: ResearchClock,
   reason: string,
-  detail: Record<string, number | string> = {}
+  detail: Record<string, number | string> = {},
+  topic?: string
 ): void {
-  if (clock.cuts.includes(reason)) {
+  const occurrence: CutOccurrence = {
+    topic: topic ? clipTopic(topic) : null,
+    detail,
+  };
+  let record = clock.cuts.find((cut) => cut.reason === reason);
+  if (!record) {
+    record = { reason, occurrences: [] };
+    clock.cuts.push(record);
+  }
+  const repeated = record.occurrences.some(
+    (seen) =>
+      seen.topic === occurrence.topic &&
+      JSON.stringify(seen.detail) === JSON.stringify(occurrence.detail)
+  );
+  if (repeated) {
     return;
   }
-  clock.cuts.push(reason);
+  record.occurrences.push(occurrence);
   const requestStartedAt = clock.requestDeadlineAt - CHAT_REQUEST_BUDGET_MS;
   log.warn(
     {
@@ -156,6 +222,29 @@ export function recordCut(
     },
     "deep research was cut short for time"
   );
+}
+
+/**
+ * PURE. The cuts as lines for the report prompt: the reason, and under it every
+ * topic that reason hit (with how many search steps it had finished, when the
+ * caller said). A reason that names no topic is just the reason.
+ */
+export function describeCuts(cuts: readonly CutRecord[]): string[] {
+  return cuts.map(({ reason, occurrences }) => {
+    const topics = occurrences
+      .filter((occurrence) => occurrence.topic !== null)
+      .map(({ topic, detail }) => {
+        const finished = detail.stepsFinished;
+        const steps =
+          typeof finished === "number"
+            ? ` (${finished} search ${finished === 1 ? "step" : "steps"} had finished)`
+            : "";
+        return `"${topic}"${steps}`;
+      });
+    return topics.length === 0
+      ? reason
+      : `${reason}. Topics affected: ${topics.join("; ")}`;
+  });
 }
 
 function toSeconds(ms: number): number {

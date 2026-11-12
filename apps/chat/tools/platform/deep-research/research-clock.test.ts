@@ -86,7 +86,9 @@ describe("recordCut", () => {
     recordCut(clock, reason, { stepsFinished: 2 });
     recordCut(clock, reason, { stepsFinished: 2 });
 
-    expect(clock.cuts).toEqual([reason]);
+    expect(clock.cuts).toEqual([
+      { reason, occurrences: [{ topic: null, detail: { stepsFinished: 2 } }] },
+    ]);
     expect(warn).toHaveBeenCalledTimes(1);
     const [fields] = warn.mock.calls[0];
     expect(fields).toMatchObject({

@@ -59,9 +59,14 @@ export async function runSupervisor(
         // Checked AFTER the semaphore: a topic queued behind two others may
         // reach the front with no search time left.
         if (!canStartResearchTopic(clock)) {
+          // WITH THE TOPIC. Without it the report could only say that "a
+          // planned research topic" was not run, and the founder could not tell
+          // which part of their question had no search behind it.
           recordCut(
             clock,
-            "a planned research topic was not started because the search time had run out"
+            "a planned research topic was not started because the search time had run out",
+            {},
+            research_topic
           );
           return `NOT RESEARCHED: the search time for this run ran out before this topic could start, so nothing was searched for it. Topic: ${research_topic}`;
         }

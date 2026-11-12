@@ -86,7 +86,9 @@ export async function runResearcher(
         }
         recordCut(
           clock,
-          "a researcher stopped searching at the search deadline"
+          "a researcher stopped searching at the search deadline",
+          { stepsFinished },
+          topic
         );
         return true;
       },
@@ -163,6 +165,21 @@ export async function runResearcher(
       finishReason === "length"
         ? withoutTruncatedReply(response.messages)
         : response.messages;
+    // EXCEPT WHEN THERE WAS NO SEARCH BEHIND IT. A researcher whose very first
+    // reply hit the cap (the model wrote prose, or reasoned, instead of
+    // searching) has nothing left once that reply is dropped, and the topic ends
+    // as "NOT RESEARCHED" below. That is a topic that went unresearched, so the
+    // report is told, exactly as it is for a topic the clock never started.
+    if (finishReason === "length" && researchMessages.length === 0) {
+      recordCut(
+        clock,
+        "a researcher's first reply was cut off at its output limit before it searched, so its topic was not researched",
+        // No `stepsFinished`: that step finished, but searched nothing, and the
+        // report would read "1 search step had finished" as a search.
+        {},
+        topic
+      );
+    }
   } catch (error) {
     // Only the planned search deadline is absorbed; the route's abort and
     // every real failure still propagate. The step in flight is lost, the
@@ -178,7 +195,8 @@ export async function runResearcher(
         // How long the step that was cut had been running.
         unfinishedStepSeconds:
           Math.round((clock.now() - lastStepFinishedAt) / 100) / 10,
-      }
+      },
+      topic
     );
     researchMessages = finishedMessages;
   }
@@ -188,7 +206,7 @@ export async function runResearcher(
   const compressed =
     researchMessages.length === 0
       ? `NOT RESEARCHED: no search for this topic finished (the search time ran out, or the researcher's first reply was cut off). Topic: ${topic}`
-      : await compressResearch(researchMessages, options);
+      : await compressResearch(researchMessages, options, topic);
 
   dataStream.write({
     type: "data-researchUpdate",
@@ -218,7 +236,8 @@ function withoutTruncatedReply(messages: ModelMessage[]): ModelMessage[] {
 
 async function compressResearch(
   researchMessages: ModelMessage[],
-  options: AgentOptions
+  options: AgentOptions,
+  topic: string
 ): Promise<string> {
   const { config, abortSignal } = options;
   const model = await getLanguageModel(config.compression_model as ModelId);
@@ -272,7 +291,9 @@ async function compressResearch(
     }
     recordCut(
       options.clock,
-      "condensing a researcher's findings was stopped, so they were passed on uncondensed"
+      "condensing a researcher's findings was stopped, so they were passed on uncondensed",
+      {},
+      topic
     );
     return uncondensedFindings(researchMessages);
   }
@@ -285,8 +306,30 @@ async function compressResearch(
     );
   }
 
+  // THE CAP IS NOT RAISED (it is the time budget: `compression_model_max_tokens`
+  // is what fits the 30 s compression allowance), but a note that stops at it is
+  // not a finished note. Live QA (2026-11-12) saw one compression call end at
+  // exactly 4,000 output tokens with nothing said anywhere. It is logged, and the
+  // notes carry a last line saying they are incomplete, because the report writer
+  // reads them as the researcher's whole findings.
+  if (response.finishReason === "length") {
+    log.warn(
+      {
+        outputTokens: response.usage?.outputTokens,
+        reasoningTokens: response.usage?.outputTokenDetails?.reasoningTokens,
+        maxOutputTokens: config.compression_model_max_tokens,
+      },
+      "condensed research notes hit the output cap"
+    );
+    return `${response.text}\n\n${COMPRESSION_CUT_OFF_NOTE}`;
+  }
+
   return response.text;
 }
+
+/** The last line of compressed notes that were cut off at the output cap. */
+const COMPRESSION_CUT_OFF_NOTE =
+  "[These notes were cut off at the output limit and are incomplete: findings and sources from the end of this researcher's work are missing.]";
 
 /**
  * Enough of the raw transcript to cite from, bounded so that several of these

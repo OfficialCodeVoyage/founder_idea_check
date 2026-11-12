@@ -882,35 +882,6 @@ export async function getPersonaDocumentsByProjectId({
   }
 }
 
-/**
- * EVERY document version stored under a project, oldest first — personas and
- * ordinary artifacts alike.
- *
- * The kind filter is deliberately absent. The canvas needs both lanes and it
- * needs them consistent with each other, so it takes one snapshot and splits it
- * in memory rather than issuing two queries whose results can disagree if a
- * regeneration lands between them.
- *
- * NOT a visibility-aware read: it is keyed on a project the caller has already
- * been shown to own. Do not reuse it on a path where ownership is unproven.
- */
-export async function getDocumentsByProjectId({
-  projectId,
-}: {
-  projectId: string;
-}) {
-  try {
-    return await db
-      .select()
-      .from(document)
-      .where(eq(document.projectId, projectId))
-      .orderBy(asc(document.createdAt));
-  } catch (error) {
-    console.error("Failed to get project documents from database", error);
-    throw error;
-  }
-}
-
 export async function getDocumentById({ id }: { id: string }) {
   try {
     const [selectedDocument] = await db

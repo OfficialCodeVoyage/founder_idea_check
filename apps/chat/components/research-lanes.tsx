@@ -18,9 +18,9 @@ import type {
  * specific gap; research refused itself and told them nothing.
  *
  * The refusal `detail` is rendered WHOLE and unedited. Those strings are written
- * for a human on purpose — one cites Reddit v. Perplexity and Reddit v. Anthropic
- * as the reason a lane stays off, another names the exact parameter Arctic Shift
- * needs instead — and truncating them removes the only part a reader can act on.
+ * for a human on purpose — one names the credential a lane is missing, another
+ * names the exact parameter Arctic Shift needs instead — and truncating them
+ * removes the only part a reader can act on.
  */
 
 const ICON: Record<LaneOutcome["kind"], typeof CircleCheck> = {
@@ -85,7 +85,7 @@ function LaneRow({ lane }: { lane: LaneReport }) {
 export function ResearchLanes({ lanes }: { lanes: LaneReport[] }) {
   if (lanes.length === 0) {
     // No lane report was streamed — an older transcript, or a run that died
-    // before reaching the search tool. Six invented rows would be a claim about
+    // before reaching the search tool. Invented rows would be a claim about
     // gate decisions that were never made.
     return null;
   }

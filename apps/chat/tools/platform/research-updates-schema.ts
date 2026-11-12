@@ -74,10 +74,10 @@ const WritingSchema = TaskUpdateSchema.extend({
  * - `not-attempted`  no harvest ran at all, so this lane was never asked.
  *
  * `detail` is passed through VERBATIM. `decideProviderGate` and the sidecar's
- * adapters write these sentences for a human — one of them cites Reddit v.
- * Perplexity and Reddit v. Anthropic by name, another tells the caller which
- * parameter to pass instead — and summarising them throws away the only part
- * the reader can act on.
+ * adapters write these sentences for a human — one of them names the
+ * credential that is missing, another tells the caller which parameter to pass
+ * instead — and summarising them throws away the only part the reader can act
+ * on.
  */
 const LaneOutcomeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("returned"), signals: z.number() }),

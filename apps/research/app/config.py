@@ -33,15 +33,13 @@ KNOWN_SOURCE_IDS = frozenset(
         "hackernews",
         "web-keyless",
         "github",
-        "reddit-rss",
-        "reddit-shreddit",
         "arctic-shift",
     }
 )
 
 #: Credential names a descriptor may require. Read from the environment and
 #: reported only as present/absent — the values never leave this module.
-CREDENTIAL_NAMES = ("GITHUB_TOKEN", "REDDIT_ENABLED_ACK")
+CREDENTIAL_NAMES = ("GITHUB_TOKEN",)
 
 
 def _flag(env: dict[str, str], name: str, *, default: bool) -> bool:
@@ -65,9 +63,9 @@ def load_settings(environ: dict[str, str] | None = None) -> Settings:
     """PURE with respect to its argument — pass a dict to test it.
 
     `RESEARCH_HOSTED` DEFAULTS TO TRUE. An operator who has not answered the
-    question gets the restrictive answer, which means Reddit stays off. The
-    opposite default would enable a legally exposed source on every deployment
-    that forgot to configure one variable.
+    question gets the restrictive answer, which means a source barred in hosted
+    mode stays barred. The opposite default would enable a legally exposed
+    source on every deployment that forgot to configure one variable.
     """
     env = dict(os.environ if environ is None else environ)
 

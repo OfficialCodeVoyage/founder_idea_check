@@ -3,7 +3,6 @@ import {
   ARCTIC_SHIFT,
   GITHUB,
   HACKERNEWS,
-  REDDIT_RSS,
   WEB_KEYLESS,
 } from "@/lib/signals/providers";
 import type { DemandSignal, SignalFailure } from "@/lib/signals/types";
@@ -18,13 +17,7 @@ import { describeLanes } from "./lane-report";
  * reason; none of it reached the UI.
  */
 
-const DESCRIPTORS = [
-  HACKERNEWS,
-  WEB_KEYLESS,
-  GITHUB,
-  REDDIT_RSS,
-  ARCTIC_SHIFT,
-] as const;
+const DESCRIPTORS = [HACKERNEWS, WEB_KEYLESS, GITHUB, ARCTIC_SHIFT] as const;
 
 function signal(sourceId: DemandSignal["sourceId"], id: string): DemandSignal {
   return {
@@ -39,11 +32,11 @@ function signal(sourceId: DemandSignal["sourceId"], id: string): DemandSignal {
   };
 }
 
-const REDDIT_REFUSAL: SignalFailure = {
-  kind: "disabled",
-  sourceId: "reddit-rss",
+const GITHUB_REFUSAL: SignalFailure = {
+  kind: "missing-credential",
+  sourceId: "github",
   detail:
-    "Reddit (RSS discovery) is off in hosted mode. The keyless Reddit lanes work because Reddit's .json endpoints return 403 while its RSS does not, which is routing around an access control.",
+    "GitHub is enabled but GITHUB_TOKEN is not set. It will not fall back to a keyless path.",
 };
 
 const ARCTIC_REFUSAL: SignalFailure = {
@@ -66,7 +59,6 @@ describe("describeLanes", () => {
       "hackernews",
       "web-keyless",
       "github",
-      "reddit-rss",
       "arctic-shift",
     ]);
   });
@@ -91,38 +83,38 @@ describe("describeLanes", () => {
     const lanes = describeLanes({
       descriptors: DESCRIPTORS,
       signals: [signal("hackernews", "a")],
-      failures: [REDDIT_REFUSAL],
+      failures: [GITHUB_REFUSAL],
       attempted: true,
     });
 
     const webKeyless = lanes.find((lane) => lane.sourceId === "web-keyless");
-    const reddit = lanes.find((lane) => lane.sourceId === "reddit-rss");
+    const github = lanes.find((lane) => lane.sourceId === "github");
 
     // Ran, genuinely nothing there. A finding, and it names itself as one.
     expect(webKeyless?.outcome).toEqual({ kind: "found-nothing" });
     // Never looked. Must not read as "nobody cares".
-    expect(reddit?.outcome.kind).toBe("refused");
+    expect(github?.outcome.kind).toBe("refused");
     expect(webKeyless?.outcome).not.toHaveProperty("signals");
-    expect(reddit?.outcome).not.toHaveProperty("signals");
+    expect(github?.outcome).not.toHaveProperty("signals");
   });
 
   it("passes the refusal detail through VERBATIM, whole", () => {
     const lanes = describeLanes({
       descriptors: DESCRIPTORS,
       signals: [],
-      failures: [REDDIT_REFUSAL, ARCTIC_REFUSAL],
+      failures: [GITHUB_REFUSAL, ARCTIC_REFUSAL],
       attempted: true,
     });
 
-    const reddit = lanes.find((lane) => lane.sourceId === "reddit-rss");
+    const github = lanes.find((lane) => lane.sourceId === "github");
     const arctic = lanes.find((lane) => lane.sourceId === "arctic-shift");
 
-    // These sentences were written for a human on purpose — one cites the two
-    // unresolved Reddit lawsuits, the other names the parameter to pass instead.
-    expect(reddit?.outcome).toEqual({
+    // These sentences were written for a human on purpose — one names the
+    // missing credential, the other names the parameter to pass instead.
+    expect(github?.outcome).toEqual({
       kind: "refused",
-      failureKind: "disabled",
-      detail: REDDIT_REFUSAL.detail,
+      failureKind: "missing-credential",
+      detail: GITHUB_REFUSAL.detail,
     });
     expect(arctic?.outcome).toEqual({
       kind: "refused",
@@ -140,12 +132,14 @@ describe("describeLanes", () => {
     });
 
     expect(lanes.map((lane) => lane.label)).toContain("Keyless web search");
-    expect(lanes.map((lane) => lane.label)).toContain("Reddit (RSS discovery)");
+    expect(lanes.map((lane) => lane.label)).toContain(
+      "Reddit (Arctic Shift archive)"
+    );
   });
 
   it("marks every lane NOT-ATTEMPTED when no harvest ran", () => {
     // A malformed tool call is refused before any fetch. Rendering those lanes
-    // as "found nothing" would claim six searches that never happened.
+    // as "found nothing" would claim searches that never happened.
     const lanes = describeLanes({
       descriptors: DESCRIPTORS,
       signals: [],

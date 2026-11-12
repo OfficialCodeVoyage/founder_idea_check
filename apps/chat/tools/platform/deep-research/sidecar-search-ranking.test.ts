@@ -210,7 +210,7 @@ describe("sidecarWebSearch, ranked by the buyer", () => {
     const lanes = lanesFrom(written);
 
     // EVERY lane, still. A weighting must never drop a source from the report.
-    expect(lanes).toHaveLength(6);
+    expect(lanes).toHaveLength(4);
     const ids = lanes.map((lane) => lane.sourceId);
     expect(ids.indexOf("arctic-shift")).toBeLessThan(
       ids.indexOf("web-keyless")

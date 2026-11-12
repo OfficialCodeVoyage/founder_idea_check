@@ -116,16 +116,6 @@ export const serverEnvSchema = {
     .string()
     .optional()
     .describe("GitHub token for demand-signal search (raises rate limits)"),
-  /**
-   * The SECOND of two locks on the Reddit lanes: the operator must both list
-   * the source id in `operatorEnabled` AND set this. Deliberately not a boolean
-   * and deliberately not defaulted — one switch gets flipped by somebody who
-   * did not read why it was off.
-   */
-  REDDIT_ENABLED_ACK: z
-    .string()
-    .optional()
-    .describe("Operator acknowledgement required to enable Reddit signals"),
   RESEARCH_MAX_INPUT_TOKENS: z
     .string()
     .optional()

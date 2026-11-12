@@ -276,8 +276,6 @@ export type SourceRanking = {
  */
 const NON_TECHNICAL_WEIGHTS: Readonly<Record<SignalSourceId, number>> = {
   "arctic-shift": 1,
-  "reddit-rss": 1,
-  "reddit-shreddit": 1,
   "web-keyless": 0.85,
   github: 0.3,
   hackernews: 0.25,
@@ -288,7 +286,7 @@ const NON_TECHNICAL_WEIGHTS: Readonly<Record<SignalSourceId, number>> = {
  * it is the right room, and the point of ranking by audience is that it cuts
  * both ways.
  *
- * The Reddit lanes stay high rather than dropping away: r/devops, r/webdev and
+ * The Reddit lane stays high rather than dropping away: r/devops, r/webdev and
  * r/ExperiencedDevs are where the same people complain at greater length. The
  * general web lands last because for a technical buyer it mostly returns
  * vendor marketing about the category rather than practitioners in it.
@@ -297,8 +295,6 @@ const TECHNICAL_WEIGHTS: Readonly<Record<SignalSourceId, number>> = {
   hackernews: 1,
   github: 0.95,
   "arctic-shift": 0.8,
-  "reddit-rss": 0.8,
-  "reddit-shreddit": 0.8,
   "web-keyless": 0.75,
 };
 
@@ -327,8 +323,6 @@ export const NEUTRAL_RANKING: SourceRanking = {
   weights: {
     "web-keyless": 1,
     "arctic-shift": 0.7,
-    "reddit-rss": 0.7,
-    "reddit-shreddit": 0.7,
     hackernews: 0.55,
     github: 0.55,
   },

@@ -11,8 +11,6 @@ export type SignalSourceId =
   | "hackernews"
   | "web-keyless"
   | "github"
-  | "reddit-rss"
-  | "reddit-shreddit"
   | "arctic-shift";
 
 /**
@@ -76,9 +74,8 @@ export type SignalQuery = {
 export type SignalFailureKind =
   /**
    * HTTP 403. The single most likely production failure for the keyless
-   * adapters: they were verified from a residential IP, and Reddit and
-   * DuckDuckGo both serve challenge pages or hard 403s to datacenter egress
-   * ranges (Vercel, AWS). This has its own kind precisely so a deployment can
+   * adapters: they were verified from a residential IP, and DuckDuckGo serves
+   * challenge pages or hard 403s to datacenter egress ranges (Vercel, AWS). This has its own kind precisely so a deployment can
    * tell "the host is blocked" from "the topic has no discussion".
    */
   | "blocked"

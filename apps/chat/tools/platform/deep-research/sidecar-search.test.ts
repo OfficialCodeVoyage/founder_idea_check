@@ -391,7 +391,7 @@ describe("sidecarWebSearch", () => {
     }[];
 
     // Every source, including the ones that never ran.
-    expect(lanes).toHaveLength(6);
+    expect(lanes).toHaveLength(4);
 
     const hn = lanes.find((lane) => lane.sourceId === "hackernews");
     expect(hn?.outcome).toEqual({ kind: "returned", signals: 1 });
@@ -401,9 +401,9 @@ describe("sidecarWebSearch", () => {
     expect(web?.outcome).toEqual({ kind: "found-nothing" });
 
     // Refused before any request, with the gate's own sentence attached.
-    const reddit = lanes.find((lane) => lane.sourceId === "reddit-rss");
+    const reddit = lanes.find((lane) => lane.sourceId === "arctic-shift");
     expect(reddit?.outcome.kind).toBe("refused");
-    expect(reddit?.outcome.detail).toContain("Reddit (RSS discovery)");
+    expect(reddit?.outcome.detail).toContain("Reddit (Arctic Shift archive)");
     expect(reddit?.outcome.signals).toBeUndefined();
   });
 
@@ -422,7 +422,7 @@ describe("sidecarWebSearch", () => {
 
     const laneUpdate = written.find((w) => w.data.type === "lanes");
     const lanes = laneUpdate?.data.lanes as { outcome: { kind: string } }[];
-    // Six lanes that were never asked. None of them "found nothing".
+    // Lanes that were never asked. None of them "found nothing".
     expect(lanes.every((lane) => lane.outcome.kind === "not-attempted")).toBe(
       true
     );

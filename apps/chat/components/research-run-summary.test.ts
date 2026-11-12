@@ -215,7 +215,7 @@ describe("mergeLaneReports", () => {
 
   it("returns nothing when the run streamed no lane report", () => {
     // An older transcript, or a run that died before the search tool. Rendering
-    // six "not attempted" rows we were never told about would be an invention.
+    // "not attempted" rows we were never told about would be an invention.
     expect(mergeLaneReports([])).toEqual([]);
   });
 
@@ -273,27 +273,31 @@ describe("mergeLaneReports", () => {
 
   it("keeps a refusal, verbatim, over a not-attempted step", () => {
     const detail =
-      "Reddit (RSS discovery) is off in hosted mode. The keyless Reddit lanes work because Reddit's .json endpoints return 403 while its RSS does not.";
+      "GitHub is enabled but GITHUB_TOKEN is not set. It will not fall back to a keyless path.";
     const merged = mergeLaneReports([
       lanesUpdate([
         {
-          sourceId: "reddit-rss",
-          label: "Reddit (RSS discovery)",
+          sourceId: "github",
+          label: "GitHub",
           outcome: { kind: "not-attempted" },
         },
       ]),
       lanesUpdate([
         {
-          sourceId: "reddit-rss",
-          label: "Reddit (RSS discovery)",
-          outcome: { kind: "refused", failureKind: "disabled", detail },
+          sourceId: "github",
+          label: "GitHub",
+          outcome: {
+            kind: "refused",
+            failureKind: "missing-credential",
+            detail,
+          },
         },
       ]),
     ]);
 
     expect(merged[0].outcome).toEqual({
       kind: "refused",
-      failureKind: "disabled",
+      failureKind: "missing-credential",
       detail,
     });
   });

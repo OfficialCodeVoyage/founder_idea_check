@@ -42,7 +42,7 @@ export function describeLanes(input: {
   /**
    * False when no harvest was run at all — a malformed tool call is refused
    * before any fetch. Every lane is then `not-attempted`, because rendering
-   * them as "found nothing" would claim six searches that never happened.
+   * them as "found nothing" would claim searches that never happened.
    */
   attempted: boolean;
 }): LaneReport[] {

@@ -7,12 +7,12 @@ are written and tested against it:
     <- {"ok": true,  "source_id": "...", "signals": [...]}
      | {"ok": false, "source_id": "...", "kind": "...", "detail": "..."}
 
-NOTE THE STATUS CODE. An upstream failure — a 403 from Reddit, a blocked
+NOTE THE STATUS CODE. An upstream failure — a 403 from an archive, a blocked
 DuckDuckGo ladder — comes back as HTTP 200 with `ok: false`, NOT as a 5xx. The
 sidecar succeeded at its job, which was to try the source and report honestly
 what happened. A 5xx would be indistinguishable from the sidecar itself being
-broken, and `classifySidecarStatus` on the TypeScript side would then label a
-Reddit 403 as `missing-credential`, sending an operator to look for a key that
+broken, and `classifySidecarStatus` on the TypeScript side would then label an
+upstream 403 as `missing-credential`, sending an operator to look for a key that
 was never needed.
 """
 

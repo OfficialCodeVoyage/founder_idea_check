@@ -56,7 +56,7 @@ because OASIS is Python.
 | `schema.py` | `schema.py` | Adapted, trimmed | From 1,046 lines to the five types the pipeline touches, with upstream's field names so the vendored modules run unchanged. `to_demand_signal` emits this app's wire shape and never the author. |
 | `pipeline/rerank.py` | `rerank.py` | Reimplemented, with material from upstream | The arithmetic and two constants, including the out-of-window multiplier (0.35) with the upstream comment quoted beside it. Upstream's LLM judge is not present: this service has no model call. |
 | `pipeline/grounding.py` | `grounding.py` | Reimplemented from the design | The design of its two grounding checks, written against this service's types without upstream's configuration system. |
-| `http.py` | `http.py` | Reimplemented from the design | Stdlib `urllib` only, a browser User-Agent for HTML endpoints, a token-bucket limiter at upstream's measured ceiling. Failures raise named errors instead of being classified into strings. |
+| `http.py` | `http.py` | Reimplemented from the design | Stdlib `urllib` only, a browser User-Agent for HTML endpoints, a token-bucket limiter (upstream's design; the one limiter left is set for Arctic Shift, not at upstream's Reddit figure). Failures raise named errors instead of being classified into strings. |
 | `config.py` | `env.py` | Nothing taken | Its docstring names upstream only to say what was left out. |
 
 Upstream knowledge kept, each pinned by a test in `apps/research/tests/test_adapters.py`:

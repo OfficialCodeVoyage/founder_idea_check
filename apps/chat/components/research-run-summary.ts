@@ -130,7 +130,7 @@ export function researchRunLine(view: ResearchRunView): string {
  * WHICH LANES RAN, ACROSS A WHOLE RESEARCH RUN.
  *
  * `sidecarWebSearch` writes one lane report per search step, so a run with three
- * steps streams three observations of the same six lanes. Merging them here
+ * steps streams three observations of the same lanes. Merging them here
  * rather than in the producer is deliberate: the producer knows what happened in
  * ONE harvest, and flattening at that point would have to choose between
  * reporting the last step and reporting the best, both of which lose something.
@@ -143,7 +143,7 @@ export function researchRunLine(view: ResearchRunView): string {
  * 3. `found-nothing` it ran and the topic has no coverage there. A finding.
  * 4. `not-attempted` nothing ever asked it.
  *
- * A lane never seen at all does not appear. Six invented "not attempted" rows
+ * A lane never seen at all does not appear. Invented "not attempted" rows
  * would be a claim about a gate decision nobody made.
  */
 export function mergeLaneReports(

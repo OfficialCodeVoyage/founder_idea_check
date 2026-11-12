@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from app.errors import SourceBlocked, SourceRateLimited, SourceSchemaDrift, SourceUnavailable
@@ -12,8 +10,6 @@ from app.sources import (
     arctic_shift,
     github,
     hackernews,
-    reddit_rss,
-    reddit_shreddit,
     web_search_keyless,
 )
 from app.sources.base import SourceQuery
@@ -21,7 +17,7 @@ from app.sources.base import SourceQuery
 
 class TestHttpClassification:
     def test_a_403_becomes_source_blocked_with_the_datacenter_explanation(self):
-        error = _classify(403, "https://www.reddit.com/search.rss", "Blocked")
+        error = _classify(403, "https://html.duckduckgo.com/html/", "Blocked")
         assert isinstance(error, SourceBlocked)
         assert error.kind == "blocked"
         assert "datacenter" in error.detail
@@ -270,128 +266,6 @@ class TestGitHub:
             github.GitHubSource(token="")
 
 
-ATOM = """<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <entry>
-    <title>Coordinating dog walkers is a nightmare</title>
-    <link href="https://www.reddit.com/r/dogs/comments/abc/coordinating/"/>
-    <author><name>/u/realperson</name></author>
-    <category term="dogs"/>
-    <updated>2026-07-20T18:48:31+00:00</updated>
-    <content type="html">&lt;p&gt;We use three group chats.&lt;/p&gt;</content>
-  </entry>
-  <entry>
-    <title>Not a thread</title>
-    <link href="https://www.reddit.com/r/dogs/"/>
-    <updated>2026-07-21T00:00:00+00:00</updated>
-  </entry>
-</feed>
-"""
-
-
-class TestRedditRss:
-    def test_THE_AUTHOR_IS_NEVER_HELD(self):
-        # The single most important assertion in this file. Upstream keeps the
-        # author; we drop it at parse time so the username never enters this
-        # process. That is the difference between "we do not publish it" and
-        # "we do not hold it", and only the second answers an erasure request.
-        items = reddit_rss.parse_feed(ATOM, "dog walkers")
-        assert len(items) == 1
-        assert items[0].author is None
-        assert "realperson" not in json.dumps(items[0].__dict__, default=str)
-
-    def test_skips_entries_that_are_not_threads(self):
-        items = reddit_rss.parse_feed(ATOM, "dog walkers")
-        assert all("/comments/" in item.url for item in items)
-
-    def test_does_not_invent_engagement_it_cannot_see(self):
-        # RSS carries no vote counts. A guessed number would feed the score.
-        items = reddit_rss.parse_feed(ATOM, "dog walkers")
-        assert items[0].engagement == {}
-
-    def test_refuses_a_body_declaring_a_doctype(self):
-        # Billion-laughs and quadratic blowup both need an internal DTD subset,
-        # and a real Atom feed has no DOCTYPE at all.
-        bomb = '<!DOCTYPE feed [<!ENTITY a "aaaa">]><feed xmlns="http://www.w3.org/2005/Atom"/>'
-        with pytest.raises(SourceSchemaDrift) as caught:
-            reddit_rss.parse_feed(bomb, "q")
-        assert "DOCTYPE" in caught.value.detail
-
-    def test_refuses_an_oversized_body_before_parsing_it(self):
-        with pytest.raises(SourceSchemaDrift) as caught:
-            reddit_rss.parse_feed("<feed>" + "x" * (9 * 1024 * 1024), "q")
-        assert "cap" in caught.value.detail
-
-    def test_a_non_atom_body_raises_rather_than_returning_empty(self):
-        with pytest.raises(SourceSchemaDrift):
-            reddit_rss.parse_feed("<html>403 Forbidden</html>", "q")
-
-    def test_an_empty_body_is_simply_empty(self):
-        assert reddit_rss.parse_feed("", "q") == []
-
-    def test_builds_both_search_and_listing_feeds(self):
-        urls = reddit_rss.build_feed_urls("dog walkers", ["r/dogs"])
-        assert any("search.rss" in u and "restrict_sr=on" in u for u in urls)
-        assert any("/top.rss" in u for u in urls)
-        assert all("t=month" in u for u in urls)
-
-
-SHREDDIT = """
-<shreddit-comment-tree>
-  <shreddit-comment thingId="t1_aaa" author="realperson" score="42" permalink="/r/dogs/comments/abc/x/aaa/">
-    <div id="t1_aaa-post-rtjson-content"><p>The scheduling is the hard part.</p></div>
-  </shreddit-comment>
-  <shreddit-comment thingId="t1_bbb" author="[deleted]" score="9" permalink="/r/dogs/comments/abc/x/bbb/">
-    <div id="t1_bbb-post-rtjson-content"><p>Should not appear.</p></div>
-  </shreddit-comment>
-  <shreddit-comment thingId="t1_ccc" author="other" score="99" permalink="/r/dogs/comments/abc/x/ccc/">
-    <div id="t1_ccc-post-rtjson-content"><p>Price is what stops me.</p></div>
-  </shreddit-comment>
-</shreddit-comment-tree>
-"""
-
-
-class TestRedditShreddit:
-    def test_THE_AUTHOR_IS_NEVER_RETURNED(self):
-        comments = reddit_shreddit.parse_comments(SHREDDIT)
-        assert all("author" not in comment for comment in comments)
-        assert "realperson" not in json.dumps(comments)
-
-    def test_does_not_match_the_comment_tree_wrapper_elements(self):
-        # Without the whitespace-or-'>' lookahead, <shreddit-comment-tree>
-        # parses as a comment and the output fills with empty bodies.
-        comments = reddit_shreddit.parse_comments(SHREDDIT)
-        assert all(comment["body"] for comment in comments)
-
-    def test_skips_deleted_comments(self):
-        # A removed comment is the clearest possible signal that its author did
-        # not want it retained.
-        comments = reddit_shreddit.parse_comments(SHREDDIT)
-        assert all("Should not appear" not in comment["body"] for comment in comments)
-
-    def test_bodies_are_anchored_on_their_own_thing_id(self):
-        comments = reddit_shreddit.parse_comments(SHREDDIT)
-        by_id = {comment["thing_id"]: comment["body"] for comment in comments}
-        assert by_id["t1_aaa"] == "The scheduling is the hard part."
-        assert by_id["t1_ccc"] == "Price is what stops me."
-
-    def test_returns_best_scored_first(self):
-        comments = reddit_shreddit.parse_comments(SHREDDIT)
-        assert [c["score"] for c in comments] == [99, 42]
-
-    def test_extracts_a_post_reference_from_a_thread_url(self):
-        assert reddit_shreddit.extract_post_ref(
-            "https://www.reddit.com/r/dogs/comments/abc123/title/"
-        ) == ("dogs", "abc123")
-        assert reddit_shreddit.extract_post_ref("https://example.com") is None
-
-    def test_no_urls_to_enrich_is_not_a_failure(self):
-        source = reddit_shreddit.RedditShredditSource()
-        assert (
-            source.fetch(SourceQuery(query="q", date_from="2026-07-01", date_to="2026-08-01")) == []
-        )
-
-
 def _arctic_row(**overrides):
     row = {
         "id": "abc123",
@@ -410,8 +284,9 @@ class TestArcticShiftUrl:
     def test_never_asks_for_the_author_field(self):
         """The strongest form of the username rule: it is never received.
 
-        The other two Reddit adapters drop `author` at parse time. This one
-        excludes it from the request, so there is nothing to drop.
+        Dropping `author` at parse time would keep it out of storage; excluding
+        it from the request means it is never received, so there is nothing to
+        drop.
         """
         url = arctic_shift.build_search_url(
             subreddit="startups",

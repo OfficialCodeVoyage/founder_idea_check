@@ -6,11 +6,10 @@ which is a legitimate finding; everything else raises one of these, and the
 route turns it into a typed failure the TypeScript side can act on.
 
 The distinction is load-bearing. `apps/chat/lib/signals/types.ts` documents why:
-the keyless adapters were verified from a residential IP, and Reddit and
-DuckDuckGo both serve 403s or challenge pages to datacenter egress ranges. If a
-403 came back as `[]`, a Vercel deployment would report "nobody is discussing
-your idea" for every idea, forever, and the phase gate would BLOCK founders on
-the strength of it.
+the keyless adapters were verified from a residential IP, and DuckDuckGo serves
+403s or challenge pages to datacenter egress ranges. If a 403 came back as `[]`,
+a Vercel deployment would report "nobody is discussing your idea" for every
+idea, forever, and the phase gate would BLOCK founders on the strength of it.
 """
 
 from __future__ import annotations

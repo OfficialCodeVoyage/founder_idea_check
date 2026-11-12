@@ -90,24 +90,29 @@ export const GITHUB: ProviderDescriptor = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REDDIT — OFF BY DEFAULT IN HOSTED MODE. Read the reasoning before changing.
+// REDDIT — ONE LANE, THE ARCTIC SHIFT ARCHIVE. Read the policy before changing.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * REDDIT: WHY IT IS OFF BY DEFAULT IN HOSTED MODE.
+ * THE REDDIT POLICY. One lane ships, and it is not Reddit's own site.
  *
- * Two independent reasons. Either one on its own is sufficient; together they
- * make hosting this on someone else's behalf indefensible.
+ * Two independent reasons shape it. Either one on its own is sufficient;
+ * together they make hosting this on someone else's behalf indefensible unless
+ * both are answered.
  *
- * 1. ACCESS CONTROL. The keyless Reddit lanes work *because* Reddit's `.json`
- *    endpoints — and, as of the last probe, even `/robots.txt` — return HTTP
- *    403, while `/search.rss` and `/svc/shreddit/` still return 200. Reaching
- *    the content anyway by picking the endpoints that have not been closed yet
- *    is routing around an access control. That is the precise theory pleaded in
+ * 1. ACCESS CONTROL. A lane that reads Reddit's own unauthenticated endpoints
+ *    works *because* Reddit has closed its `.json` endpoints — and, as of the
+ *    last probe, even `/robots.txt` — with HTTP 403 while other endpoints on
+ *    the same site still answered 200. Reaching the content anyway by picking
+ *    the endpoints that have not been closed yet is routing around an access
+ *    control. That is the precise theory pleaded in
  *    "Reddit v. Perplexity / SerpApi / Oxylabs" (Oct 2025) and
- *    "Reddit v. Anthropic" (Jun 2025), both of which were unresolved when this was
- *    written. Reddit's free API tier is separately non-commercial-only, so the
- *    credentialled path does not rescue a commercial hosted deployment either.
+ *    "Reddit v. Anthropic" (Jun 2025), both of which were unresolved when this
+ *    was written. Two such lanes (RSS discovery and HTML comment enrichment)
+ *    existed and were removed before the first public release; do not add a
+ *    replacement that reads the same endpoints by another route. Reddit's free
+ *    API tier is separately non-commercial-only, so a credentialled path does
+ *    not rescue a commercial hosted deployment either.
  *
  * 2. GDPR. A demand signal is a person's post: a username plus a verbatim
  *    quote, i.e. personal data. Storing it makes the operator a data controller
@@ -120,11 +125,11 @@ export const GITHUB: ProviderDescriptor = {
  *    for strangers, on data about other strangers.
  *
  * MITIGATION ALREADY BUILT IN: `DemandSignal` in `./types.ts` has no `author`
- * field at all, and the sidecar's Reddit adapters drop the author before the
- * item leaves Python. The shape refuses to carry the identifier, so no future
- * adapter can reintroduce it by accident. Snippets are capped to an excerpt
- * rather than the full body, and the permalink is retained so a reader goes to
- * the source rather than to our copy of it.
+ * field at all, and the sidecar's Reddit adapter never requests the author and
+ * sets it to nothing at parse time as a backstop. The shape refuses to carry the
+ * identifier, so no future adapter can reintroduce it by accident. Snippets are
+ * capped to an excerpt rather than the full body, and the permalink is retained
+ * so a reader goes to the source rather than to our copy of it.
  *
  * NOTE ON ARCTIC SHIFT: its API is fine to CALL. Its source is `license: null`
  * — all rights reserved — so not one line of it is copied anywhere in this
@@ -132,43 +137,22 @@ export const GITHUB: ProviderDescriptor = {
  * redistribute since-deleted user content, which is the erasure problem in its
  * most concentrated form).
  *
- * TO TURN THIS ON in self-host you must do both: add the id to
- * `operatorEnabled` and set the credential. It is not one switch on purpose.
+ * The mirror of this policy is `apps/research/app/sources/reddit_gate.py`. The
+ * gate (`decideProviderGate`) stays for the next source that must be barred in
+ * hosted mode or needs a credential; none of the registered sources does today.
  */
-const REDDIT_GATE_REASON =
-  "Off by default in hosted mode. The keyless Reddit lanes work because Reddit's .json endpoints return 403 while its RSS does not, which is routing around an access control — the theory in Reddit v. Perplexity (Oct 2025) and Reddit v. Anthropic (Jun 2025), both unresolved. Separately, storing posts makes the operator a GDPR data controller with no lawful basis and no way to honour erasure. Self-host operators may enable it for their own data; a hosted operator would be making that decision for strangers.";
-
-export const REDDIT_RSS: ProviderDescriptor = {
-  id: "reddit-rss",
-  label: "Reddit (RSS discovery)",
-  enabledInHosted: false,
-  enabledInSelfHost: true,
-  requiredCredentials: ["REDDIT_ENABLED_ACK"],
-  gateReason: REDDIT_GATE_REASON,
-};
-
-export const REDDIT_SHREDDIT: ProviderDescriptor = {
-  id: "reddit-shreddit",
-  label: "Reddit (comment enrichment)",
-  enabledInHosted: false,
-  enabledInSelfHost: true,
-  requiredCredentials: ["REDDIT_ENABLED_ACK"],
-  gateReason: REDDIT_GATE_REASON,
-};
 
 /**
  * Reddit history via the Arctic Shift archive.
  *
- * ON in hosted mode, where both keyless Reddit lanes are off, and the
- * distinction is not a loophole. The lanes above are off because they read
- * Reddit's own edge — RSS answers where `.json` returns 403, which is routing
- * around an access control, and that is the theory in the Perplexity and
- * Anthropic suits. This one calls a THIRD PARTY's documented public API that
- * its operator invites people to use, from that party's own hosting.
+ * ON in hosted mode, and that is not a loophole. This lane calls a THIRD
+ * PARTY's documented public API that its operator invites people to use, from
+ * that party's own hosting, so it neither routes around an access control (the
+ * theory in the Perplexity and Anthropic suits) nor depends on a residential IP.
  *
- * The GDPR half is answered differently too, and more strongly: the request
- * carries an explicit `fields` list with no `author` in it, so the username is
- * never received rather than received and dropped.
+ * The GDPR half is answered more strongly than by dropping a field at parse
+ * time: the request carries an explicit `fields` list with no `author` in it,
+ * so the username is never received rather than received and dropped.
  *
  * NOT in the defaults: the archive lags real time and cannot keyword-search
  * across all of Reddit — it needs subreddits chosen for it, so it is a lane an
@@ -192,8 +176,6 @@ export const ALL_PROVIDERS: readonly ProviderDescriptor[] = [
   HACKERNEWS,
   WEB_KEYLESS,
   GITHUB,
-  REDDIT_RSS,
-  REDDIT_SHREDDIT,
   ARCTIC_SHIFT,
 ];
 

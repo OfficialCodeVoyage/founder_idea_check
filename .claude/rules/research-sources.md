@@ -18,9 +18,10 @@ paths:
 - **An adapter never returns `[]` to mean failure.** It raises a named `SourceError` subclass (`app/errors.py`);
   an empty hit list is a finding. Guard: `tests/test_adapters.py`.
 - **No author is ever stored.** `DemandSignal` (`lib/signals/types.ts`) has no `author` field on purpose; the
-  Reddit-family adapters set `author=None` at parse time.
-- **Reddit: public-API access only.** The two keyless scraper lanes leave before the public release; until then
-  they are hosted-barred and need `REDDIT_ENABLED_ACK` plus an operator toggle.
+  Reddit adapter never requests the author and sets `author=None` at parse time as a backstop.
+- **Reddit: public-API access only.** `arctic-shift` is the one Reddit lane. A lane that reads Reddit's own
+  unauthenticated endpoints routes around an access control and does not ship (two did, and were removed before
+  the public release). The reasoning is `apps/research/app/sources/reddit_gate.py`; the gate machinery stays.
 - **The sidecar has no auth and its endpoints spend money:** bind it to `127.0.0.1` only (`docker-compose.yml`).
 - **Python 3.11 only** (OASIS); `mcp<2` is load-bearing. Use `apps/research/.venv`, never system Python/pytest/ruff.
 - **Vendored files are not modernised or reformatted** (`app/text/cjk.py`, `app/text/relevance.py`,

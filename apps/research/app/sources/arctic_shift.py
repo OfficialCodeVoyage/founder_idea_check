@@ -9,12 +9,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 """Reddit history via the Arctic Shift archive.
 
-WHY THIS EXISTS ALONGSIDE THE KEYLESS LANES. `reddit_rss.py` and
-`reddit_shreddit.py` talk to Reddit's own edge, which serves 403 to datacenter
-egress ranges — a condition this codebase already names in three places and has
-never been able to test, because it only ever ran from a residential IP. Arctic
-Shift is a THIRD-PARTY ARCHIVE with its own hosting, so it answers the same
-question from any IP. It is the lane that survives being deployed.
+WHY THIS IS THE ONLY REDDIT LANE. Reddit's own edge serves 403 to datacenter
+egress ranges and to unauthenticated clients, and reading it anyway by picking
+the endpoints that happen to answer is routing around an access control (see
+`reddit_gate.py`). Arctic Shift is a THIRD-PARTY ARCHIVE with its own hosting and
+a public API its operator invites people to call, so it answers the same
+question from any IP without touching Reddit's servers for content. It is the
+lane that survives being deployed.
 
 WHAT IT CANNOT DO, stated up front because it shapes the whole adapter: there is
 no global keyword search. `query` is documented as "Only in use with `author` or
@@ -23,11 +24,12 @@ so this adapter REFUSES a query with no subreddits rather than quietly returning
 the newest posts from nowhere in particular — an unscoped result would look like
 a search that found little, when in fact no search happened.
 
-THE USERNAME NEVER ENTERS THE PROCESS. The other two Reddit adapters drop
-`author` at parse time. This one does better: `fields` is a documented request
-parameter, so the archive is asked for a field list that excludes `author`
-entirely and the identifier is never received. That is the strongest form of the
-same rule — "delete my data" is answered by construction, not by discipline.
+THE USERNAME NEVER ENTERS THE PROCESS. Dropping `author` at parse time would
+already keep it out of storage; this adapter does better: `fields` is a
+documented request parameter, so the archive is asked for a field list that
+excludes `author` entirely and the identifier is never received. That is the
+strongest form of the rule — "delete my data" is answered by construction, not
+by discipline.
 """
 
 from __future__ import annotations

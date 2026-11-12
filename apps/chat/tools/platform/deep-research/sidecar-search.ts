@@ -105,7 +105,7 @@ type SearchResult = { url: string; title: string; content: string };
  * One row per source, on its own update.
  *
  * A fresh `id` each time: this tool runs once per researcher search step, and
- * two steps are two genuinely different observations of the same six lanes. The
+ * two steps are two genuinely different observations of the same lanes. The
  * UI merges them — see `mergeLaneReports` in components/research-run-summary.ts
  * — rather than the producer flattening them into a number here.
  */

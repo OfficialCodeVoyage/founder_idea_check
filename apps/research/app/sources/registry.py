@@ -20,10 +20,6 @@ from .github import DESCRIPTOR as GITHUB_DESCRIPTOR
 from .github import GitHubSource
 from .hackernews import DESCRIPTOR as HN_DESCRIPTOR
 from .hackernews import HackerNewsSource
-from .reddit_rss import DESCRIPTOR as REDDIT_RSS_DESCRIPTOR
-from .reddit_rss import RedditRssSource
-from .reddit_shreddit import DESCRIPTOR as REDDIT_SHREDDIT_DESCRIPTOR
-from .reddit_shreddit import RedditShredditSource
 from .web_search_keyless import DESCRIPTOR as WEB_DESCRIPTOR
 from .web_search_keyless import KeylessWebSearchSource
 
@@ -31,8 +27,6 @@ ALL_DESCRIPTORS: tuple[SourceDescriptor, ...] = (
     HN_DESCRIPTOR,
     WEB_DESCRIPTOR,
     GITHUB_DESCRIPTOR,
-    REDDIT_RSS_DESCRIPTOR,
-    REDDIT_SHREDDIT_DESCRIPTOR,
     ARCTIC_SHIFT_DESCRIPTOR,
 )
 
@@ -62,10 +56,6 @@ def build_source(descriptor: SourceDescriptor, settings: Settings) -> Source:
         return KeylessWebSearchSource(searxng_url=settings.searxng_url)
     if descriptor.id == "github":
         return GitHubSource(token=settings.github_token)
-    if descriptor.id == "reddit-rss":
-        return RedditRssSource()
-    if descriptor.id == "reddit-shreddit":
-        return RedditShredditSource()
     if descriptor.id == "arctic-shift":
         return ArcticShiftSource()
     raise KeyError(f"no adapter is registered for source id {descriptor.id!r}")

@@ -148,10 +148,10 @@ services:
     environment:
       # ─────────────────────────────────────────────────────────────────────
       # FAIL-CLOSED. `RESEARCH_HOSTED` is unset in `app/config.py` terms only
-      # if it is absent; it defaults to TRUE there, which bars both Reddit
-      # lanes. It is set explicitly to `false` here because a LOCAL dev stack
-      # is self-host by definition — the developer is the only user and their
-      # own data subject.
+      # if it is absent; it defaults to TRUE there, which bars any source that
+      # is barred in hosted mode. It is set explicitly to `false` here because a
+      # LOCAL dev stack is self-host by definition — the developer is the only
+      # user and their own data subject.
       #
       # DO NOT COPY THIS LINE INTO A DEPLOYED ENVIRONMENT. Read
       # `apps/research/app/sources/reddit_gate.py` first.
@@ -159,19 +159,17 @@ services:
       RESEARCH_HOSTED: "false"
 
       # The default source set: Hacker News plus the keyless web ladder. Both
-      # keyless, both legally boring. Reddit is NOT here even in self-host —
-      # enabling it takes two deliberate acts (this list AND
-      # REDDIT_ENABLED_ACK), which is the point.
+      # keyless, both legally boring. `arctic-shift` (the Reddit archive) and
+      # `github` are NOT here: each is an opt-in for a reason (the archive
+      # needs subreddits chosen for it, GitHub needs a token).
       RESEARCH_ENABLED_SOURCES: "hackernews,web-keyless"
 
       # Optional, and passed through rather than defaulted:
       #   GITHUB_TOKEN         — required by the `github` source
-      #   REDDIT_ENABLED_ACK   — required by both Reddit sources
       #   RESEARCH_SEARXNG_URL — a SearXNG you run yourself, for example the
       #                          opt-in docker-compose.searxng.yml (reachable
       #                          from the host at http://127.0.0.1:8888)
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
-      REDDIT_ENABLED_ACK: "${REDDIT_ENABLED_ACK:-}"
       RESEARCH_SEARXNG_URL: "${RESEARCH_SEARXNG_URL:-}"
 
       # Step 8. `RESEARCH_SIM_CONCURRENCY` overrides OASIS's `semaphore=`, whose

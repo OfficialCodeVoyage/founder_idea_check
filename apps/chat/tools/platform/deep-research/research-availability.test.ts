@@ -3,7 +3,6 @@ import {
   ARCTIC_SHIFT,
   GITHUB,
   HACKERNEWS,
-  REDDIT_RSS,
   WEB_KEYLESS,
 } from "@/lib/signals/providers";
 import type { DeploymentMode } from "@/lib/signals/types";
@@ -69,12 +68,11 @@ describe("decideResearchAvailability", () => {
 
   it("is available when the live config's two keyless lanes are permitted", () => {
     // The verified live shape: SearXNG works, hackernews works, arctic-shift is
-    // enabled but refuses per request, reddit is deliberately off, github has
-    // no token.
+    // enabled but refuses per request, github has no token.
     const view = decideResearchAvailability({
       searchApi: "sidecar",
       mode: HOSTED,
-      descriptors: [HACKERNEWS, WEB_KEYLESS, REDDIT_RSS, GITHUB, ARCTIC_SHIFT],
+      descriptors: [HACKERNEWS, WEB_KEYLESS, GITHUB, ARCTIC_SHIFT],
       unknownSourceIds: [],
     });
 
@@ -90,7 +88,7 @@ describe("decideResearchAvailability", () => {
     const view = decideResearchAvailability({
       searchApi: "sidecar",
       mode: ALL_OFF,
-      descriptors: [HACKERNEWS, REDDIT_RSS],
+      descriptors: [HACKERNEWS, GITHUB],
       unknownSourceIds: [],
     });
 
@@ -99,9 +97,8 @@ describe("decideResearchAvailability", () => {
       expect(view.refusals).toHaveLength(2);
       // `decideProviderGate` already wrote these sentences for a human. They are
       // passed through, never summarised.
-      const reddit = view.refusals.find((r) => r.sourceId === "reddit-rss");
-      expect(reddit?.detail).toContain("hosted mode");
-      expect(reddit?.detail).toContain(REDDIT_RSS.gateReason);
+      const github = view.refusals.find((r) => r.sourceId === "github");
+      expect(github?.detail).toContain("not enabled");
     }
   });
 
@@ -125,7 +122,7 @@ describe("researchUnavailableMessage", () => {
     const view = decideResearchAvailability({
       searchApi: "sidecar",
       mode: ALL_OFF,
-      descriptors: [HACKERNEWS, REDDIT_RSS],
+      descriptors: [HACKERNEWS, GITHUB],
       unknownSourceIds: [],
     });
     if (view.available) {
@@ -136,7 +133,7 @@ describe("researchUnavailableMessage", () => {
 
     // The founder must be able to tell "we could not look" from "nobody cares".
     expect(message).toContain("Nothing was searched");
-    expect(message).toContain(REDDIT_RSS.gateReason);
+    expect(message).toContain("not enabled");
     expect(message).toContain("Hacker News");
     // And it must not leak the SDK internal that started this.
     expect(message).not.toContain("Invalid prompt");

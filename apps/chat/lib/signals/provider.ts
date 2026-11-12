@@ -11,8 +11,9 @@ import type {
  * THE DEMAND-SIGNAL GATE. Decides which sources a given deployment may query,
  * before any of them is called.
  *
- * This is the mechanism that makes the Reddit lane survivable, and it is the
- * one piece of the research subsystem that exists nowhere in open source — no
+ * This is the mechanism that makes a source with legal exposure (the Reddit
+ * policy in `./providers.ts`) safe to ship, and it is the one piece of the
+ * research subsystem that exists nowhere in open source — no
  * research tool found in the sweep gates a source on the operator's legal
  * position rather than on whether a key is present.
  *

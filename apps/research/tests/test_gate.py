@@ -10,7 +10,7 @@ import pytest
 
 from app.config import DEFAULT_ENABLED_SOURCES, load_settings
 from app.errors import SourceDisabled, SourceMissingCredential
-from app.sources.base import Deployment, assert_permitted
+from app.sources.base import Deployment, SourceDescriptor, assert_permitted
 from app.sources.registry import ALL_DESCRIPTORS, find_descriptor, resolve_permitted_source
 
 
@@ -25,41 +25,32 @@ def deployment(*, hosted: bool, enabled: set[str], credentials: set[str]) -> Dep
 HN = find_descriptor("hackernews")
 WEB = find_descriptor("web-keyless")
 GITHUB = find_descriptor("github")
-REDDIT_RSS = find_descriptor("reddit-rss")
-REDDIT_SHREDDIT = find_descriptor("reddit-shreddit")
+
+# No registered source is barred in hosted mode or needs a second lock any more,
+# but the gate that enforces both is kept for the next source that does. These
+# tests therefore build the descriptor by hand instead of reading one from the
+# registry; a change to `assert_permitted` still has to answer to them.
+BARRED_IN_HOSTED = SourceDescriptor(
+    id="example-barred",
+    label="Example barred source",
+    enabled_in_hosted=False,
+    enabled_in_self_host=True,
+    gate_reason="Barred in hosted mode for the purposes of this test, with a reason long enough to read.",
+    required_credentials=("EXAMPLE_ACK",),
+)
 
 
 class TestDefaultPosition:
     def test_defaults_are_hackernews_and_keyless_web_only(self):
         assert sorted(DEFAULT_ENABLED_SOURCES) == ["hackernews", "web-keyless"]
 
-    def test_both_reddit_lanes_are_barred_in_hosted_mode(self):
-        assert REDDIT_RSS.enabled_in_hosted is False
-        assert REDDIT_SHREDDIT.enabled_in_hosted is False
-
-    def test_reddit_is_permitted_in_self_host(self):
-        assert REDDIT_RSS.enabled_in_self_host is True
-        assert REDDIT_SHREDDIT.enabled_in_self_host is True
-
     def test_the_two_defaults_are_keyless(self):
         assert HN.required_credentials == ()
         assert WEB.required_credentials == ()
 
-    def test_reddit_needs_a_second_lock_beyond_the_toggle(self):
-        assert REDDIT_RSS.required_credentials == ("REDDIT_ENABLED_ACK",)
-        assert REDDIT_SHREDDIT.required_credentials == ("REDDIT_ENABLED_ACK",)
-
     @pytest.mark.parametrize("descriptor", ALL_DESCRIPTORS, ids=lambda d: d.id)
     def test_every_source_states_a_real_reason(self, descriptor):
         assert len(descriptor.gate_reason) > 40
-
-    @pytest.mark.parametrize("descriptor", [REDDIT_RSS, REDDIT_SHREDDIT], ids=lambda d: d.id)
-    def test_the_reddit_reason_names_the_actual_legal_theory(self, descriptor):
-        reason = descriptor.gate_reason
-        assert "403" in reason
-        assert "access control" in reason
-        assert "GDPR" in reason
-        assert "erasure" in reason
 
 
 class TestAssertPermitted:
@@ -69,14 +60,14 @@ class TestAssertPermitted:
                 HN, deployment(hosted=hosted, enabled={"hackernews"}, credentials=set())
             )
 
-    def test_refuses_reddit_in_hosted_mode_even_when_fully_configured(self):
+    def test_refuses_a_hosted_barred_source_in_hosted_mode_even_when_fully_configured(self):
         with pytest.raises(SourceDisabled) as caught:
             assert_permitted(
-                REDDIT_RSS,
+                BARRED_IN_HOSTED,
                 deployment(
                     hosted=True,
-                    enabled={"reddit-rss"},
-                    credentials={"REDDIT_ENABLED_ACK"},
+                    enabled={"example-barred"},
+                    credentials={"EXAMPLE_ACK"},
                 ),
             )
         assert "off in hosted mode" in caught.value.detail
@@ -85,12 +76,16 @@ class TestAssertPermitted:
         # Both would refuse, but the REASON must be the legal one. "not enabled"
         # invites an operator to go and enable it.
         with pytest.raises(SourceDisabled) as caught:
-            assert_permitted(REDDIT_RSS, deployment(hosted=True, enabled=set(), credentials=set()))
+            assert_permitted(
+                BARRED_IN_HOSTED, deployment(hosted=True, enabled=set(), credentials=set())
+            )
         assert "off in hosted mode" in caught.value.detail
 
     def test_refuses_a_source_the_operator_never_enabled(self):
         with pytest.raises(SourceDisabled) as caught:
-            assert_permitted(REDDIT_RSS, deployment(hosted=False, enabled=set(), credentials=set()))
+            assert_permitted(
+                BARRED_IN_HOSTED, deployment(hosted=False, enabled=set(), credentials=set())
+            )
         assert "not enabled" in caught.value.detail
 
     def test_refuses_a_missing_credential_instead_of_going_keyless(self):
@@ -99,13 +94,13 @@ class TestAssertPermitted:
         assert "GITHUB_TOKEN" in caught.value.detail
         assert "will not fall back" in caught.value.detail
 
-    def test_allows_reddit_in_self_host_with_both_locks_open(self):
+    def test_allows_a_hosted_barred_source_in_self_host_with_both_locks_open(self):
         assert_permitted(
-            REDDIT_RSS,
+            BARRED_IN_HOSTED,
             deployment(
                 hosted=False,
-                enabled={"reddit-rss"},
-                credentials={"REDDIT_ENABLED_ACK"},
+                enabled={"example-barred"},
+                credentials={"EXAMPLE_ACK"},
             ),
         )
 
@@ -113,7 +108,7 @@ class TestAssertPermitted:
 class TestSettings:
     def test_hosted_defaults_to_true_when_unset(self):
         # Fail-closed: an operator who never answered the question gets the
-        # restrictive answer, which keeps Reddit off.
+        # restrictive answer, which keeps a hosted-barred source barred.
         settings = load_settings({})
         assert settings.deployment.hosted is True
 
@@ -144,24 +139,22 @@ class TestRegistry:
         with pytest.raises(KeyError):
             resolve_permitted_source("no-such-source", load_settings({}))
 
-    def test_a_hosted_deployment_cannot_build_a_reddit_source(self):
+    def test_a_source_the_operator_did_not_enable_cannot_be_built(self):
         settings = load_settings(
             {
                 "RESEARCH_HOSTED": "true",
-                "RESEARCH_ENABLED_SOURCES": "reddit-rss",
-                "REDDIT_ENABLED_ACK": "yes",
+                "RESEARCH_ENABLED_SOURCES": "hackernews",
             }
         )
         with pytest.raises(SourceDisabled):
-            resolve_permitted_source("reddit-rss", settings)
+            resolve_permitted_source("arctic-shift", settings)
 
-    def test_a_self_host_deployment_can(self):
+    def test_a_source_the_operator_enabled_can(self):
         settings = load_settings(
             {
-                "RESEARCH_HOSTED": "false",
-                "RESEARCH_ENABLED_SOURCES": "reddit-rss",
-                "REDDIT_ENABLED_ACK": "yes",
+                "RESEARCH_HOSTED": "true",
+                "RESEARCH_ENABLED_SOURCES": "arctic-shift",
             }
         )
-        source = resolve_permitted_source("reddit-rss", settings)
-        assert source.descriptor.id == "reddit-rss"
+        source = resolve_permitted_source("arctic-shift", settings)
+        assert source.descriptor.id == "arctic-shift"

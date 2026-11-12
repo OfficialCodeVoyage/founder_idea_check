@@ -21,7 +21,6 @@ def client(monkeypatch):
     monkeypatch.setenv("RESEARCH_HOSTED", "true")
     monkeypatch.delenv("RESEARCH_ENABLED_SOURCES", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("REDDIT_ENABLED_ACK", raising=False)
     main = importlib.reload(importlib.import_module("app.main"))
     return TestClient(main.app), main
 
@@ -45,17 +44,8 @@ class TestHealth:
             "hackernews",
             "web-keyless",
             "github",
-            "reddit-rss",
-            "reddit-shreddit",
             "arctic-shift",
         }
-
-    def test_shows_reddit_as_barred_in_hosted_mode(self, client):
-        http, _ = client
-        payload = http.get("/v1/health").json()
-        reddit = [s for s in payload["sources"] if s["id"].startswith("reddit")]
-        assert all(s["enabled_in_hosted"] is False for s in reddit)
-        assert all("GDPR" in s["gate_reason"] for s in reddit)
 
     def test_never_leaks_a_credential_value(self, monkeypatch):
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_supersecret")
@@ -87,12 +77,12 @@ class TestSignalsContract:
         # which classifySidecarStatus maps to missing-credential — sending an
         # operator to look for a key that was never needed.
         http, _ = client
-        response = http.post("/v1/signals/reddit-rss", json=body())
+        response = http.post("/v1/signals/arctic-shift", json=body())
         assert response.status_code == 200
         payload = response.json()
         assert payload["ok"] is False
         assert payload["kind"] == "disabled"
-        assert "hosted mode" in payload["detail"]
+        assert "not enabled" in payload["detail"]
 
     def test_a_missing_credential_is_named_as_such(self, monkeypatch):
         monkeypatch.setenv("RESEARCH_ENABLED_SOURCES", "github")

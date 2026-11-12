@@ -63,8 +63,8 @@ describe("parseOperatorEnabledSources", () => {
     // `decideProviderGate` owns the legal bar. The parser's only job is to say
     // what the operator asked for; a parser that also refused would put the
     // same decision in two places.
-    const parsed = parseOperatorEnabledSources("reddit-rss");
-    expect(parsed.enabled).toEqual(["reddit-rss"]);
+    const parsed = parseOperatorEnabledSources("github");
+    expect(parsed.enabled).toEqual(["github"]);
     expect(parsed.unknown).toEqual([]);
   });
 });

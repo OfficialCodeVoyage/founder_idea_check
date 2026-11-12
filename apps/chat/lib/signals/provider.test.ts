@@ -8,20 +8,34 @@ import {
 } from "./provider";
 import {
   ALL_PROVIDERS,
+  ARCTIC_SHIFT,
   DEFAULT_ENABLED_SOURCE_IDS,
   findProvider,
   GITHUB,
   HACKERNEWS,
-  REDDIT_RSS,
-  REDDIT_SHREDDIT,
   WEB_KEYLESS,
 } from "./providers";
 import type {
   DemandSignal,
   DeploymentMode,
+  ProviderDescriptor,
   SignalFetchOutcome,
   SignalSourceId,
 } from "./types";
+
+/**
+ * No registered source is barred in hosted mode or needs a second lock any
+ * more, but the gate that enforces both is kept for the next source that does.
+ * The gate tests below therefore use a hosted-barred, credential-requiring
+ * variant of a registered descriptor instead of reading one from the registry.
+ */
+const BARRED_IN_HOSTED: ProviderDescriptor = {
+  ...ARCTIC_SHIFT,
+  enabledInHosted: false,
+  requiredCredentials: ["EXAMPLE_ACK"],
+  gateReason:
+    "Barred in hosted mode for the purposes of this test, with a reason long enough to read.",
+};
 
 function mode(overrides: Partial<DeploymentMode> = {}): DeploymentMode {
   return {
@@ -57,27 +71,9 @@ describe("the default source set — this is the legal position, as code", () =>
     ]);
   });
 
-  it("bars BOTH Reddit lanes in hosted mode", () => {
-    expect(REDDIT_RSS.enabledInHosted).toBe(false);
-    expect(REDDIT_SHREDDIT.enabledInHosted).toBe(false);
-  });
-
-  it("permits Reddit in self-host, where the operator is their own data subject", () => {
-    expect(REDDIT_RSS.enabledInSelfHost).toBe(true);
-  });
-
   it("keeps the two default sources keyless", () => {
     expect(HACKERNEWS.requiredCredentials).toEqual([]);
     expect(WEB_KEYLESS.requiredCredentials).toEqual([]);
-  });
-
-  it("states the actual legal reasoning on the Reddit gate, not boilerplate", () => {
-    for (const descriptor of [REDDIT_RSS, REDDIT_SHREDDIT]) {
-      expect(descriptor.gateReason).toContain("403");
-      expect(descriptor.gateReason).toContain("access control");
-      expect(descriptor.gateReason).toContain("GDPR");
-      expect(descriptor.gateReason).toContain("erasure");
-    }
   });
 
   it("gives every source a non-empty gate reason", () => {
@@ -102,13 +98,13 @@ describe("decideProviderGate", () => {
     );
   });
 
-  it("REFUSES Reddit in hosted mode even when the operator turned it on", () => {
+  it("REFUSES a hosted-barred source in hosted mode even when the operator turned it on", () => {
     const outcome = decideProviderGate(
-      REDDIT_RSS,
+      BARRED_IN_HOSTED,
       mode({
         hosted: true,
-        operatorEnabled: ["reddit-rss"],
-        availableCredentials: ["REDDIT_ENABLED_ACK"],
+        operatorEnabled: ["arctic-shift"],
+        availableCredentials: ["EXAMPLE_ACK"],
       })
     );
     expect(outcome.allowed).toBe(false);
@@ -117,7 +113,7 @@ describe("decideProviderGate", () => {
   });
 
   it("REFUSES a source the operator never enabled — default-off means default-off", () => {
-    const outcome = decideProviderGate(REDDIT_RSS, mode());
+    const outcome = decideProviderGate(BARRED_IN_HOSTED, mode());
     expect(outcome.allowed).toBe(false);
     expect(outcome.reason).toContain("not enabled");
   });
@@ -133,12 +129,12 @@ describe("decideProviderGate", () => {
     expect(outcome.reason).toContain("will not fall back");
   });
 
-  it("allows Reddit in self-host once BOTH the toggle and the credential are set", () => {
+  it("allows a hosted-barred source in self-host once BOTH the toggle and the credential are set", () => {
     const outcome = decideProviderGate(
-      REDDIT_RSS,
+      BARRED_IN_HOSTED,
       mode({
-        operatorEnabled: ["reddit-rss"],
-        availableCredentials: ["REDDIT_ENABLED_ACK"],
+        operatorEnabled: ["arctic-shift"],
+        availableCredentials: ["EXAMPLE_ACK"],
       })
     );
     expect(outcome.allowed).toBe(true);
@@ -148,7 +144,7 @@ describe("decideProviderGate", () => {
     // Both would refuse, but the REASON has to be the legal one — that is the
     // text the operator reads, and "not enabled" would invite them to enable it.
     const outcome = decideProviderGate(
-      REDDIT_RSS,
+      BARRED_IN_HOSTED,
       mode({ hosted: true, operatorEnabled: [] })
     );
     expect(outcome.reason).toContain("off in hosted mode");
@@ -165,16 +161,14 @@ describe("selectEnabledProviders", () => {
       "hackernews",
       "web-keyless",
     ]);
-    // github, reddit-rss, reddit-shreddit, arctic-shift. Arctic Shift is
-    // PERMITTED in hosted mode but is still not a default: it cannot keyword
-    // search across Reddit and needs subreddits chosen for it, so it is a lane
-    // an operator opts into deliberately.
-    expect(selection.refused).toHaveLength(4);
+    // github and arctic-shift. Arctic Shift is PERMITTED in hosted mode but is
+    // still not a default: it cannot keyword search across Reddit and needs
+    // subreddits chosen for it, so it is a lane an operator opts into
+    // deliberately.
+    expect(selection.refused).toHaveLength(2);
     expect(selection.refused.map((r) => r.descriptor.id).sort()).toEqual([
       "arctic-shift",
       "github",
-      "reddit-rss",
-      "reddit-shreddit",
     ]);
   });
 
@@ -236,7 +230,7 @@ describe("harvestSignals", () => {
     // A disabled source is a deliberate choice, not a failure to look.
     const harvest = harvestSignals(
       [],
-      [{ kind: "disabled", sourceId: "reddit-rss", detail: "off in hosted" }]
+      [{ kind: "disabled", sourceId: "arctic-shift", detail: "off in hosted" }]
     );
     expect(harvest.inconclusive).toBe(false);
   });
@@ -250,7 +244,7 @@ describe("harvestSignals", () => {
           signals: [signal("a", "https://x.test/1")],
         },
       ],
-      [{ kind: "disabled", sourceId: "reddit-rss", detail: "off in hosted" }]
+      [{ kind: "disabled", sourceId: "arctic-shift", detail: "off in hosted" }]
     );
     expect(harvest.failures).toHaveLength(1);
     expect(harvest.sourcesWithSignals).toEqual(["hackernews"]);
@@ -275,7 +269,7 @@ describe("runSignalHarvest", () => {
         descriptors: ALL_PROVIDERS,
         mode: mode({
           hosted: true,
-          operatorEnabled: ["reddit-rss", "hackernews"],
+          operatorEnabled: ["github", "hackernews"],
         }),
         query: { query: "q", limit: 10, from: "2026-07-01", to: "2026-08-01" },
       }

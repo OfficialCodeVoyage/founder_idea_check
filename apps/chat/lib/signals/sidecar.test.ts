@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARCTIC_SHIFT, HACKERNEWS, REDDIT_RSS, WEB_KEYLESS } from "./providers";
+import { ARCTIC_SHIFT, HACKERNEWS, WEB_KEYLESS } from "./providers";
 import {
   classifySidecarStatus,
   createSidecarSignalFetcher,
@@ -89,13 +89,13 @@ describe("parseSignalResponse", () => {
   it("REFUSES a body attributed to a different source rather than relabelling it", () => {
     const outcome = parseSignalResponse(HACKERNEWS, {
       ok: true,
-      source_id: "reddit-rss",
+      source_id: "arctic-shift",
       signals: [],
     });
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.failure.kind).toBe("schema-drift");
-      expect(outcome.failure.detail).toContain("reddit-rss");
+      expect(outcome.failure.detail).toContain("arctic-shift");
     }
   });
 
@@ -108,9 +108,9 @@ describe("parseSignalResponse", () => {
   });
 
   it("carries a null published_at through rather than inventing a date", () => {
-    const outcome = parseSignalResponse(REDDIT_RSS, {
+    const outcome = parseSignalResponse(ARCTIC_SHIFT, {
       ok: true,
-      source_id: "reddit-rss",
+      source_id: "arctic-shift",
       signals: [
         {
           id: "R1",

@@ -6,9 +6,9 @@
 #   licence text: LICENSES/MIT-mvanhorn-last30days-skill.txt
 #
 # WHAT IS UPSTREAM'S: stdlib urllib only, a browser User-Agent for HTML
-# endpoints, and a small token-bucket rate limiter with upstream's measured
-# request ceiling. The code is written here, and failures are classified into
-# named errors instead of strings. The docstring below says more.
+# endpoints, and the idea of a small token-bucket rate limiter. The code is
+# written here, and failures are classified into named errors instead of
+# strings. The docstring below says more.
 #
 #   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/http.py&since=2026-08-18" --jq '.[].commit.message'
 # ─────────────────────────────────────────────────────────────────────────────
@@ -26,8 +26,10 @@ What IS taken from upstream, because it is the part that was expensive to learn:
     HTTP dependency is portable and does not inherit that library's CVEs.
   - a browser User-Agent for HTML endpoints, because several of them serve a
     challenge page to anything that looks automated.
-  - a small token-bucket rate limiter for the Reddit keyless lanes, at upstream's
-    measured 5 requests/second (`http.REDDIT_KEYLESS_LIMITER`).
+  - a small token-bucket rate limiter (`RateLimiter`). Upstream used it to hold
+    Reddit's keyless endpoints to 5 requests/second; this service has no such
+    lane, and its one limiter, `ARCTIC_SHIFT_LIMITER`, is set from that
+    archive's own guidance instead.
 
 THE ONE BEHAVIOURAL DIVERGENCE, and the reason this file exists at all:
 upstream classifies failures into strings for a health report and keeps going.
@@ -59,12 +61,12 @@ DEFAULT_TIMEOUT = 20
 #: Identifies this service honestly. A UA that impersonates a browser on a JSON
 #: API is the kind of thing that turns "we called your public API" into "we
 #: evaded your bot detection", which is precisely the characterisation the
-#: Reddit gate in apps/chat/lib/signals/providers.ts exists to avoid.
+#: Reddit policy in apps/chat/lib/signals/providers.ts exists to avoid.
 USER_AGENT = "idea-check-research/0.1 (+https://github.com/OfficialCodeVoyage/founder_idea_check)"
 
-#: HTML endpoints (DuckDuckGo, Startpage, Reddit RSS) serve a challenge page to
-#: an obviously-automated UA. Used ONLY for endpoints that render HTML for
-#: humans, never for a documented JSON API.
+#: HTML endpoints (DuckDuckGo) serve a challenge page to an obviously-automated
+#: UA. Used ONLY for endpoints that render HTML for humans, never for a
+#: documented JSON API.
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -100,20 +102,6 @@ class RateLimiter:
             self._updated = now + wait
         time.sleep(wait)
 
-
-#: Upstream's measured ceiling for the keyless Reddit lanes. Exceeding it is
-#: what turns an intermittent 403 into a permanent one.
-#:
-#: RE-MEASURED 2026-08-20 and this limiter is more necessary than upstream's
-#: figure suggests, not less. A burst of four requests to
-#: `/r/rust/top.rss?t=month` from this machine, with no delay between them,
-#: returned 200, 200, 429, 429 — Reddit starts shedding at the THIRD
-#: back-to-back request, well under 5/s. The burst of 5 is therefore optimistic;
-#: it is left at upstream's value because the real fan-out is serial and never
-#: reaches it, but do not raise it, and do not delete this limiter on the theory
-#: that a local proxy makes it unnecessary. See the Redlib row in THIRD_PARTY.md
-#: for why no such proxy exists.
-REDDIT_KEYLESS_LIMITER = RateLimiter(rate_per_sec=5.0, burst=5)
 
 #: Arctic Shift sheds load by answering 200 with {"error": "Timeout. Maybe slow
 #: down a bit"} rather than by returning 429, so the usual status-based backoff
@@ -295,15 +283,3 @@ def get_json(
         raise SourceSchemaDrift(
             f"{url} returned a 2xx with a body that is not JSON: {body[:200]!r}"
         ) from error
-
-
-def reddit_keyless_get_text(url: str, *, timeout: int = DEFAULT_TIMEOUT, accept: str) -> str:
-    """Rate-limited fetch for the keyless Reddit lanes.
-
-    The limiter is not optional politeness. Upstream measured 5 req/s as the
-    point above which Reddit's keyless endpoints start returning 403 for the
-    rest of the session, so exceeding it converts a working lane into a dead one
-    for everybody sharing the egress IP.
-    """
-    REDDIT_KEYLESS_LIMITER.acquire()
-    return get_text(url, accept=accept, timeout=timeout, browser_ua=True)

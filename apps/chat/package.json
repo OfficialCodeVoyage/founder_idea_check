@@ -60,7 +60,7 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.43.15",
-    "@hookform/resolvers": "^5.2.1",
+    "@hookform/resolvers": "^7.0.3",
     "@lexical/code": "^0.32.1",
     "@lexical/link": "^0.32.1",
     "@lexical/list": "^0.32.1",

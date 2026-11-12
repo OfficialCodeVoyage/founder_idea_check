@@ -10,7 +10,8 @@ The reference for people who already have the app running. If you are starting f
 - Docker with Compose v2.
 - bash: the scripts are written for it, so on Windows use WSL 2.
 - Python 3.11 and [uv](https://docs.astral.sh/uv/), only if you run the research service outside Docker. It must be
-  3.11: the simulation library pins `>=3.10,<3.12`.
+  3.11: that is the version the service is tested on (the simulation library now allows `>=3.10,<3.15`, but
+  loosening the bound is a separate change).
 
 ## Ports and services
 

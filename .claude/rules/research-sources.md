@@ -27,7 +27,7 @@ paths:
   only. The compose sidecar turns the loopback check off (`RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED`) and relies on
   its `127.0.0.1` port binding instead. Both no-token modes also require `Host` to be `localhost`, `127.0.0.1` or
   `::1` (DNS rebinding); never drop that check. Guard: `tests/test_api.py::TestCallerAuth`.
-- **Python 3.11 only** (OASIS); `mcp<2` is load-bearing. Use `apps/research/.venv`, never system Python/pytest/ruff.
+- **Python 3.11 only** (the tested version; OASIS 0.2.6 itself allows `<3.15`); keep `mcp<2` (a guard for the OASIS extra). Use `apps/research/.venv`, never system Python/pytest/ruff.
 - **Vendored files are not modernised or reformatted** (`app/text/cjk.py`, `app/text/relevance.py`,
   `app/pipeline/{dedupe,entity_extract}.py`, see `pyproject.toml` per-file-ignores). `ruff format` is not enforced.
 - **`RESEARCH_ENABLED_SOURCES` must stay in `turbo.json` `globalEnv`:** `bun run dev` runs through turbo's strict env

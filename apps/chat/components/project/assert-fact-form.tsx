@@ -48,6 +48,14 @@ import { Textarea } from "@/components/ui/textarea";
 type KeyChoice = { kind: "none-chosen" } | { kind: "chosen"; key: string };
 
 /**
+ * WHAT THE SELECT IS TOLD WHEN NOTHING IS CHOSEN. Radix shows the placeholder
+ * for an empty-string value and treats `undefined` as "uncontrolled" — see the
+ * note at the `Select` below. This never reaches `choice`, `submit` or any
+ * request: it is only the controlled-select spelling of `none-chosen`.
+ */
+const NO_KEY_SHOWN = "";
+
+/**
  * THE RESULT OF THE LAST ATTEMPT. `idle` carries no message, because a form
  * that has not been submitted has not said anything — an empty error string
  * would render as a cleared error, which is a claim.
@@ -142,13 +150,21 @@ export function AssertFactForm({
             setChoice({ kind: "chosen", key });
             setState({ kind: "idle" });
           }}
-          value={choice.kind === "chosen" ? choice.key : undefined}
+          value={choice.kind === "chosen" ? choice.key : NO_KEY_SHOWN}
         >
           <SelectTrigger className="w-full sm:w-80">
             {/*
-              No value prop when nothing is chosen — `undefined`, never "".
-              Radix renders the placeholder for an unset value, so the
-              not-yet-chosen state has no key to read anywhere, including here.
+              CONTROLLED THE WHOLE TIME. The first version passed `undefined`
+              when nothing was chosen, which Radix reads as UNCONTROLLED: the
+              first pick flipped it to controlled and the reset after a
+              successful submit flipped it back, so React logged "changing from
+              uncontrolled to controlled" (and the reverse) and the trigger kept
+              showing the fact that had just been recorded — or went blank.
+              Radix's own empty value (`""`) is how a controlled Select shows
+              its placeholder, and `SelectItem` cannot carry it, so it cannot
+              collide with a real key. It exists only at this boundary:
+              `choice` is still the union and still holds no key when nothing
+              is chosen.
             */}
             <SelectValue placeholder="Which fact is this?" />
           </SelectTrigger>

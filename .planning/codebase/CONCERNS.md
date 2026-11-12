@@ -16,8 +16,8 @@ in the last section.
 
 | # | Concern | Blast radius | Where |
 |---|---|---|---|
-| 1 | Any signed-in user can append a version to another user's document by id | cross-tenant integrity | Security |
-| 2 | Spend control is "balance above zero" plus a price table of 8 ids against ~126 listed models; any gateway model is selectable; the title call is never charged | operator's model bill | Security |
+| 1 | Authorization is checked at each call site, not in shared queries; two cross-user holes found this way (project id, document id) are fixed, more could exist | cross-tenant integrity | Security |
+| 2 | Spend control is "balance above zero" plus a price table of 8 ids against ~126 listed models; any gateway model is selectable | operator's model bill | Security |
 | 3 | Anonymous access: cookie-held credits, IP limit only with Redis, fails open, trusts the first `X-Forwarded-For` | operator's model bill | Security |
 | 4 | Test-mode env vars switch page auth off, skip env validation and supply a published `AUTH_SECRET` fallback | whole app, needs operator error | Security |
 | 5 | After-response work (extraction, gate, personas) and the stream rescue depend on the invocation surviving; no `maxDuration`; no serialisation of concurrent passes | the product's core loop | Fragile |
@@ -101,7 +101,7 @@ in the last section.
 - Files: `apps/chat/lib/db/queries.ts` (`getChatById`, `getProjectById`, `updateProject`, `deleteProject`, `deleteChatById`,
   `getDocumentById`, `saveDocument`, `voteMessage` all take a bare id).
 - Impact: every route, tRPC procedure, server action and AI tool repeats `owner === caller`. Two incidents came from a site
-  that forgot (`projectId` on `/api/chat`, fixed; documents, open). `docs/ARCHITECTURE.md` says layer rules are "Enforced by: none".
+  that forgot (`projectId` on `/api/chat` and the document version write, both fixed). `docs/ARCHITECTURE.md` says layer rules are "Enforced by: none".
 - Fix approach: follow `getAllMessagesByProjectId`, which takes `userId` and puts it in the `WHERE`; do the same for the
   document and project writes.
 
@@ -121,37 +121,19 @@ in the last section.
   `apps/chat/app/api/cron/cleanup/route.ts` only deletes orphaned attachments.
 - Workaround: the failure card offers "continue from where it stopped"; no guard test exists for the cause.
 
-**A persistence error skips the charge:** `finalizeMessageAndCredits` in `apps/chat/app/(chat)/api/chat/route.ts` puts
-`rescueDeadToolInputStreams`, `updateMessage`, `settle()` and `deductCredits` in one `try`; if the message write throws,
-the turn is logged and never deducted.
-
-**Rate-limit counter can outlive its window:** `apps/chat/lib/utils/rate-limit.ts::checkRateLimit` sets the expiry only for the
-request that read a zero count, after `incr`. If that `expire` throws, the error is swallowed (fail open) and the key has no
-TTL, so the counter never resets and that IP is refused for good once it passes the limit.
-
-**Inputs typed as bare strings reach uuid columns:** `chatId` in `apps/chat/trpc/routers/vote.router.ts` and `id` in
-`document.getDocuments` are `z.string()`; a non-UUID value becomes a database error and a 500 instead of a 4xx (inferred
-from the column types).
-
 **Privacy page prints empty parentheses** where processors belong (`apps/chat/app/privacy/page.tsx`).
 
 ## Security Considerations
 
-**1. Cross-user document write (rank 1, open):**
-- Risk: `apps/chat/trpc/routers/document.router.ts::saveDocument` is a `protectedProcedure` that loads the latest version
-  with `getDocumentById` (any owner) and inserts a new version with `userId: ctx.user.id` and the original `messageId`. It
-  never compares `lastDocument.userId` to the caller. The AI edit tools do the same:
-  `apps/chat/tools/platform/documents/edit-text-document.ts`, `edit-sheet-document.ts`, `edit-code-document.ts` (the model
-  supplies `documentId`; "read before editing" is only prompt text).
-- Reach: needs the document's UUID. It is in the tool output stored with the message, and `getPublicChatMessages`
-  (`apps/chat/trpc/routers/chat.router.ts`) serves full messages of a shared chat to anyone. The new version then shows in the
-  owner's view (`getDocumentsById` in `apps/chat/lib/db/queries.ts` judges ownership from the oldest version and returns all)
-  and, through the tRPC route, in the public view (it carries the victim's `messageId`). Conversely
-  `apps/chat/tools/platform/read-document.ts` judges ownership from the latest version, so after a foreign version lands
-  the real owner is told "Unauthorized access to document".
-- Current mitigation: UUIDs are not guessable; shared chats are opt-in.
-- Recommendations: in `saveDocument` and the three edit tools require the document's first version (or the message's chat)
-  to belong to the caller, and take `userId` in the query as `getAllMessagesByProjectId` does. Make the tRPC `id` a `uuid()`.
+**1. Cross-user writes (rank 1, both known cases fixed):**
+- Fixed: a new chat could be attached to another user's project through `projectId` on `/api/chat`; it is now refused, and
+  project-scoped reads filter by owner (`apps/chat/lib/db/queries.ts::getAllMessagesByProjectId`,
+  `getPersonaDocumentsByProjectId`).
+- Fixed: any signed-in user could append a version to another user's document by id (ids are visible in shared chats). A
+  document now belongs to whoever wrote its first version (`apps/chat/lib/db/queries.ts::getOwnedDocumentById`), and
+  `apps/chat/trpc/routers/document.router.ts::saveDocument`, the three edit tools and
+  `apps/chat/tools/platform/read-document.ts` answer "not found" for both missing and not-yours.
+- Residual: the rule is still applied query by query; a new route that reads by bare id can repeat the mistake (rank 16).
 
 **2. Spend control and open sign-up (rank 2):**
 - Risk: the pre-turn gate is `canSpend` = balance above zero (`apps/chat/lib/db/credits.ts`); the turn then runs up to five
@@ -164,9 +146,9 @@ from the column types).
   `apps/chat/lib/ai/model-capabilities.ts::MODEL_CAPABILITIES` has 8 entries (one is an embedding model), so a signed-in caller who posts another
   `selectedModelId` runs on the operator's key and `CostAccumulator.settle()` returns it in `unpriced[]`, which is logged and
   deducted as zero.
-- Risk: the title call is not charged and not metered. `generateTitleFromUserMessage`
-  (`apps/chat/app/(chat)/actions.ts`) sends `JSON.stringify(message)` with no size cap and no accumulator, and runs from
-  `/api/chat` and from `/api/chat/prepare`. `apps/chat/app/(chat)/api/chat/prepare/route.ts` has no `canSpend`, no
+- Risk: the title call is now charged (its own accumulator in `generateTitleFromUserMessage`,
+  `apps/chat/app/(chat)/actions.ts`) but sends `JSON.stringify(message)` with no size cap, and runs from `/api/chat` and
+  from `/api/chat/prepare`. `apps/chat/app/(chat)/api/chat/prepare/route.ts` has no `canSpend`, no
   `MAX_INPUT_TOKENS` check, no rate limit and stores the unvalidated message body. Simulation is charged by a flat estimate
   (`apps/chat/lib/research/simulation.ts::estimateSimulationCostCents`, 0.1 cent per seat-round) because the sidecar reports no
   usage, and a run whose failure kind is not `no-reactions` or `too-few-reactions` is not charged
@@ -175,7 +157,7 @@ from the column types).
   `apps/chat/lib/auth.ts`; each account starts with `UserCredit.credits` = 50 cents (`apps/chat/lib/db/schema.ts`).
 - Recommendations: restrict `selectedModelId` to `config.ai` allow-listed ids on the server; treat an unpriced model as a
   refusal for chat turns; put one atomic "reserve" on the balance before streaming; give `prepare` the same input cap and
-  `canSpend` as `/api/chat`; charge the title call; add sign-up control (allow-list, invite or verified email).
+  `canSpend` as `/api/chat`; add sign-up control (allow-list, invite or verified email).
 
 **3. Anonymous access (rank 3, upstream behaviour kept):**
 - Risk: credits live in a signed cookie (`apps/chat/lib/anonymous-session-server.ts`) with a server-side record of nothing: clearing

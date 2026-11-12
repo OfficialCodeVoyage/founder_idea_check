@@ -10,6 +10,14 @@ import { vercelBlob } from "files-sdk/vercel-blob";
 // only through the adapter's credentials (lib/file-storage.ts::downloadFile),
 // so /api/files/content stays the only way in. The Blob store itself must
 // accept private blobs.
+//
+// Two consequences (README-DEV.md, "File storage"):
+// - Blobs uploaded as public before this setting come back NotFound: in private
+//   mode files-sdk 2.1.0 reads with `blob.get(key, { access: "private" })`. A
+//   store that already holds public blobs needs a one-off copy into a private
+//   store under the same pathnames before going live.
+// - Private blobs have no range reads, so the content route answers
+//   `Accept-Ranges: none`; Safari will not play a <video> without ranges.
 const options = {
   access: "private",
 } satisfies Parameters<typeof vercelBlob>[0];

@@ -121,6 +121,27 @@ callers only, which is the app on the same machine. Set it, to the same value in
 and the sidecar's environment, as soon as the app reaches the sidecar over a network (see
 `apps/research/README.md`, Configuration).
 
+## File storage
+
+Attachments and generated images and videos are stored in Vercel Blob through files-sdk
+(`apps/chat/lib/storage-provider.ts`), as **private** blobs (`access: "private"`). A public blob can be read by anyone
+who has the store id and the key, straight from the Blob CDN, around the access checks in `/api/files/content`. A
+private blob is read only with the app's own credentials, so that route is the only way in. The Blob store must accept
+private blobs. Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a deployment:
+
+- **Blobs uploaded as public before this change will not load.** In private mode files-sdk 2.1.0 reads every file with
+  `blob.get(key, { access: "private" })` and reports anything that does not come back that way as `NotFound`, so a
+  store that already holds public blobs (one used by this app before the switch, or by upstream ChatJS) serves them as
+  404. One-off fix, before going live on such a store: create a private Blob store; copy every blob into it under the
+  **same pathname** (list the old store, download each blob from its public URL, `put` it with `access: "private"`,
+  `addRandomSuffix: false` and its content type); point `BLOB_READ_WRITE_TOKEN` / `BLOB_STORE_ID` at the new store;
+  then delete the old one. Messages store `/api/files/content?key=<pathname>`, so keeping the pathnames keeps every
+  link working.
+- **No byte ranges.** Private blobs report no range support, so `/api/files/content` answers `Accept-Ranges: none` and
+  always sends the whole file. Images and PDFs are unaffected. Safari will not play a `<video>` whose source refuses
+  range requests, so generated videos (off in `chat.config.ts`) need range support added before video generation is
+  turned on.
+
 ## Run
 
 ```bash

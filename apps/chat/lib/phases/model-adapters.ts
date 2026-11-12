@@ -1,4 +1,6 @@
 import { generateText, type LanguageModel, Output } from "ai";
+import type { AppModelId } from "@/lib/ai/app-models";
+import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
 import type { FactExtractor } from "./extract";
 import type { GateJudge } from "./gate";
 import { ExtractionOutputSchema, JudgeOutputSchema } from "./types";
@@ -45,6 +47,31 @@ export type ModelUsage = {
 };
 
 export type UsageSink = (usage: ModelUsage) => void;
+
+/**
+ * A sink that records each call on `costAccumulator` against `modelId`, under
+ * the call's own `functionId`. Undefined when there is nothing to record into.
+ *
+ * A null token count is recorded as absent, which prices that side of the call
+ * at zero: an undercount, but one the provider caused by not reporting usage.
+ */
+export function chargeUsageTo(
+  costAccumulator: CostAccumulator | undefined,
+  modelId: AppModelId
+): UsageSink | undefined {
+  if (!costAccumulator) {
+    return;
+  }
+  return (usage) =>
+    costAccumulator.addLLMCost(
+      modelId,
+      {
+        inputTokens: usage.inputTokens ?? undefined,
+        outputTokens: usage.outputTokens ?? undefined,
+      },
+      usage.functionId
+    );
+}
 
 function reportUsage(
   onUsage: UsageSink | undefined,

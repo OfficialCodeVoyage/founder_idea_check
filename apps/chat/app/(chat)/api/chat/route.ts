@@ -587,19 +587,34 @@ async function createChatStream({
       // Awaited in sequence, not raced: the persona is built from the facts the
       // phase pass has just written, so running them concurrently would build it
       // from the previous turn's fact store.
+      //
+      // CHARGED SEPARATELY. finalizeMessageAndCredits has already settled the
+      // turn's own cost by the time these run, so their calls — extraction,
+      // the gate judge, the embedding backfill, a persona regeneration — go
+      // into a second accumulator and a second deduction, made in `finally` so
+      // a pass that throws past its own guards is still charged for what it
+      // spent. No second canSpend: the turn already passed it, and these
+      // passes are what keeps the founder's phase state true.
       after(async () => {
-        const outcome = await runPostTurnPhasePass({
-          projectId: phaseProjectId,
-          userId: phaseUserId,
-          chatId,
-          assistantMessageId: messageId,
-        });
-        await runPostTurnPersonaPass({
-          projectId: phaseProjectId,
-          userId: phaseUserId,
-          assistantMessageId: messageId,
-          outcome,
-        });
+        const postTurnCost = new CostAccumulator();
+        try {
+          const outcome = await runPostTurnPhasePass({
+            projectId: phaseProjectId,
+            userId: phaseUserId,
+            chatId,
+            assistantMessageId: messageId,
+            costAccumulator: postTurnCost,
+          });
+          await runPostTurnPersonaPass({
+            projectId: phaseProjectId,
+            userId: phaseUserId,
+            assistantMessageId: messageId,
+            outcome,
+            costAccumulator: postTurnCost,
+          });
+        } finally {
+          await chargePostTurnCost({ userId, costAccumulator: postTurnCost });
+        }
       });
     },
     onError: (error) => {
@@ -1060,6 +1075,42 @@ async function writePartialDocument({
     // back exactly where 2026-08-21 started.
     log.error({ error, messageId }, "failed to persist salvaged document");
     return null;
+  }
+}
+
+/**
+ * Settles and deducts what the post-turn passes spent. NEVER THROWS: it runs in
+ * `after()`, where a rejection is unhandled. Logs an unpriced entry the same
+ * way finalizeMessageAndCredits does, because the total is then an undercount.
+ */
+async function chargePostTurnCost({
+  userId,
+  costAccumulator,
+}: {
+  userId: string | null;
+  costAccumulator: CostAccumulator;
+}): Promise<void> {
+  const log = createModuleLogger("api:chat:post-turn-credits");
+  try {
+    if (!(userId && costAccumulator.hasEntries())) {
+      return;
+    }
+    const { cents, unpriced } = await costAccumulator.settle();
+    if (unpriced.length > 0) {
+      log.error(
+        { unpriced, cents },
+        "Some post-turn calls could not be priced; the deducted total is an undercount"
+      );
+    }
+    log.info(
+      { entries: costAccumulator.getEntries(), cents },
+      "Post-turn cost"
+    );
+    if (cents > 0) {
+      await deductCredits(userId, cents);
+    }
+  } catch (error) {
+    log.error({ error }, "Failed to charge the post-turn passes");
   }
 }
 

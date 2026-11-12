@@ -5,6 +5,7 @@ import { getLanguageModel } from "@/lib/ai/providers";
 import { countTextTokens } from "@/lib/ai/token-utils";
 import type { ChatMessage } from "@/lib/ai/types";
 import { config } from "@/lib/config";
+import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
 import {
   activateProjectPhase,
   backfillFactEmbeddings,
@@ -18,6 +19,7 @@ import {
   getAllMessagesByProjectId,
 } from "@/lib/db/queries";
 import { getEmbeddingProvider } from "@/lib/embeddings/provider";
+import { embeddingCostCents } from "@/lib/embeddings/text";
 import { createModuleLogger } from "@/lib/logger";
 import { selectActiveThread } from "@/lib/thread-utils";
 import {
@@ -41,6 +43,7 @@ import {
 import { extractFacts, reconcileFacts } from "./extract";
 import { documentMarker, evaluateGate, failClosedVerdict } from "./gate";
 import {
+  chargeUsageTo,
   createModelFactExtractor,
   createModelGateJudge,
 } from "./model-adapters";
@@ -450,6 +453,7 @@ export async function runPostTurnPhasePass({
   userId,
   chatId,
   assistantMessageId,
+  costAccumulator,
 }: {
   projectId: string;
   /**
@@ -460,6 +464,12 @@ export async function runPostTurnPhasePass({
   userId: string;
   chatId: string;
   assistantMessageId: string | null;
+  /**
+   * Receives every paid call this pass makes — extraction, the judge, the
+   * embedding backfill. The caller settles and charges it; this module only
+   * records. Optional so a caller that is not billing (an eval) need not care.
+   */
+  costAccumulator?: CostAccumulator;
 }): Promise<PhasePassOutcome> {
   let phase: PhaseDefinition;
   let workflowComplete: boolean;
@@ -494,6 +504,7 @@ export async function runPostTurnPhasePass({
       assistantMessageId,
       phase,
       workflowComplete,
+      costAccumulator,
     });
     return {
       status: "assessed",
@@ -527,6 +538,7 @@ async function runPhasePass({
   assistantMessageId,
   phase,
   workflowComplete,
+  costAccumulator,
 }: {
   projectId: string;
   userId: string;
@@ -535,6 +547,7 @@ async function runPhasePass({
   /** From resolveCurrentPhase. Keeps a finished arc from being un-finished. */
   workflowComplete: boolean;
   phase: PhaseDefinition;
+  costAccumulator?: CostAccumulator;
 }): Promise<{ decision: "PASS" | "WARN" | "BLOCK"; factsChanged: number }> {
   const [projectMessages, chatMessages, priorRows] = await Promise.all([
     getAllMessagesByProjectId({ projectId, userId }),
@@ -593,7 +606,10 @@ async function runPhasePass({
 
   const extracted = await extractFacts(
     {
-      extract: createModelFactExtractor({ model: extractModel }),
+      extract: createModelFactExtractor({
+        model: extractModel,
+        onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.extract),
+      }),
       onError: (error, stage) =>
         log.error(
           { err: error, stage, projectId, phaseKey: phase.key },
@@ -633,7 +649,7 @@ async function runPhasePass({
    */
   const embeddingProvider = getEmbeddingProvider();
   if (embeddingProvider) {
-    const { embedded } = await backfillFactEmbeddings({
+    const { embedded, tokens } = await backfillFactEmbeddings({
       projectId,
       provider: embeddingProvider,
       onError: (error: unknown) =>
@@ -644,6 +660,14 @@ async function runPhasePass({
     });
     if (embedded > 0) {
       log.debug({ projectId, embedded }, "embedded project facts");
+    }
+    // `tokens` is null when the provider did not report usage or the call
+    // failed; neither can be priced, and a failed call is not billed.
+    if (tokens) {
+      costAccumulator?.addAPICost(
+        "fact-embeddings",
+        embeddingCostCents(tokens)
+      );
     }
   }
 
@@ -665,7 +689,12 @@ async function runPhasePass({
     origin: r.origin,
   }));
   const verdict = await evaluateGate(
-    { judge: createModelGateJudge({ model: gateModel }) },
+    {
+      judge: createModelGateJudge({
+        model: gateModel,
+        onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.chat),
+      }),
+    },
     {
       phase,
       personaPrompt: loadPersonaPrompt(),

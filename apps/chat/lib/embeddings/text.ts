@@ -34,6 +34,19 @@ export const PGVECTOR_MAX_INDEXED_DIMENSIONS = 2000;
  */
 export const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
 
+/**
+ * The price above, as a number, for charging embedding calls. Not in
+ * lib/ai/model-capabilities.ts: that table prices LANGUAGE models by AppModelId,
+ * and an embedding model is a different namespace (see lib/embeddings/provider.ts).
+ * Change it with DEFAULT_EMBEDDING_MODEL.
+ */
+const EMBEDDING_USD_PER_MILLION_TOKENS = 0.02;
+
+/** PURE. Cents for `tokens` embedded on the default model; fractional on purpose. */
+export function embeddingCostCents(tokens: number): number {
+  return ((tokens * EMBEDDING_USD_PER_MILLION_TOKENS) / 1_000_000) * 100;
+}
+
 export const EMBEDDING_DIMENSION_MISMATCH =
   "embedding provider dimension does not match the ProjectFact.embedding column width";
 

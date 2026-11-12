@@ -1,4 +1,5 @@
 import { generateText, type LanguageModel, Output } from "ai";
+import type { UsageSink } from "../phases/model-adapters";
 import type { PersonaGenerator } from "./generate";
 import { PersonaDraftSchema } from "./types";
 
@@ -37,8 +38,11 @@ const LENIENT_SCHEMA_OPTIONS = {
  */
 export function createModelPersonaGenerator({
   model,
+  onUsage,
 }: {
   model: LanguageModel;
+  /** Same seam as the gate judge's: see lib/phases/model-adapters.ts. */
+  onUsage?: UsageSink;
 }): PersonaGenerator {
   return async ({ system, prompt }) => {
     const response = await generateText({
@@ -51,6 +55,12 @@ export function createModelPersonaGenerator({
         isEnabled: true,
         functionId: "persona-generate",
       },
+    });
+    onUsage?.({
+      functionId: "persona-generate",
+      inputTokens: response.usage?.inputTokens ?? null,
+      outputTokens: response.usage?.outputTokens ?? null,
+      totalTokens: response.usage?.totalTokens ?? null,
     });
     return response.output;
   };

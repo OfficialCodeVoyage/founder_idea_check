@@ -2,11 +2,13 @@ import "server-only";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { countTextTokens } from "@/lib/ai/token-utils";
 import { config } from "@/lib/config";
+import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
 import { getProjectFacts } from "@/lib/db/phase-queries";
 import { getAllMessagesByProjectId } from "@/lib/db/queries";
 import { createModuleLogger } from "@/lib/logger";
 import type { StoredFact } from "@/lib/phases/context";
 import { PHASE_THREE } from "@/lib/phases/definitions-discovery";
+import { chargeUsageTo } from "@/lib/phases/model-adapters";
 import {
   loadPersonaPrompt,
   loadPrompt,
@@ -75,6 +77,8 @@ export type RegeneratePersonaInput = {
   messageId: string;
   /** Ranks the fact block against what the founder just asked for. */
   latestUserMessage?: string;
+  /** Receives the generation call's usage; the caller charges it. */
+  costAccumulator?: CostAccumulator;
 };
 
 export type RegeneratePersonaResult = {
@@ -117,7 +121,7 @@ export async function regeneratePersona(
   // throws, and that has to become a visible refusal rather than a 500.
   let generate: Awaited<ReturnType<typeof buildGenerator>>;
   try {
-    generate = await buildGenerator();
+    generate = await buildGenerator(input.costAccumulator);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.error(
@@ -199,12 +203,15 @@ export async function regeneratePersona(
   }
 }
 
-function buildGenerator() {
+function buildGenerator(costAccumulator: CostAccumulator | undefined) {
   // workflows.chat is the strong model, the same one the gate judge uses. The
   // persona IS the product's output for phase 3, so it does not get the cheap
   // model the extractor runs on.
   return getLanguageModel(config.ai.workflows.chat).then((model) =>
-    createModelPersonaGenerator({ model })
+    createModelPersonaGenerator({
+      model,
+      onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.chat),
+    })
   );
 }
 

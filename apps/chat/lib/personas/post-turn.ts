@@ -1,4 +1,5 @@
 import "server-only";
+import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
 import { getProjectFacts } from "@/lib/db/phase-queries";
 import { getPersonaDocumentsByProjectId } from "@/lib/db/queries";
 import { createModuleLogger } from "@/lib/logger";
@@ -34,11 +35,14 @@ export async function runPostTurnPersonaPass({
   userId,
   assistantMessageId,
   outcome,
+  costAccumulator,
 }: {
   projectId: string;
   userId: string;
   assistantMessageId: string | null;
   outcome: PhasePassOutcome;
+  /** Receives the regeneration's usage; the route charges it. */
+  costAccumulator?: CostAccumulator;
 }): Promise<void> {
   // Short-circuit BEFORE any I/O. Seven of the eight phases, and every turn the
   // gate did not assess, answer "no" from the outcome alone — they must not pay
@@ -126,6 +130,7 @@ export async function runPostTurnPersonaPass({
       userId,
       messageId: assistantMessageId,
       latestUserMessage: undefined,
+      costAccumulator,
     });
 
     switch (result.persistence.status) {

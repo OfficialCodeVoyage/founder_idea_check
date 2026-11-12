@@ -594,12 +594,17 @@ async function createChatStream({
           });
         }
       } finally {
+        // The deadline timer is cleared here, when the model and the
+        // follow-ups are done, and not in onFinish or onError: an error
+        // partway through the stream runs both of those at once while the
+        // model goes on, and clearing the timer there turned off the 290 s
+        // backstop for the rest of the call.
+        clearTimeout(timeoutId);
         markExecuteEnded();
       }
     },
     generateId: () => messageId,
     onFinish: async ({ isAborted, messages }) => {
-      clearTimeout(timeoutId);
       await finalizeMessageAndCredits({
         messages,
         userId,
@@ -657,8 +662,8 @@ async function createChatStream({
       // phase pass has just written, so running them concurrently would build it
       // from the previous turn's fact store.
       //
-      // CHARGED SEPARATELY. finalizeMessageAndCredits has already settled the
-      // turn's own cost by the time these run, so their calls — extraction,
+      // CHARGED SEPARATELY. The turn's own cost is settled by `chargeTurnOnce`,
+      // which does not wait for these passes, so their calls — extraction,
       // the gate judge, the embedding backfill, a persona regeneration — go
       // into a second accumulator and a second deduction, made in `finally` so
       // a pass that throws past its own guards is still charged for what it
@@ -666,8 +671,8 @@ async function createChatStream({
       // passes are what keeps the founder's phase state true. Being rounded
       // up to a whole cent on its own, this deduction costs the founder less
       // than 1¢ more per project turn than one rounding with the turn would;
-      // folding it into the turn is not possible, because the turn is settled
-      // before these passes start.
+      // folding it into the turn is not possible, because the turn's charge
+      // does not wait for these passes to end.
       after(async () => {
         const postTurnCost = new CostAccumulator();
         try {
@@ -695,7 +700,6 @@ async function createChatStream({
       });
     },
     onError: (error) => {
-      clearTimeout(timeoutId);
       // If the stream fails, ensure the placeholder assistant message is no longer marked resumable.
       // Otherwise the client will try to resume a stream that no longer exists and we end up with a
       // stuck partial placeholder on reload.
@@ -750,11 +754,17 @@ function emptyChatStreamResponse() {
  * before the deduction is attempted. Once the stream has taken over, two paths
  * can reach the charge (onFinish, and the background drain when it ends), and
  * this flag is what lets only the first one deduct.
+ *
+ * `chargeTakenByOnFinish` turns true when onFinish starts
+ * (`finalizeMessageAndCredits`), which then always hands a charge to
+ * `after()`. The drain's charge exists for a stream that never ran onFinish,
+ * so it stands down once this is set instead of racing onFinish's charge.
  */
 type TurnCost = {
   accumulator: CostAccumulator;
   settledByStream: boolean;
   charged: boolean;
+  chargeTakenByOnFinish: boolean;
 };
 
 async function executeChatRequest({
@@ -909,7 +919,7 @@ async function executeChatRequest({
   // both branches cancel, so a client cancel never reaches the finish
   // transform, and the drained branch reaches `flush` only after the source
   // closes, which `createUIMessageStream` does once `execute` and every merged
-  // stream (the model's finish part included) are done: onFinish runs once, at
+  // stream (the model's last part included) are done: onFinish runs once, at
   // the real end, with the whole usage recorded. The drain is handed to
   // `after()` as a promise, not a callback, so it starts now (a callback would
   // wait for the response to close, which a stalled resumable read loop never
@@ -918,11 +928,12 @@ async function executeChatRequest({
   //
   // An error partway through the stream (the SDK's message processor rejects
   // a malformed chunk) still reaches the finish transform's `cancel`, so
-  // onFinish runs then, before the model has finished; `chargeTurnOnce` waits
-  // for `spendRecorded` before it settles, so that charge is whole too. When
-  // the drain ends, resolved or rejected, it calls `chargeTurnOnce` as well:
-  // a no-op after onFinish charged, and the charge when a stream error never
-  // ran onFinish. On Node it does run it; Bun did not call the transformer's
+  // onFinish runs then, before the model has finished; it hands
+  // `chargeTurnOnce` to `after()`, which waits for `spendRecorded` before it
+  // settles, so that charge is whole too and the client gets the error at
+  // once. When the drain ends, resolved or rejected, it calls `chargeTurnOnce`
+  // as well: a no-op once onFinish has taken the charge, and the charge when a
+  // stream error never ran onFinish. On Node it does run it; Bun did not call the transformer's
   // `cancel` hook in the same check, so that path rests on a runtime detail
   // and is not left to it.
   //
@@ -1314,21 +1325,25 @@ async function chargeAccumulatedCost({
 /**
  * The turn's one charge, once its stream has taken the accumulator over
  * (`TurnCost.settledByStream`). Called from onFinish
- * (`finalizeMessageAndCredits`) and from `executeChatRequest`'s drain when it
- * ends; whichever reaches it first deducts, and the other does nothing.
+ * (`finalizeMessageAndCredits`, handed to `after()`) and from
+ * `executeChatRequest`'s drain when it ends. The drain's call stands down once
+ * onFinish has taken the charge (`TurnCost.chargeTakenByOnFinish`); otherwise
+ * whichever reaches it first deducts, and the other does nothing.
  *
- * ONCE, BY A CHECK-AND-SET WITH NO AWAIT IN IT. Both callers can be in flight
- * together (an error partway through the stream runs onFinish early and
- * rejects the drain), and `CostAccumulator.settle()` does not consume what it
- * prices: a second settle returns the same total. So `charged` is read and set
- * in one synchronous step after the settle resolves and before the deduction
- * is attempted; JavaScript runs nothing else in between, so a second caller
+ * ONCE, BY A CHECK-AND-SET WITH NO AWAIT IN IT. Both calls can be in flight
+ * together: onFinish's charge is not awaited, so on an error partway through
+ * the stream it is still waiting for `spendRecorded` when the drain rejects
+ * (on Node the drain rejects once onFinish has returned, which is now at
+ * once). `CostAccumulator.settle()` does not consume what it prices: a second
+ * settle returns the same total. So `charged` is read and set in one
+ * synchronous step after the settle resolves and before the deduction is
+ * attempted; JavaScript runs nothing else in between, so a second caller
  * resuming from its own settle sees it set. A deduction that then fails is
  * logged and not retried: one missed charge, never two.
  *
  * WAITS FOR `spendRecorded` before it settles (see `createChatStream`), so an
  * onFinish that ran early from the finish transform's `cancel` still charges
- * the model's usage. NEVER THROWS: it runs in onFinish and in `after()`.
+ * the model's usage. NEVER THROWS: it runs in `after()`.
  * Anonymous turns are settled and logged but never deducted: their credit is
  * taken from the cookie before the stream starts, because a cookie cannot be
  * set once the response has begun.
@@ -1351,7 +1366,10 @@ async function chargeTurnOnce({
 }): Promise<void> {
   const log = createModuleLogger("api:chat:finalize");
   try {
-    if (turnCost.charged) {
+    if (
+      turnCost.charged ||
+      (from === "drain" && turnCost.chargeTakenByOnFinish)
+    ) {
       return;
     }
     await spendRecorded;
@@ -1433,6 +1451,17 @@ async function finalizeMessageAndCredits({
   // the persistence step never settles or deducts, and the charge step
   // (`chargeTurnOnce`, shared with the stream drain) runs whatever the
   // persistence step did and deducts only if nothing has yet.
+  //
+  // THE CHARGE IS HANDED TO `after()`, NOT AWAITED. When the stream errors
+  // partway, this runs from the SDK finish transform's `cancel`, and Node
+  // reports the error downstream only once `cancel` has resolved; awaiting a
+  // charge that waits for `spendRecorded` held the client's error until the
+  // model finished (22 ms became 775 ms in a mock-model check on ai@6.0.219).
+  // `after()` keeps the invocation open until the charge ends, and
+  // `TurnCost.chargeTakenByOnFinish` tells the drain this charge is coming,
+  // so the drain does not race it. The message save stays awaited: it writes
+  // what the stream has produced by now and does not wait on the model.
+  turnCost.chargeTakenByOnFinish = true;
   try {
     await persistFinishedAssistantMessage({
       messages,
@@ -1451,14 +1480,16 @@ async function finalizeMessageAndCredits({
     );
   }
 
-  await chargeTurnOnce({
-    turnCost,
-    spendRecorded,
-    userId,
-    isAnonymous,
-    chatId,
-    from: "onFinish",
-  });
+  after(
+    chargeTurnOnce({
+      turnCost,
+      spendRecorded,
+      userId,
+      isAnonymous,
+      chatId,
+      from: "onFinish",
+    })
+  );
 }
 
 /**
@@ -1767,6 +1798,7 @@ export async function POST(request: NextRequest) {
     accumulator: new CostAccumulator(),
     settledByStream: false,
     charged: false,
+    chargeTakenByOnFinish: false,
   };
   let chargedUserId: string | null = null;
   try {

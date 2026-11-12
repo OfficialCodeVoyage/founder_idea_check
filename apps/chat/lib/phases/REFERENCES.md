@@ -6,8 +6,15 @@ guard were taken, and both are reimplemented here in Zod against our own types.
 Recorded anyway so the origin of the design is not lost, and so the row in
 `THIRD_PARTY.md` has something to point at.
 
-Both sources are MIT. Both licences were read directly at the pinned SHA, not
-inferred from a badge.
+Both sources are MIT, and this file quotes short passages of each verbatim (a
+type, a guard, a test, JSON schema excerpts), so their notices travel with it:
+
+- warden: Copyright (c) 2026 Warden contributors. Full text:
+  `LICENSES/MIT-QuintinBotes-warden.txt`.
+- devs: Copyright (c) 2025 CODENAME SAS. Full text:
+  `LICENSES/MIT-codename-co-devs.txt`.
+
+Both licences were read from the upstream repositories, not inferred from a badge.
 
 ---
 
@@ -17,9 +24,9 @@ inferred from a badge.
 |---|---|
 | Repo | https://github.com/QuintinBotes/warden |
 | Licence | MIT (`LICENSE`, "Copyright (c) 2026 Warden contributors") |
-| Repo HEAD when read | `2736c2b35e6db8a9031a0a1aa7a6c247970bfe19` (2026-07-10, release 0.4.1 "Fail Closed") |
+| Repo HEAD when read | `2736c2b35e6db8a9031a0a1aa7a6c247970bfe19` (2026-07-10, release 0.4.1 "Fail Closed"). **That id no longer exists upstream**: the repository was created on 2026-10-05 and carries the same releases and commit messages under different commit ids. The same release is tag `v0.4.1` = `f9906253d0096b7687b86b5497a0848602f22003` (2026-07-10); every passage quoted below was re-checked against it on 2026-11-12. |
 | Files read | `packages/orchestrator/src/evaluate-exit-criteria.ts`, `packages/orchestrator/src/evaluate-exit-criteria.test.ts`, `packages/core/src/change-surface.ts` |
-| Guard introduced in | `d469abff00cc18aa68bcad005ddf9989c5e62227` — *"fix(gate): never emit a false-green when nothing ran, passed, or was gated (#60)"* |
+| Guard introduced in | `2ea95c2a99926c88f4319ac75e2180a122060366` (was recorded here as `d469abff00cc18aa68bcad005ddf9989c5e62227`, which no longer resolves) — *"fix(gate): never emit a false-green when nothing ran, passed, or was gated (#60)"* |
 
 ### The decision type
 
@@ -67,7 +74,7 @@ And the vestigial line it defends, four lines further down, **still in the file*
   const passRate = total === 0 ? 1 : passCount / total;
 ```
 
-That ternary *was* the bug. Before commit `d469abff`, `total === 0` fell through
+That ternary *was* the bug. Before commit `2ea95c2a`, `total === 0` fell through
 to `passRate = 1` → `100%` → clears every threshold → confident green `PASS` on a
 run where nothing was evaluated. The upstream commit message states it plainly:
 
@@ -122,7 +129,8 @@ Warden chose **WARN-direction** for the empty set at library level, because in
 its world the dangerous action (merging) is guarded elsewhere and a hard block on
 a legitimate no-test change would be obnoxious. In the same release it made the
 opposite choice at the boundary that actually gates the merge — commit
-`222e7d870aad3b77dce430a0984e16727b28759c`, *"fix(action): fail closed when the
+`f90fc357743e5038567d7e95ce14fd984ab587ff` (recorded here as `222e7d870aad…`
+before upstream's commit ids changed), *"fix(action): fail closed when the
 gate can't be evaluated (#61)"*:
 
 > `normalizeGate` coerced a missing or unrecognized gate decision to PASS

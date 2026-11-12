@@ -1,3 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ADAPTED from mvanhorn/last30days-skill (MIT, Copyright (c) 2026 Matt Van Horn)
+#   file:   skills/last30days/scripts/lib/schema.py
+#   commit: 9243a32d823c7c8659e44b92f2dedcf1b7397137 (2026-08-18)
+#   licence text: LICENSES/MIT-mvanhorn-last30days-skill.txt
+#
+# MODIFICATIONS: trimmed from 1,046 lines to the five types the pipeline touches
+# (SubQuery, QueryPlan, SourceItem, Candidate, Cluster) and the helpers around
+# them. The field names are upstream's, kept identical so the vendored modules run
+# against them unchanged. `to_demand_signal` emits this app's own wire shape and
+# never the author. The docstring below says why.
+#
+#   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/schema.py&since=2026-08-18" --jq '.[].commit.message'
+# ─────────────────────────────────────────────────────────────────────────────
 """Evidence shapes.
 
 Derived from `mvanhorn/last30days-skill` `lib/schema.py` @ 9243a32d (MIT), which

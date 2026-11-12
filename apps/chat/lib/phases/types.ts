@@ -238,7 +238,7 @@ export const GateObstacleSchema = z.object({
 export type GateObstacle = z.infer<typeof GateObstacleSchema>;
 
 /**
- * Shape borrowed from QuintinBotes/warden's GateDecision (MIT, @2736c2b):
+ * Shape borrowed from QuintinBotes/warden's GateDecision (MIT, v0.4.1):
  * a three-valued verdict plus a REQUIRED human-readable reason naming the rule
  * that fired. Extended with the fields the UI and the next turn need.
  */

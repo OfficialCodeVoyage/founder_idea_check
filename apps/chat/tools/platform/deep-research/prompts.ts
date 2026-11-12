@@ -1,3 +1,23 @@
+/**
+ * Prompts for the deep-research tool.
+ *
+ * DERIVED from langchain-ai/open_deep_research (MIT, Copyright (c) 2025
+ * LangChain).
+ *   file:   src/open_deep_research/prompts.py
+ *   commit: c0a160b57a9b5ecd4b8217c3811a14d8eff97f72 (2025-07-25)
+ *   licence text: LICENSES/MIT-langchain-ai-open_deep_research.txt
+ *
+ * ChatJS (Apache-2.0) ported these to TypeScript template functions on
+ * 2025-08-01 without recording the source. Measured against upstream at that
+ * commit, 215 of 221 prompt lines (97.3%) are identical once whitespace and the
+ * `{x}` / `${x}` placeholder syntax are ignored. The six that differ are in
+ * `researchSystemPrompt`; `finalReportGenerationPrompt` is upstream minus 12
+ * lines; `summarize_webpage_prompt` was not ported. THIRD_PARTY-research.md has
+ * the full comparison.
+ *
+ *   gh api "repos/langchain-ai/open_deep_research/commits?path=src/open_deep_research/prompts.py&since=2025-07-25" --jq '.[].commit.message'
+ */
+
 export function clarifyWithUserInstructions({
   messages,
   date,

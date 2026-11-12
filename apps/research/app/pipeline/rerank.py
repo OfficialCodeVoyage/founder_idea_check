@@ -1,3 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# REIMPLEMENTED, with material from mvanhorn/last30days-skill (MIT, Copyright (c)
+# 2026 Matt Van Horn)
+#   file:   skills/last30days/scripts/lib/rerank.py
+#   commit: 9243a32d823c7c8659e44b92f2dedcf1b7397137 (2026-08-18)
+#   licence text: LICENSES/MIT-mvanhorn-last30days-skill.txt
+#
+# WHAT IS UPSTREAM'S: the arithmetic and two constants, including the
+# out-of-window multiplier (0.35) with the comment quoted beside it. NOT here:
+# upstream's LLM judge, which this service deliberately does not have. The
+# docstring below says more.
+#
+#   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/rerank.py&since=2026-08-18" --jq '.[].commit.message'
+# ─────────────────────────────────────────────────────────────────────────────
 """Deterministic final scoring and window grounding.
 
 REIMPLEMENTED, not vendored. `mvanhorn/last30days-skill` `lib/rerank.py`

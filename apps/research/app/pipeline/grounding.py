@@ -1,3 +1,16 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# REIMPLEMENTED from the design of mvanhorn/last30days-skill (MIT, Copyright (c)
+# 2026 Matt Van Horn)
+#   file:   skills/last30days/scripts/lib/grounding.py
+#   commit: 9243a32d823c7c8659e44b92f2dedcf1b7397137 (2026-08-18)
+#   licence text: LICENSES/MIT-mvanhorn-last30days-skill.txt
+#
+# WHAT IS UPSTREAM'S: the design of its two grounding checks. The code is written
+# here, against this service's types, without upstream's configuration system.
+# The docstring below says more.
+#
+#   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/grounding.py&since=2026-08-18" --jq '.[].commit.message'
+# ─────────────────────────────────────────────────────────────────────────────
 """Grounding: does every claim in the output trace to something we actually fetched?
 
 REIMPLEMENTED, not vendored. `mvanhorn/last30days-skill` `lib/grounding.py`

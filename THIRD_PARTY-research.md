@@ -1,212 +1,220 @@
-# Third-party code — research subsystem (Steps 5 and 8)
+# Third-party code: the research subsystem
 
-Provenance ledger for `apps/research/**`, `apps/chat/lib/research/**` and
-`apps/chat/lib/signals/**`.
+Provenance ledger for `apps/research/` (the Python sidecar), `apps/chat/lib/research/`,
+`apps/chat/lib/signals/` and `apps/chat/tools/platform/deep-research/` (the
+deep-research tool). `THIRD_PARTY.md` covers everything else; read both. `NOTICE`
+holds the attribution notices and `LICENSES/` the full MIT texts, each a
+byte-for-byte copy of the upstream `LICENSE` (its git blob id equals the upstream
+blob id given below).
 
-Kept separate from the shared `THIRD_PARTY.md` so the two can be edited without
-conflicting. **Both are authoritative**; a licence audit must read both.
-
-Borrowed code is **frozen** — upstream fixes never arrive on their own — so
-every entry pins the SHA it was taken at. To see what upstream fixed since:
+Borrowed code is **frozen**: upstream fixes never arrive on their own, so every
+entry pins the commit it was taken at. To see what an upstream fixed since:
 
 ```bash
 gh api "repos/OWNER/REPO/commits?path=PATH&since=YYYY-MM-DD" --jq '.[].commit.message'
 ```
 
-Every vendored Python file also carries that exact command in its own header
-banner, pre-filled with its path, so the check is one copy-paste away.
+Every copied or adapted Python file carries that command in its own banner, filled
+in with its path.
 
----
+## One row per upstream
 
-## Verified provenance
+| Upstream | Licence, copyright | Used for | Pinned at |
+|---|---|---|---|
+| [mvanhorn/last30days-skill](https://github.com/mvanhorn/last30days-skill) | MIT, Copyright (c) 2026 Matt Van Horn | Source adapters, ranking pipeline and text utilities in `apps/research/app/` | `9243a32d823c7c8659e44b92f2dedcf1b7397137` (2026-08-18) |
+| [langchain-ai/open_deep_research](https://github.com/langchain-ai/open_deep_research) | MIT, Copyright (c) 2025 LangChain | The deep-research tool in `apps/chat/tools/platform/deep-research/`: prompts near-verbatim, architecture and config names. It arrived with ChatJS. | `c0a160b57a9b5ecd4b8217c3811a14d8eff97f72` (2025-07-25), the last upstream change to `prompts.py` before ChatJS added its port on 2025-08-01 |
+| [camel-ai/oasis](https://github.com/camel-ai/oasis) | Apache-2.0 | Optional dependency for the persona simulation. No code copied. | `camel-oasis==0.2.5`; sources read at `40bf170501e4757c993e3f55ff0208f435bb215d` (2026-08-19) |
+| igraph ([python-igraph](https://github.com/igraph/python-igraph)) | GPL-2.0-or-later | Pulled in by OASIS, through the optional `simulation` extra only | `igraph==0.11.6` = tag `0.11.6`, `12ab69f1c3477e03f5b3c13c5a671439c58ff73e` (2024-07-08) |
+| [miurla/morphic](https://github.com/miurla/morphic) | Apache-2.0 | Design only: one descriptor module per source behind one index. No code copied. | `d4aba02a14a5cb2c6ed0e7ef917123a681b05f14` (2026-08-20) |
+| [ArthurHeitmann/arctic_shift](https://github.com/ArthurHeitmann/arctic_shift) | No licence on its source | Its public API is called; none of its source is copied | API contract read from `api/README.md` on 2026-08-09; terms re-read at `7752f2d2c4e450a0c333e165a70d270e75b6cfa4` (2026-10-11) on 2026-11-12 |
 
-All four upstreams were probed directly with `gh api` on 2026-08-19, not read
-from a summary.
+## mvanhorn/last30days-skill (MIT)
 
-| Repo | ★ | Licence (SPDX) | HEAD at probe | Archived |
-|---|---|---|---|---|
-| `mvanhorn/last30days-skill` | 58,742 | **MIT** | `9243a32d823c7c8659e44b92f2dedcf1b7397137` (2026-08-18) | no |
-| `dzhng/deep-research` | 19,574 | **MIT** | `1f8f3e285bbc23e80b98a66a64effab9069f3ad4` (2026-04-11) | no |
-| `camel-ai/oasis` | 5,035 | **Apache-2.0** | `40bf170501e4757c993e3f55ff0208f435bb215d` (2026-08-19) | no |
-| `miurla/morphic` | 9,049 | **Apache-2.0** | `d4aba02a14a5cb2c6ed0e7ef917123a681b05f14` (2026-08-20) | no |
+Licence text: `LICENSES/MIT-mvanhorn-last30days-skill.txt` (blob
+`c7d2838bcc549a5cda7b7a3556a422e0074e56a5`, identical at the pinned commit and at
+upstream HEAD `70c5b3dbcb42d58f8f901f181ba82651c3ba2350` on 2026-11-12). Upstream
+paths below are under `skills/last30days/scripts/lib/`. Every file in the table
+below except `config.py` carries a banner naming the upstream path, licence and
+commit.
 
----
+The reason this upstream was taken rather than rewritten: its adapters carry
+accumulated knowledge about endpoints that fight back, and reimplementing them
+would mean owning that maintenance. The Python sidecar exists because of that and
+because OASIS is Python.
 
-## Vendored verbatim — `mvanhorn/last30days-skill` (MIT) @ `9243a32d`
+| Here (`apps/research/app/`) | Upstream | Kind | What changed |
+|---|---|---|---|
+| `text/cjk.py` | `cjk.py` | Copied verbatim | Nothing. Byte-identical to upstream apart from the banner (compared 2026-11-12). |
+| `text/relevance.py` | `relevance.py` | Copied verbatim | Nothing. Byte-identical to upstream apart from the banner (compared 2026-11-12). |
+| `pipeline/dedupe.py` | `dedupe.py` | Copied, trimmed | Dropped the `jobs` special case (no jobs adapter here); import paths retargeted; one docstring changed. |
+| `pipeline/entity_extract.py` | `entity_extract.py` | Copied, trimmed | Kept only `extract_text_entities` and `entity_overlap`; dropped the X and Reddit handle and hashtag miners; module docstring changed. |
+| `pipeline/fusion.py` | `fusion.py` | Adapted | Kept the weighted reciprocal-rank-fusion core, the URL normaliser, the per-author cap and the per-source diversity floor. Removed the `first_party_handles` allowance and the `fun_score` path. |
+| `pipeline/cluster.py` | `cluster.py` | Adapted | Kept the greedy leader clustering, MMR representatives, entity-overlap merge, uncertainty labels and upstream's thresholds. Removed the `polymarket` special case and the discover-mode switch. |
+| `sources/hackernews.py` | `hackernews.py` | Adapted | Kept the Algolia query construction with both upstream traps (below). Removed the depth presets, the comment-enrichment fan-out and the `log.source_log` sink. Errors now raise named exceptions instead of returning `{"hits": [], "error": ...}`. |
+| `sources/github.py` | `github.py` | Adapted | Kept the search-qualifier construction and the "issues are where the pain is" framing. Removed device-flow auth, the repo-activity and release lanes, and the unauthenticated fallback. |
+| `sources/web_search_keyless.py` | `web_search_keyless.py` | Adapted | Kept every regex, the DuckDuckGo redirect unwrapper, the positional snippet-window trick and upstream's SearXNG JSON rung. Reordered so a SearXNG the operator runs is tried first, and dropped the Startpage rung (it answered 200 and parsed to zero results when measured on 2026-08-20). Removed the artifact dict and the flat relevance prior. A fully blocked ladder raises `SourceBlocked`. SearXNG itself is opt-in; see `THIRD_PARTY.md`. |
+| `schema.py` | `schema.py` | Adapted, trimmed | From 1,046 lines to the five types the pipeline touches, with upstream's field names so the vendored modules run unchanged. `to_demand_signal` emits this app's wire shape and never the author. |
+| `pipeline/rerank.py` | `rerank.py` | Reimplemented, with material from upstream | The arithmetic and two constants, including the out-of-window multiplier (0.35) with the upstream comment quoted beside it. Upstream's LLM judge is not present: this service has no model call. |
+| `pipeline/grounding.py` | `grounding.py` | Reimplemented from the design | The design of its two grounding checks, written against this service's types without upstream's configuration system. |
+| `http.py` | `http.py` | Reimplemented from the design | Stdlib `urllib` only, a browser User-Agent for HTML endpoints, a token-bucket limiter at upstream's measured ceiling. Failures raise named errors instead of being classified into strings. |
+| `config.py` | `env.py` | Nothing taken | Its docstring names upstream only to say what was left out. |
 
-Copied with a provenance banner prepended and the sibling imports retargeted for
-this package layout. **Nothing else was changed**, deliberately: `ruff` is
-configured in `apps/research/pyproject.toml` to skip the stylistic modernisers
-on these four files, because a `ruff --fix` pass over them would rewrite
-`List[str]` to `list[str]`, re-sort `__slots__` and "correct" the Hebrew
-stopwords that RUF001 mistakes for Latin lookalikes — and would destroy the
-ability to diff against upstream, which is how a vendored file quietly stops
-receiving upstream security fixes.
-
-| Vendored to | Upstream path | Modifications |
-|---|---|---|
-| `apps/research/app/text/cjk.py` | `skills/last30days/scripts/lib/cjk.py` | none — verbatim |
-| `apps/research/app/text/relevance.py` | `skills/last30days/scripts/lib/relevance.py` | none to the algorithm |
-| `apps/research/app/pipeline/dedupe.py` | `skills/last30days/scripts/lib/dedupe.py` | dropped the `jobs` special case (no jobs adapter here); retargeted imports |
-| `apps/research/app/pipeline/entity_extract.py` | `skills/last30days/scripts/lib/entity_extract.py` | kept only `extract_text_entities` and `entity_overlap`; dropped the X/Reddit handle and hashtag miners |
-
-## Adapted — `mvanhorn/last30days-skill` (MIT) @ `9243a32d`
-
-Algorithms, regexes and hard-won constants taken; structure changed to fit this
-service. Each file's banner names its own modifications.
-
-| Adapted to | Upstream path | What was taken, and the modification |
-|---|---|---|
-| `apps/research/app/pipeline/fusion.py` | `lib/fusion.py` | Weighted RRF core, URL normaliser, per-author cap, per-source diversity floor. **Removed** the `first_party_handles` allowance (exists for X person/company topics; no X adapter here) and the `fun_score` path. |
-| `apps/research/app/pipeline/cluster.py` | `lib/cluster.py` | Greedy leader clustering, MMR representatives, entity-overlap merge, uncertainty labels, upstream's thresholds. **Removed** the `polymarket` special case and the discover-mode switch. |
-| `apps/research/app/sources/hackernews.py` | `lib/hackernews.py` | The Algolia query construction, carrying **both** upstream traps (see below). **Removed** depth presets, comment-enrichment fan-out, the `log.source_log` sink. **Changed**: raises named errors instead of returning `{"hits": [], "error": ...}`. |
-| `apps/research/app/sources/web_search_keyless.py` | `lib/web_search_keyless.py` | Every regex, the DDG redirect unwrapper, the positional snippet-window trick, the three-rung ladder. **Removed** the artifact dict and the flat relevance prior. **Changed**: a fully blocked ladder raises `SourceBlocked`. **Fixed a real bug** — see below. |
-| `apps/research/app/sources/github.py` | `lib/github.py` | Search-qualifier construction and the "issues are where the pain is" framing. **Removed** device-flow auth, repo-activity and release lanes, and the unauthenticated fallback. |
-| `apps/research/app/sources/reddit_rss.py` | `lib/reddit_rss.py` | Atom parsing, feed-URL construction, the two-family search+listing fan-out. **Removed** the ThreadPoolExecutor (already behind a semaphore a layer up) and the shreddit backfill hook. **Changed**: the author is dropped at parse time; failures raise. **Added**: a DOCTYPE/size guard and an Atom-root check. |
-| `apps/research/app/sources/reddit_shreddit.py` | `lib/reddit_shreddit.py` | The `<shreddit-comment>` markup parsing — the start-tag lookahead, the thingId-anchored body extraction, the next-anchor bound. **Changed**: the author is dropped at parse time; failures raise. |
-| `apps/research/app/schema.py` | `lib/schema.py` | The `SourceItem` / `Candidate` / `SubQuery` / `QueryPlan` / `Cluster` field names, kept identical so the vendored modules run unchanged. **Trimmed** from 1,046 lines to the five types the pipeline touches. |
-
-### Upstream traps preserved, with the comment that explains them
-
-These are the reason vendoring beat writing from scratch. Each is pinned by a
-test in `apps/research/tests/test_adapters.py`.
+Upstream knowledge kept, each pinned by a test in `apps/research/tests/test_adapters.py`:
 
 1. **HN Algolia `points` is not filterable.** It is absent from that index's
    `numericAttributesForFiltering`, so a `points>N` clause returns HTTP 400 and
-   **zero stories** — not a warning, not a partial result. Low-engagement
-   filtering therefore happens client-side after overfetching.
-2. **Algolia ANDs query tokens by default**, so a four- or five-word theme query
-   matches nothing at all. All but the first token go in `optionalWords`.
-3. **DuckDuckGo anomaly-blocks datacenter IPs with an HTTP 202 challenge page** —
-   a success status carrying no results — while Startpage still serves organic
-   results from the same egress. That asymmetry is why the ladder exists.
-4. **`<shreddit-comment>` needs a whitespace-or-`>` lookahead**, or every
-   `<shreddit-comment-tree>` wrapper parses as a comment.
-5. **Reddit keyless is 5 req/s.** Above it, the endpoints start returning 403 for
-   the rest of the session — converting a working lane into a dead one for
-   everybody sharing the egress IP.
+   zero stories. Low-engagement filtering happens client-side after overfetching.
+2. **Algolia ANDs query tokens by default**, so a four- or five-word theme matches
+   nothing. All but the first token go in `optionalWords`.
+3. **DuckDuckGo anomaly-blocks datacenter IPs with an HTTP 202 challenge page**, a
+   success status carrying no results. That is why the keyless search is a ladder.
 
-### A bug found in upstream and fixed here
+The Python files are not reformatted or modernised: `apps/research/pyproject.toml`
+tells `ruff` to skip the stylistic rules on the four copied files, because a
+`ruff --fix` pass would make them undiffable against upstream, and a vendored file
+that cannot be diffed stops receiving upstream fixes.
 
-`web_search_keyless.parse_startpage` pairs each result with the first
-description block whose `start() > match.end()`. When the markup has no
-whitespace between `</a>` and `<p>` — which minified Startpage HTML routinely
-does not — the description begins exactly **at** the anchor's end and the strict
-`>` drops every snippet. Ours uses `>=`;
-`tests/test_adapters.py::TestKeylessWebSearch::test_parses_startpage_markup`
-pins the boundary. Not reported upstream.
+## langchain-ai/open_deep_research (MIT)
 
----
+Licence text: `LICENSES/MIT-langchain-ai-open_deep_research.txt` (blob
+`82dc7c43f7ba98b72ac619ebfe7599576dc3ce7f`, the same at `c0a160b5` and at upstream
+HEAD `1b7d2e80db9faa586165c60e09096dbbfd483a64` on 2026-11-12).
 
-## Ported — `dzhng/deep-research` (MIT) @ `1f8f3e28`
+**What happened.** The deep-research tool in
+`apps/chat/tools/platform/deep-research/` arrived with the ChatJS fork, under
+ChatJS's Apache-2.0. ChatJS added it on 2025-08-01 as a TypeScript port of
+LangChain's LangGraph agent, without recording the source: that first version had
+the same graph nodes (`write_research_brief`, `research_supervisor`,
+`supervisor_tools`, `compress_research`) and TODO comments about LangChain message
+types. ChatJS rewrote the control flow on the AI SDK on 2026-02-05. The prompts
+stayed. Earlier versions of this ledger said the opposite ("`prompts.py` was NOT
+taken"); that was wrong for this directory, and this section replaces it.
 
-**Ported, not copied.** Upstream targets `ai@4` / `zod@3`; this repo is
-`ai@6.0.219` / `zod@^4.3.6`, so the `generateObject` call sites, the schema
-builders and the module-level provider singletons all had to change.
+**How much is derived**, measured on 2026-11-12 by comparing `prompts.ts` with
+upstream `src/open_deep_research/prompts.py`, ignoring whitespace and the
+difference between `{x}` and `${x}` placeholders:
 
-| Ported to | Upstream file | What survives |
+| Compared with | Prompt lines identical | Words on identical lines |
 |---|---|---|
-| `apps/chat/lib/research/loop.ts` | `src/deep-research.ts` | The ALGORITHM: generate `breadth` SERP queries from the brief plus prior learnings; run them under a concurrency limit (upstream `pLimit`, line 216); halve breadth and decrement depth on recursion (line 230, `Math.ceil(breadth / 2)`); accumulate learnings and urls down the tree; build the next brief from the research goal plus follow-up questions. |
-| `apps/chat/lib/research/budget.ts` | `src/deep-research.ts` | `nextBreadth` is the same halving rule, isolated so the budget projection provably models the tree the loop actually walks. `DEFAULT_COST_MODEL.extractionInputTokens` is derived from upstream's own 25,000-character trim × 5 results per query. |
+| Upstream at `c0a160b5` (2025-07-25), the version current at the port | **215 of 221 (97.3%)** | 95.6% |
+| Upstream today, `6532a417` (2025-08-06, the last commit to that file) | 152 of 221 (68.8%) | 51.3% |
 
-### The one deliberate divergence
+Upstream rewrote several prompts after the port, which is why the second row is
+lower. Per prompt, against `c0a160b5`:
 
-Upstream's per-query `catch` returns `{ learnings: [], visitedUrls: [] }`, which
-makes "every source 403'd" indistinguishable from "this topic has no coverage".
-Since the keyless adapters were only verified from a **residential IP** and are
-expected to 403 from a datacenter egress range, that is the single most likely
-production failure — and upstream's version of it reports success. Here every
-failure becomes a named `ResearchFailure` that rides out with the result, and
-`summarizeFanOut().emptyBecauseOfFailures` tells the caller when a report would
-be a lie.
+| Prompt in `prompts.ts` | Against upstream |
+|---|---|
+| `clarifyWithUserInstructions` | 30 of 30 lines identical |
+| `transformMessagesIntoResearchTopicPrompt` | 25 of 25 identical |
+| `leadResearcherPrompt` | 50 of 50 identical |
+| `compressResearchSystemPrompt` | 31 of 31 identical |
+| `compressResearchSimpleHumanMessage` | 2 of 2 identical |
+| `finalReportGenerationPrompt` | Upstream minus 12 lines (the language-matching instruction and a messages block); nothing added |
+| `researchSystemPrompt` | 23 of 29 identical; 6 lines reworded or added (the `ResearchComplete` tool references became "stop making tool calls"; one line states the maximum number of search queries) |
+| `summarize_webpage_prompt` | Not ported |
 
----
+So `prompts.ts` is LangChain's prompt text with a few edits, under MIT; it is not
+original to this project. The other files in the directory (`types.ts`,
+`configuration.ts`, `supervisor-agent.ts`, `researcher-agent.ts`, `pipeline.ts`,
+`utils.ts`) follow the same architecture and use the same configuration keys and
+tool names (`ConductResearch`, `ResearchComplete`, `max_concurrent_research_units`
+and so on), but share only short fragments of upstream text: at most 9.2% of their
+six-word sequences (`types.ts`), mostly schema descriptions of 11 to 20 words. No
+long run of upstream code is in them.
 
-## Design taken, no code copied
+What is ours: `apps/chat/lib/research/supervisor.ts` (a counting semaphore that
+makes `max_concurrent_research_units` a real bound, and `decideOverflow`, which
+reimplements upstream's habit of telling the model when it asked for more parallel
+research units than are allowed, with its own wording), the sidecar search arm, and
+the audience ranking in `apps/chat/lib/signals/`.
 
-| What was taken | Source | Licence | Pinned at | Reimplemented in |
-|---|---|---|---|---|
-| Providers-directory pattern: one descriptor module per source, resolved through a single index, so adding a source is adding a file | `miurla/morphic` `lib/tools/search/providers/` | Apache-2.0 | `d4aba02a14a5cb2c6ed0e7ef917123a681b05f14` | `apps/chat/lib/signals/providers.ts`, `apps/research/app/sources/registry.py` |
-| Fan-out topology: role-specialised concurrent researchers under a supervisor, with **overflow reported back to the model** rather than silently truncated | `langchain-ai/open_deep_research` `src/open_deep_research/deep_researcher.py` (the `asyncio.gather` at ~:305 and the overflow branch at ~:318) | MIT | not vendored; design only | `apps/chat/lib/research/supervisor.ts` (`runFanOut`, `decideOverflow`) |
+To make the prompts this project's own, rewrite `prompts.ts`; until then the MIT
+notice in `LICENSES/` and `NOTICE` is what covers them.
 
-**Morphic's gate was NOT taken.** Its providers are gated on whether an API key
-is present, which answers *can we?*. `decideProviderGate` answers *may we?* —
-see `apps/chat/lib/signals/providers.ts`. That distinction is the whole Reddit
-mitigation and it exists nowhere in the surveyed open source.
+## camel-ai/oasis (Apache-2.0)
 
-**open_deep_research's `prompts.py` was NOT taken**, though it is MIT and 21 KB
-of usable prompt text. Its prompts are written for a generic "research anything"
-agent; `apps/chat/lib/research/roles.ts` is written for a founder being told
-uncomfortable things about their idea, and that difference is the product. The
-prompt text there is original.
-
----
-
-## Dependency — `camel-ai/oasis` (Apache-2.0) @ `40bf1705`
-
-**No OASIS code is copied.** `apps/research/app/simulation/oasis_runner.py`
-calls only the twelve names exported from `oasis/__init__.py`.
-
-Facts verified by direct file read, each load-bearing:
+**No OASIS code is copied.** `apps/research/app/simulation/oasis_runner.py` calls
+only the names `oasis/__init__.py` exports, and OASIS is installed by the optional
+`simulation` extra (`camel-oasis==0.2.5`, Apache-2.0). Facts the code relies on,
+read directly from the sources at `40bf1705` on 2026-08-19:
 
 | Fact | Where | Consequence here |
 |---|---|---|
-| `python = ">=3.10.0,<3.12"` | `pyproject.toml:25` | The sidecar pins **Python 3.11**. Stated in `pyproject.toml`, the `Dockerfile` and the README. |
-| Default graph backend is **igraph, in memory** — neo4j needs an explicit `backend="neo4j"` plus a valid `Neo4jConfig`, and neither documented generator passes one | `oasis/social_agent/agent_graph.py:178-190` | **No graph database** in the image or in `docker-compose.yml`. |
-| `import oasis` eagerly imports torch, sentence-transformers and sklearn, and probes CUDA at import time | `oasis/social_platform/recsys.py:26-29`, `:46` | Simulation is an **optional extra**, imported lazily, with `oasis-not-installed` as a named condition. |
-| `import oasis` creates `./log/` relative to CWD at import time | `env.py:30-32`, `platform.py:37-39`, `agent.py:44-45` | The Dockerfile's `WORKDIR` is owned by the runtime user. |
-| `generate_reddit_agent_graph` indexes **seven** persona keys with no `.get()` and no default | `oasis/social_agent/agents_generator.py:573-596` | Validated up front by `validate_personas` / `toOasisPersonas`, so a malformed persona costs a millisecond instead of a torch load followed by a `KeyError`. |
-| `env.step()` returns `None`; results live in the sqlite `trace`/`post`/`comment` tables | `env.py:136`, `:200-207` | Reactions are read back with plain SQL. |
-| `create_db(db_path=None)` falls back to `<package_dir>/data/social_media.db` | `social_platform/database.py:62-66` | Both `database_path=` and `OASIS_DB_PATH` are set, as every OASIS example does. |
-| `semaphore` defaults to **128** | `env.py:57`, `:70` | Overridden to 8 via `RESEARCH_SIM_CONCURRENCY`; 128 will 429 a shared gateway, and a 429 storm surfaces as agents "choosing to do nothing", which is indistinguishable from disinterest. |
-| Model backend is CAMEL's `ModelFactory.create(...)`, whose custom-endpoint kwarg is **`url=`, not `base_url=`** | `docs/key_modules/models.mdx:28-38` | `RESEARCH_SIM_BASE_URL` is passed as `url=`. |
+| `python = ">=3.10.0,<3.12"` | `pyproject.toml:25` | The sidecar pins Python 3.11, in `pyproject.toml`, the `Dockerfile` and the README. |
+| The default graph backend is igraph, in memory; neo4j needs an explicit `backend="neo4j"` plus a `Neo4jConfig`, and neither documented generator passes one | `oasis/social_agent/agent_graph.py:178-190` | No graph database in the image or in `docker-compose.yml`. |
+| `import oasis` eagerly imports torch, sentence-transformers and scikit-learn, and probes CUDA at import | `oasis/social_platform/recsys.py:26-29`, `:46` | Simulation is an optional extra, imported lazily, with `oasis-not-installed` as a named condition. |
+| `import oasis` creates `./log/` relative to the working directory | `env.py:30-32`, `platform.py:37-39`, `agent.py:44-45` | The `Dockerfile`'s `WORKDIR` is owned by the runtime user. |
+| `generate_reddit_agent_graph` indexes seven persona keys with no `.get()` and no default | `oasis/social_agent/agents_generator.py:573-596` | Validated up front by `validate_personas` / `toOasisPersonas`, so a malformed persona fails in a millisecond instead of after a torch load. |
+| `env.step()` returns `None`; results live in the sqlite `trace`, `post` and `comment` tables | `env.py:136`, `:200-207` | Reactions are read back with plain SQL. |
+| `create_db(db_path=None)` falls back to `<package_dir>/data/social_media.db` | `social_platform/database.py:62-66` | Both `database_path=` and `OASIS_DB_PATH` are set. |
+| `semaphore` defaults to 128 | `env.py:57`, `:70` | Overridden to 8 through `RESEARCH_SIM_CONCURRENCY`. |
+| The model backend is CAMEL's `ModelFactory.create(...)`, whose custom-endpoint argument is `url=`, not `base_url=` | `docs/key_modules/models.mdx:28-38` | `RESEARCH_SIM_BASE_URL` is passed as `url=`. |
 
----
+## igraph (GPL-2.0-or-later)
 
-## Previously barred — bar lifted for local-only use, 2026-08-20
+**Where it enters.** Only through the optional `simulation` extra in
+`apps/research/pyproject.toml`. `camel-oasis==0.2.5` requires `igraph==0.11.6`
+(PyPI metadata of `camel-oasis` 0.2.5, read 2026-11-12). The default dependencies
+(`fastapi`, `uvicorn`, `pydantic`) do not list it, and the default Docker image does
+not install it.
 
-Re-stated here because this subsystem is where the temptation lives.
+**Which licence exactly.** The GitHub `LICENSE` file is the GPL-2.0 text and PyPI
+says only "GNU General Public License (GPL)", with no version. The source says
+more: the source header of python-igraph at tag `0.11.6` (checked in
+`src/igraph/__init__.py`) grants "either version 2 of the License, or (at your
+option) any later version", so it is **GPL-2.0-or-later**. The igraph C library's
+sources (one file checked, at its tag `0.10.13`) use the same wording.
 
-**Policy reversal by the project owner.** This repository is private and
-local-only: not distributed, not deployed, not offered over a network, one user
-who is also the author. The rows below were disqualified on licence grounds
-that bite only on those activities. The full reasoning, and what each row costs
-if that ever changes, is in `THIRD_PARTY.md` under
-"Previously rejected — bar lifted for local-only use". Read it there rather
-than duplicating it; these two files disagreeing is worse than either being
-terse.
+**What this project does about it.** It ships no igraph, installs it nowhere by
+default, and **publishes no simulation image**. The `Dockerfile` has a
+`simulation` stage so that you can build one for yourself. Anyone who builds one
+and publishes it, or ships any other bundle containing igraph, takes on the GPL's
+terms for that bundle.
 
-| Candidate | Original ground | Status |
-|---|---|---|
-| SearXNG / Redlib / self-hosted Firecrawl **in a shipped compose file** | AGPL-3.0 attaches by packaging | Bar lifted. The packaging rule is retired — see `THIRD_PARTY.md`. `docker-compose.yml` no longer claims otherwise. |
-| `firecrawl` **server** | AGPL-3.0 | Bar lifted. The npm client is MIT and was never barred. |
-| `666ghj/MiroFish` | AGPL-3.0 | Bar lifted. `camel-ai/oasis` (Apache-2.0) is still the engine underneath. |
-| `zaidmukaddam/scira`, `khoj-ai/khoj` | AGPL-3.0 network copyleft | Bar lifted. |
-| `lobehub/lobehub` | Derivative works require a commercial licence | Bar lifted. |
-| `open-webui/open-webui` | Forbids removing branding above 50 users | Bar lifted; at one user the clause never engaged. |
-| `langgenius/dify` | Bars multi-tenant use; asserts an appearance patent | Bar lifted for single-tenant local use. The design patent is a separate exposure from the licence. |
-| **Arctic Shift source** | `license: null` — all rights reserved | Bar lifted for local use, but note this is a DIFFERENT risk class: no licence restricts copying itself, not just distribution. Its **public API was always fine to call**, and `app/sources/arctic_shift.py` does exactly that — the contract was read from its published `api/README.md` and verified against the running service. |
+In a development environment with the `simulation` extra installed (141 Python
+distributions; their declared licences were read on 2026-11-12), igraph is the only
+GPL package. Two others are MPL-2.0 (`certifi`, `tqdm`), used unmodified.
 
-### Still barred here, and not for licence reasons
+## miurla/morphic (Apache-2.0)
 
-| Candidate | Why | Category |
-|---|---|---|
-| Reddit torrent dumps | Redistributed user content including since-deleted posts — the erasure problem in its purest form. A data-protection decision, which this licence reversal does not reach. Separately: 3.97 TB against 63 GB free, so it is physically infeasible as specified. | Data protection + infeasible |
+Design only. The idea of one descriptor module per source, resolved through a single
+index so that adding a source is adding a file, was taken from
+`lib/tools/search/providers/` and reimplemented in `apps/chat/lib/signals/providers.ts`
+and `apps/research/app/sources/registry.py`. No morphic code is present, so no
+Apache-2.0 notice is triggered by this subsystem. Morphic's providers are gated on
+whether an API key exists, which answers "can we?"; `decideProviderGate` answers
+"may we?", and that part is not from morphic.
 
-**The erasure posture in this subsystem is unchanged.** The author is still
-dropped at parse time, not at serialisation time, in both Reddit adapters, and
-`DemandSignal` still has no `author` field. Those decisions were taken on
-data-protection grounds and stand on their own.
+## Arctic Shift (no licence on its source)
 
-## Licence obligations discharged
+`ArthurHeitmann/arctic_shift` has no licence file (GitHub reports none), so its
+source is all rights reserved and **none of it is copied**.
+`apps/research/app/sources/arctic_shift.py` is an original client of its public API,
+written from the API's own documentation.
 
-- **MIT** (`last30days-skill`, `deep-research`): the licence text and copyright
-  notice must travel with substantial portions. Every vendored file carries a
-  banner naming the repo, path, licence and SHA. Upstream's `LICENSE` reads
-  `Copyright (c) 2026 Matt Van Horn`.
-- **Apache-2.0** (`oasis`, `morphic`): §4(d) requires retaining NOTICE and §4(b)
-  requires stating modifications. No Apache-2.0 **code** from either is present
-  in this subsystem — OASIS is a runtime dependency called through its public
-  API, and only morphic's directory *pattern* was reused — so no NOTICE
-  attribution is triggered by this subsystem. Recorded here anyway so the
-  question stays answered rather than re-litigated.
+**Terms of use, as found on 2026-11-12.** There is no terms-of-service or
+acceptable-use document: the site root shows only navigation, and `/terms`, `/tos`,
+`/about` and `/privacy` all answer 404. The API README (`api/README.md`) says: "No
+uptime or performance guarantees", "If you're a normal user and only make a couple
+requests per second, you have nothing to worry about", and "Remember, this is a free
+service, so be considerate. If you want to process massive amounts of data, use the
+monthly dumps instead", and it describes 429 rate limiting with `X-RateLimit-Reset`
+headers. Those are the only terms.
+
+**What the adapter does against that.** At most one request per second sustained
+(burst of two, `ARCTIC_SHIFT_LIMITER` in `app/http.py`); retries with backoff only
+when the archive says it is overloaded; one request per subreddit, never an
+unscoped search; a field list that excludes `author`, so no username is ever
+received; and the monthly dumps are not downloaded or ingested.
+
+**What this does not settle.** The archive republishes Reddit users' posts. Reddit's
+own terms, not Arctic Shift's, govern that content, and this review did not assess
+them. `DemandSignal` has no `author` field, snippets are capped at 500 characters,
+and the permalink points at Reddit.
+
+## Considered and not used
+
+`dzhng/deep-research` (MIT) is not used. A TypeScript port of its recursion was
+written in this project's early history and deleted again on 2026-08-21 because
+nothing called it. It shared under 1% of its six-word sequences with upstream, code
+and comments together (algorithm only), and no dzhng code remains in the tree.

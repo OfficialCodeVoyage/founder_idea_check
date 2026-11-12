@@ -3,6 +3,10 @@ name = "idea-check-research"
 version = "0.1.0"
 description = "Demand-signal and simulation sidecar for idea_check."
 readme = "README.md"
+# Apache-2.0, like the repository (see /LICENSE and /NOTICE). An SPDX expression
+# string is PEP 639 syntax, which hatchling reads from 1.27 on; the lower bound in
+# [build-system] below is there for that reason.
+license = "Apache-2.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PYTHON VERSION IS PINNED TO 3.11 AND THE REASON IS OASIS.
@@ -63,6 +67,14 @@ dependencies = [
 # condition rather than a crash, which is correct but reads as "you forgot to
 # install it" when in fact you did.
 # ─────────────────────────────────────────────────────────────────────────────
+#
+# LICENCE NOTE: `igraph` IS GPL. camel-oasis 0.2.5 requires `igraph==0.11.6`,
+# whose source files grant "version 2 of the License, or (at your option) any
+# later version" (GPL-2.0-or-later). It enters ONLY through this extra: the
+# default dependencies above do not list it, and the default Docker image does
+# not install it. This project publishes no simulation image, and nobody should
+# publish one (or any other bundle that ships igraph) without meeting the GPL for
+# that bundle. Recorded in THIRD_PARTY-research.md.
 simulation = ["camel-oasis==0.2.5", "mcp<2"]
 
 dev = [
@@ -72,7 +84,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

@@ -68,6 +68,10 @@ CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "
 #
 # Expect a multi-gigabyte image and a slow first import. That cost is the whole
 # reason this is a separate stage rather than a line in the default one.
+#
+# LICENCE: this stage installs igraph (GPL-2.0-or-later) through OASIS. Build it
+# for yourself. This project publishes no simulation image, and nobody should
+# publish one without meeting the GPL for it. See THIRD_PARTY-research.md.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM base AS simulation
 USER root

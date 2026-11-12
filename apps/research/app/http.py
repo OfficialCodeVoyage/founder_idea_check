@@ -1,3 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# REIMPLEMENTED from the design of mvanhorn/last30days-skill (MIT, Copyright (c)
+# 2026 Matt Van Horn)
+#   file:   skills/last30days/scripts/lib/http.py
+#   commit: 9243a32d823c7c8659e44b92f2dedcf1b7397137 (2026-08-18)
+#   licence text: LICENSES/MIT-mvanhorn-last30days-skill.txt
+#
+# WHAT IS UPSTREAM'S: stdlib urllib only, a browser User-Agent for HTML
+# endpoints, and a small token-bucket rate limiter with upstream's measured
+# request ceiling. The code is written here, and failures are classified into
+# named errors instead of strings. The docstring below says more.
+#
+#   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/http.py&since=2026-08-18" --jq '.[].commit.message'
+# ─────────────────────────────────────────────────────────────────────────────
 """Minimal stdlib HTTP with a NAMED 403.
 
 REIMPLEMENTED, not vendored. `mvanhorn/last30days-skill`'s `lib/http.py`

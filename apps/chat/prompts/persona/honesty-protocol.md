@@ -3,6 +3,7 @@
   Source path: startup-{design,positioning,pitch,competitors}/references/honesty-protocol.md
   — four near-identical files, distilled together.
   Copyright (c) 2026 Ferdinando Bons. Retrieved 2026-08-19.
+  Licence text: LICENSES/MIT-ferdinandobons-startup-skill.txt (repository root).
 
   Changed: DISTILLED, not verbatim. The union of those four files is 3,107 words;
   this is ~600, because the text is prepended to the system prompt on every turn.

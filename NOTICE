@@ -1,8 +1,15 @@
-idea_check (working title)
-Copyright 2026 idea_check contributors
+Founder Idea Check
+Copyright 2026 Founder Idea Check contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 This product includes software developed by third parties, retained here in
 accordance with Apache License 2.0 section 4(d). Do not remove these notices.
+
+Code that arrived under another licence (MIT) is listed in THIRD_PARTY.md and
+THIRD_PARTY-research.md, which record what was taken, from where, at which
+commit and how it was changed. The full licence text and copyright notice of
+each MIT upstream is in the LICENSES/ directory.
 
 --------------------------------------------------------------------------
 ChatJS
@@ -11,7 +18,15 @@ Licensed under the Apache License, Version 2.0.
 Source: https://github.com/FranciscoMoretti/chat-js
 Forked at commit 14113a98c2e3b7675562945ae8acf6a9e15d06be (2026-08-06).
 
-MODIFICATIONS made by the idea_check contributors:
+ChatJS's own NOTICE file reads, verbatim:
+
+    ChatJS
+    Copyright 2025 Francisco Moretti
+
+    Portions of this software are derived from Vercel AI Chatbot.
+    Copyright 2024 Vercel, Inc.
+
+MODIFICATIONS made by the Founder Idea Check contributors:
   - Removed the Electron desktop application, marketing site, and docs site.
   - Removed all vendor telemetry (Langfuse, OpenTelemetry exporters, Vercel
     Analytics, Vercel Speed Insights).
@@ -45,4 +60,22 @@ Copyright 2024 Vercel, Inc.
 Licensed under the Apache License, Version 2.0.
 Source: https://github.com/vercel/chatbot
 Portions of ChatJS (and therefore of this software) derive from it.
+--------------------------------------------------------------------------
+Open Deep Research (LangChain)
+Copyright (c) 2025 LangChain
+Licensed under the MIT License. Full text: LICENSES/MIT-langchain-ai-open_deep_research.txt
+Source: https://github.com/langchain-ai/open_deep_research
+The deep-research tool under apps/chat/tools/platform/deep-research/ arrived with
+the ChatJS fork above, as a TypeScript port of this project. Its prompt text
+(prompts.ts) is close to verbatim; see THIRD_PARTY-research.md for the measured
+overlap.
+--------------------------------------------------------------------------
+Other MIT-licensed upstreams (code, text or designs taken; each licence text and
+copyright line is in LICENSES/, and the ledgers say what was taken):
+  - mvanhorn/last30days-skill     Copyright (c) 2026 Matt Van Horn
+  - assimovt/productskills        Copyright (c) 2026 Tair Asim
+  - ferdinandobons/startup-skill  Copyright (c) 2026 Ferdinando Bons
+  - QuintinBotes/warden           Copyright (c) 2026 Warden contributors
+  - codename-co/devs              Copyright (c) 2025 CODENAME SAS
+  - shadcn-ui/ui                  Copyright (c) 2023 shadcn
 --------------------------------------------------------------------------

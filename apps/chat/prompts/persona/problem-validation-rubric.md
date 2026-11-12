@@ -1,6 +1,7 @@
 <!-- From assimovt/productskills @ 66f9cee5868d6daf9cf106b4a74090428d6fa83e (MIT).
      Source: skills/problem-validation/SKILL.md (blob 76c5eda55400472773a4724b28e994c668d5b366).
      Copyright (c) 2026 Tair Asim. Retrieved 2026-08-19.
+     Licence text: LICENSES/MIT-assimovt-productskills.txt (repository root).
      Changed: removed the Claude-skill YAML frontmatter (name / description), which
      addresses a skill loader we do not use. Everything below is upstream VERBATIM,
      including the attribution footer — verified byte-for-byte against the blob above.

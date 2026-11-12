@@ -66,6 +66,8 @@ function resultMessage(result: SaveSimulationProfileResult): string | null {
       return "That seat is not part of this project.";
     case "handle-taken":
       return `“${result.handle}” is already used by another seat in this project.`;
+    case "seat-limit":
+      return `A simulation seats at most ${result.limit} agents. Remove a seat before adding another.`;
     default:
       return result.problems.join("; ");
   }

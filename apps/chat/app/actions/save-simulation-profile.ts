@@ -7,9 +7,11 @@ import { auth } from "@/lib/auth";
 import { getDocumentById, getProjectById } from "@/lib/db/queries";
 import {
   deleteSimulationProfile,
+  getSimulationProfiles,
   upsertSimulationProfile,
 } from "@/lib/db/simulation-queries";
 import { PERSONA_DOCUMENT_KIND } from "@/lib/personas/artifact";
+import { MAX_SIMULATION_SEATS } from "@/lib/research/simulation";
 
 /**
  * THE WRITE PATH FOR FOUNDER-ATTRIBUTABLE ASSUMPTIONS.
@@ -58,7 +60,8 @@ export type SaveSimulationProfileResult =
   | { status: "unauthorized" }
   | { status: "not-found" }
   | { status: "invalid"; problems: string[] }
-  | { status: "handle-taken"; handle: string };
+  | { status: "handle-taken"; handle: string }
+  | { status: "seat-limit"; limit: number };
 
 /** Postgres unique-violation. Read from the driver code, never the message. */
 const UNIQUE_VIOLATION = "23505";
@@ -121,6 +124,18 @@ export async function saveSimulationProfile(
   });
   if (!owned) {
     return { status: "not-found" };
+  }
+
+  // A NEW SEAT ONLY. Editing an existing seat never changes the count, and a
+  // project already over the limit must still be able to fix a seat before
+  // removing one. Two concurrent saves can pass this together and land one
+  // seat over; `runProjectSimulation` refuses to seat more than the limit
+  // whatever the table holds, so that race cannot spend more.
+  if (!input.id) {
+    const seats = await getSimulationProfiles({ projectId: input.projectId });
+    if (seats.length >= MAX_SIMULATION_SEATS) {
+      return { limit: MAX_SIMULATION_SEATS, status: "seat-limit" };
+    }
   }
 
   try {

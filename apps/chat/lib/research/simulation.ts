@@ -551,6 +551,33 @@ export const MAX_SIMULATION_SEATS = 10;
  */
 export const MAX_SIMULATION_PITCH_CHARS = 2000;
 
+/**
+ * AN ESTIMATE, IN CENTS, AND SAID TO BE ONE. The run spends the sidecar's key
+ * inside OASIS, and the sidecar reports no token usage back, so the exact cost
+ * is not known here. The basis: each seat makes about one model call per round;
+ * on the sidecar's default model (gpt-5.6-luna, $0.20 in / $1.20 out per 1M
+ * tokens) a call with an OASIS-sized prompt costs a few hundredths of a cent,
+ * and apps/research/README.md records a whole default run as a fraction of a
+ * cent. 0.1¢ per seat-round sits above that on purpose, to cover the model
+ * probe, retries and a longer feed in later rounds. Rounded up, so any run
+ * that happened costs at least one cent; replace with metered usage if the
+ * sidecar ever reports it.
+ */
+const SIMULATION_CENTS_PER_SEAT_ROUND = 0.1;
+
+export function estimateSimulationCostCents({
+  seats,
+  rounds,
+}: {
+  seats: number;
+  rounds: number;
+}): number {
+  return Math.max(
+    1,
+    Math.ceil(seats * rounds * SIMULATION_CENTS_PER_SEAT_ROUND)
+  );
+}
+
 export type SimulationInput = {
   personas: readonly ProjectPersona[];
   facts: readonly { key: string; value: string }[];

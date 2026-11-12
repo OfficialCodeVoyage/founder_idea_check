@@ -1,5 +1,6 @@
 import { assert, describe, expect, it } from "vitest";
 import {
+  estimateSimulationCostCents,
   judgeSimulation,
   MIN_DIVERGENCE_SCORE,
   measureDivergence,
@@ -150,6 +151,15 @@ describe("toOasisPersonas — enforcing OASIS's seven unguarded keys up front", 
     if (seeded.ok) {
       expect(seeded.personas[0].username).toBe("busy_dog_owner_");
     }
+  });
+});
+
+describe("estimateSimulationCostCents", () => {
+  it("never charges zero for a run that happened, and grows with seats", () => {
+    // A zero here is the bug this estimate exists to fix: the run spent the
+    // operator's key and the founder's balance did not move.
+    expect(estimateSimulationCostCents({ seats: 2, rounds: 2 })).toBe(1);
+    expect(estimateSimulationCostCents({ seats: 10, rounds: 2 })).toBe(2);
   });
 });
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import config from "@/chat.config";
 import { auth } from "@/lib/auth";
+import { canSpend, deductCredits } from "@/lib/db/credits";
 import { getProjectFacts } from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
 import {
@@ -16,7 +17,12 @@ import type { SimulationSeedGap } from "@/lib/personas/simulation-gaps";
 import { toSimulationPersonas } from "@/lib/personas/simulation-input";
 import { createSidecarSimulationRunner } from "@/lib/research/sidecar-simulation";
 import type { SimulationOutcome } from "@/lib/research/simulation";
-import { runSimulation } from "@/lib/research/simulation";
+import {
+  estimateSimulationCostCents,
+  MAX_SIMULATION_PITCH_CHARS,
+  MAX_SIMULATION_SEATS,
+  runSimulation,
+} from "@/lib/research/simulation";
 
 /**
  * Runs one simulation for a project and records it.
@@ -68,11 +74,26 @@ export type RunSimulationResult =
   | { status: "not-found" }
   | { status: "no-personas"; detail: string }
   | { status: "profile-incomplete"; gaps: SimulationSeedGap[] }
+  /** The request itself is out of bounds (pitch length, seat count). */
+  | { status: "invalid"; detail: string }
+  /** The same refusal the chat route answers with HTTP 402. */
+  | { status: "insufficient-credits" }
   | { status: "ran"; outcome: SimulationOutcome };
+
+/** PURE. The pitch's refusal, or null when it may be sent. */
+function pitchProblem(pitch: string): string | null {
+  if (pitch.length === 0) {
+    return "Write a pitch for the personas to react to.";
+  }
+  if (pitch.length > MAX_SIMULATION_PITCH_CHARS) {
+    return `The pitch is ${pitch.length} characters; a simulation takes at most ${MAX_SIMULATION_PITCH_CHARS}. Shorten it to the one or two sentences a buyer would hear.`;
+  }
+  return null;
+}
 
 export async function runProjectSimulation({
   projectId,
-  pitch,
+  pitch: rawPitch,
 }: {
   projectId: string;
   pitch: string;
@@ -81,12 +102,27 @@ export async function runProjectSimulation({
   if (!session?.user) {
     return { status: "unauthorized" };
   }
+  const userId = session.user.id;
 
   const project = await getProjectById({ id: projectId });
   // "No such project" and "not yours" are deliberately the same answer, the
   // posture phase.router.ts takes.
-  if (!project || project.userId !== session.user.id) {
+  if (!project || project.userId !== userId) {
     return { status: "not-found" };
+  }
+
+  // Checked here as well as in the sidecar's request model: a refusal from
+  // there would come back as a 422 and read as contract drift.
+  const pitch = rawPitch.trim();
+  const problem = pitchProblem(pitch);
+  if (problem) {
+    return { detail: problem, status: "invalid" };
+  }
+
+  // THE SAME GATE AS A CHAT TURN. A run spends a model call per seat per
+  // round, on the operator's key; it was the one paid path with no check.
+  if (!(await canSpend(userId))) {
+    return { status: "insufficient-credits" };
   }
 
   const [versions, profiles, facts] = await Promise.all([
@@ -109,6 +145,16 @@ export async function runProjectSimulation({
   if (!seeded.ok) {
     // Before the sidecar is touched and before anything is written.
     return { gaps: seeded.gaps, status: "profile-incomplete" };
+  }
+
+  // `saveSimulationProfile` refuses an eleventh seat, but a project may hold
+  // seats saved before that limit existed. Refused by name rather than
+  // silently trimmed: which seats sit in the room is the founder's choice.
+  if (seeded.personas.length > MAX_SIMULATION_SEATS) {
+    return {
+      detail: `This project has ${seeded.personas.length} seats; a simulation seats at most ${MAX_SIMULATION_SEATS}. Remove a seat and run it again.`,
+      status: "invalid",
+    };
   }
 
   const outcome = await runSimulation(
@@ -165,6 +211,20 @@ export async function runProjectSimulation({
       reactions: [],
     });
     revalidatePath(`/project/${projectId}/simulation`);
+  }
+
+  // CHARGED EXACTLY WHEN A RUN IS RECORDED: the run happened, so its agents
+  // were called. A refusal before the sidecar (no seats, OASIS missing, the
+  // sidecar unreachable or refusing the app) spent nothing and costs nothing.
+  // The amount is an estimate — see `estimateSimulationCostCents`.
+  if (outcome.ok || RAN_BUT_PRODUCED_NOTHING.has(outcome.kind)) {
+    await deductCredits(
+      userId,
+      estimateSimulationCostCents({
+        seats: seeded.personas.length,
+        rounds: DEFAULT_ROUNDS,
+      })
+    );
   }
 
   return { status: "ran", outcome };

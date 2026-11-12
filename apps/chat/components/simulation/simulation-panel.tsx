@@ -99,7 +99,14 @@ function OutcomePanel({ result }: { result: RunSimulationResult }) {
   if (result.status === "not-found") {
     return <p className="text-destructive text-sm">Project not found.</p>;
   }
-  if (result.status === "no-personas") {
+  if (result.status === "insufficient-credits") {
+    return (
+      <p className="text-destructive text-sm">
+        You are out of credits, so the simulation did not run.
+      </p>
+    );
+  }
+  if (result.status === "no-personas" || result.status === "invalid") {
     return (
       <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
         {result.detail}

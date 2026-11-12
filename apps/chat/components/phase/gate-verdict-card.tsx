@@ -321,16 +321,16 @@ function summaryLine(view: AssessedView): string | null {
 /**
  * COMPACT BY DEFAULT, A SCROLLING REGION WHEN OPEN.
  *
- * The card sits in a `shrink-0` slot above the composer, inside a pane whose
- * height is fixed to the viewport (`MainChatPanel`, `h-[calc(100dvh_-_…)]`, in an
- * `overflow: hidden` ancestor). Nothing above it scrolls, so a card taller than
- * the room it is given does not push the page — it CUTS OFF whatever does not
- * fit, and what did not fit was the composer. Measured in a browser on the live
- * attempt-7 verdict: closed, 656px in a 579px pane at 375×667 (founder cannot
- * type); open, 876 to 1392px at every size, with the checklist rows, "Next", both
- * links and the composer unreachable; and even at 1280×800 closed it left the
- * transcript 105px, so the assistant's last sentence ended under the card's
- * border.
+ * The card sits above the composer, inside a pane whose height is fixed to the
+ * viewport (`MainChatPanel`, `h-[calc(100dvh_-_…)]`, in an `overflow: hidden`
+ * ancestor). Nothing above it scrolls, so a card taller than the room it is
+ * given does not push the page — it CUTS OFF whatever does not fit, and what did
+ * not fit was the composer. Measured in a browser on the live attempt-7 verdict
+ * when it was one tall block in a `shrink-0` slot: closed, 656px in a 579px pane
+ * at 375×667 (founder cannot type); open, 876 to 1392px at every size, with the
+ * checklist rows, "Next", both links and the composer unreachable; and even at
+ * 1280×800 closed it left the transcript 105px, so the assistant's last
+ * sentence ended under the card's border.
  *
  * So the card is ONE ROW until asked: badge, phase, attempt, the headline on a
  * single line, and a chevron. Everything the card ever said is still there, in
@@ -444,7 +444,7 @@ export function GateVerdictCard({
           onClick={() => setExpanded((open) => !open)}
           type="button"
         >
-          <span className="grid min-w-0 flex-1 gap-1">
+          <span className="grid min-w-0 flex-1 grid-cols-1 gap-1">
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="sr-only">Gate verdict: </span>
               <Badge variant={STATUS_VARIANT[view.status]}>{view.label}</Badge>

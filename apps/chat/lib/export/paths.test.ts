@@ -236,10 +236,12 @@ describe("checkRelativePath — the tripwire over paths we generated ourselves",
 
 describe("checkRelativePath — the rules added after the security review", () => {
   it("REFUSES to write inside the repository's own git directory", () => {
-    // THE RCE. node-writer writes every file and THEN runs `git init`, and
-    // `git init` preserves a `.git/hooks/` that is already there — so this entry
-    // would execute during the export's own first commit. `--no-verify` does not
-    // cover post-commit.
+    // THE RCE, as it was when `lib/export/node-writer.ts` existed (deleted in
+    // c98d30a8; nothing runs `git init` on the tree today, so this now guards
+    // the next writer or zip consumer). That writer wrote every file and THEN
+    // ran `git init`, and `git init` preserves a `.git/hooks/` that is already
+    // there — so this entry would have executed during the export's own first
+    // commit. `--no-verify` does not cover post-commit.
     expect(checkRelativePath(".git/hooks/post-commit")).toContain(
       "git directory"
     );

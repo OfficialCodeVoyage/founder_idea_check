@@ -35,10 +35,13 @@ import type { StoredFact } from "@/lib/phases/context";
  * certainty, so it is never read as low (or high) certainty either.
  *
  * DISCIPLINE (copied from lib/phases/gate.ts): everything in lib/export except
- * node-writer.ts is PURE — no fs, no network, no model, no clock, no
- * randomness. `generatedAt` is injected rather than read from Date.now() so the
- * same snapshot produces byte-identical files forever. node-writer.ts is the
- * single seam that touches the filesystem and git.
+ * lib/export is PURE — no fs, no network, no model, no clock, no randomness.
+ * `generatedAt` is injected rather than read from Date.now() so the same
+ * snapshot produces byte-identical files forever. Nothing in lib/export touches
+ * the filesystem or git; the only consumer that does I/O is
+ * `app/actions/build-handoff.ts`, which returns the plan to the browser. (A
+ * filesystem-and-git writer, `lib/export/node-writer.ts`, was the one impure
+ * file until c98d30a8 deleted it.)
  */
 
 /**
@@ -215,8 +218,12 @@ export type HandoffOutcome =
   | { status: "ready"; plan: HandoffPlan; readiness: ExportReadiness };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The writer seam. Types live here; the only implementation lives in
-// node-writer.ts, which is the only file in lib/export that imports node:fs.
+// The writer seam: LEFTOVER TYPES. They describe the server-side writer
+// (`lib/export/node-writer.ts`) and `runHandoff`, both deleted in c98d30a8.
+// There is no implementation of this seam in the app, and the only reference
+// left is the unused `_recordingWriter` helper in handoff.test.ts. They are
+// kept as the contract a future writer would implement; delete them if none is
+// coming.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type WriteHandoffRequest = {
@@ -231,7 +238,7 @@ export type WriteHandoffRequest = {
    * true. Clobbering a founder's existing work is unrecoverable; asking is not.
    */
   overwrite?: boolean;
-  /** Author for the first commit. Defaults in node-writer.ts. */
+  /** Author for the first commit. The deleted node-writer supplied a default. */
   author?: { name: string; email: string };
 };
 
@@ -256,13 +263,13 @@ export type HandoffWriteResult = {
 };
 
 /**
- * THE SEAM. One injected async function. Tests pass a plain closure that
- * records what it was asked to write; production passes
- * createNodeHandoffWriter().
+ * THE SEAM (unused today). One injected async function. Tests were meant to
+ * pass a plain closure that records what it was asked to write; production was
+ * to pass `createNodeHandoffWriter()`, which no longer exists.
  *
- * Nothing in lib/export except node-writer.ts imports node:fs or
- * node:child_process. That is the property that makes this whole feature
- * runnable under vitest with no filesystem, no git binary and no API key.
+ * Nothing in lib/export imports node:fs or node:child_process. That is the
+ * property that makes this whole feature runnable under vitest with no
+ * filesystem, no git binary and no API key.
  */
 export type HandoffWriter = (
   request: WriteHandoffRequest

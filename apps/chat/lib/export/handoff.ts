@@ -26,7 +26,8 @@ import type {
  *
  *   (a) buildHandoff()  — PURE. Decides every path and every byte. No fs, no
  *                          git, no clock, no model. Fully unit-tested.
- *   (b) runHandoff()    — ONE async function, ONE injected writer.
+ *   (b) runHandoff()    — ONE async function, ONE injected writer. REMOVED:
+ *                          nothing implemented the writer in production.
  *
  * The reason is not aesthetic. A bug in content generation ships a broken
  * repository to a founder who has, by construction, just finished using the
@@ -35,8 +36,9 @@ import type {
  * the code that decides content to be incapable of touching one.
  *
  * lib/export/* never imports node:fs, node:child_process, "ai",
- * "@/lib/ai/providers" or "@/lib/db/*". node-writer.ts is the single exception
- * and it decides nothing.
+ * "@/lib/ai/providers" or "@/lib/db/*". There is no exception any more: the one
+ * impure file, `node-writer.ts`, was deleted (see the note at the foot of this
+ * file), and the caller that does I/O is `app/actions/build-handoff.ts`.
  */
 
 /**

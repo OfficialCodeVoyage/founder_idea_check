@@ -16,8 +16,10 @@ import type { ExportPhaseState, HandoffOutcome } from "@/lib/export/types";
  * Builds the FULL described repository and hands it back as `{path, contents}[]`.
  *
  * Nothing is written server-side. That is the whole point of the pure/impure
- * split in `lib/export/`: the same plan feeds a preview pane, a zip and a
- * filesystem write with no second code path.
+ * split in `lib/export/`: the same plan feeds the preview pane and the
+ * per-file download in `components/export/handoff-export-dialog.tsx`, and
+ * would feed a zip or a filesystem write with no second code path (neither
+ * exists today).
  *
  * A server action rather than a tRPC procedure. The ownership check is copied
  * verbatim from `phase.router.ts`, including its refusal to distinguish "does

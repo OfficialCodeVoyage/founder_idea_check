@@ -30,13 +30,23 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
  *
  *   • DENY-LIST AS A TRIPWIRE. checkRelativePath() re-validates every path in
  *     the tree, including the ones WE hard-coded, and assertSafeTree() runs it
- *     over the whole plan before any writer sees it. The literals are safe
- *     today; the tripwire is there for the day someone interpolates a variable
- *     into one and nobody notices.
+ *     over the whole plan inside `buildHandoff` (lib/export/handoff.ts), before
+ *     anything is returned to a caller. The literals are safe today; the
+ *     tripwire is there for the day someone interpolates a variable into one
+ *     and nobody notices.
  *
- * The node writer adds a third layer (assertWithinRoot on the resolved absolute
- * path) because defence in depth is cheap here and a bug in this file ships a
- * file outside the founder's chosen directory.
+ * WHAT CONSUMES THE TREE TODAY, which sets how much of this is live. Nothing
+ * in this repo writes the tree to disk: `app/actions/build-handoff.ts` returns
+ * it to the browser and `components/export/handoff-export-dialog.tsx` offers
+ * each file as a download named by its basename only. There is no server-side
+ * writer and no `git init`. (A writer, `lib/export/node-writer.ts`, existed
+ * until c98d30a8 and nothing imported it.) These checks therefore still run on
+ * every export, but several of the threats above, `.git/hooks` most of all,
+ * only become exploitable once something writes or extracts the whole tree in
+ * one place. They are kept so that a future writer or zip builder inherits a
+ * tree that is already safe. `assertWithinRoot` (a third layer meant for such
+ * a writer, on the resolved absolute path) is exported for that day and has no
+ * production caller now.
  *
  * PURE. `node:path` performs no I/O; it is string arithmetic. Nothing in this
  * file reads, writes, or stats anything.
@@ -148,17 +158,23 @@ const COLON = /:/;
 /**
  * THE `.git` GUARD, and the reason it is not paranoia.
  *
- * node-writer.ts writes every file in the plan and THEN runs `git init`, and
- * `git init` PRESERVES a `.git/hooks/` directory that already exists. So a
- * single tree entry at `.git/hooks/post-commit` is arbitrary code execution on
- * the machine doing the export, triggered by the export's own first commit.
- * `--no-verify` does not help: it suppresses `pre-commit` and `commit-msg`, not
- * `post-commit`.
+ * The reasoning was written for the server-side writer that used to sit behind
+ * this tree (`lib/export/node-writer.ts`, deleted in c98d30a8): it wrote every
+ * file in the plan and THEN ran `git init`, and `git init` PRESERVES a
+ * `.git/hooks/` directory that already exists. So a single tree entry at
+ * `.git/hooks/post-commit` was arbitrary code execution on the machine doing
+ * the export, triggered by the export's own first commit. `--no-verify` does
+ * not help: it suppresses `pre-commit` and `commit-msg`, not `post-commit`.
  *
- * Nothing in buildHandoff() currently derives a path from untrusted input, so
- * this is a tripwire rather than a live hole — which is precisely when it must
- * be installed. (node-writer.ts closes the same hole a second way, with
- * `core.hooksPath` pointed at nothing.)
+ * NO WRITER RUNS `git init` TODAY, so that exact chain is not live. The browser
+ * download names each file by its basename, which already flattens a
+ * `.git/hooks/post-commit` entry. The guard stays because the same tree can be
+ * zipped or written by whatever consumes it next (a zip extracted over an
+ * existing checkout is the same hole), and because nothing in buildHandoff()
+ * currently derives a path from untrusted input, which makes it a tripwire
+ * rather than a live hole: precisely when it must be installed. A future writer
+ * that runs git must also neutralise hooks itself (the old one pointed
+ * `core.hooksPath` at nothing).
  *
  * FOLDED before comparison: on macOS and Windows `.GIT` IS `.git`, and git
  * itself treats several zero-width-padded spellings as equivalent there.
@@ -393,7 +409,11 @@ export function assertSafeTree(files: readonly { path: string }[]): void {
 }
 
 /**
- * The third layer, used by node-writer.ts on the RESOLVED absolute path.
+ * The third layer, meant for a writer that touches the filesystem, on the
+ * RESOLVED absolute path. It was written for `lib/export/node-writer.ts`
+ * (deleted in c98d30a8); nothing in the app calls it now and only
+ * paths.test.ts exercises it. Keep it for the next writer, or delete it with a
+ * note if none is coming.
  *
  * PURE — `resolve` and `relative` are string arithmetic, no fs. It exists
  * because the first two layers reason about the string we generated, and this

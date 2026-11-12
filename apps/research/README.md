@@ -108,19 +108,20 @@ the dominant failure, so the lane is polite and bounded:
 - a 429 is not retried: it starts a cool-down of the lane (the pause the archive
   named, thirty seconds when it names none, at most sixty) during which no search
   asks the archive at all, and the rest of that call's subreddits are not asked;
-- a 422 whose body (not its URL) says "Timeout" is the archive's search timing out
-  on its side, not a rate limit and not a bad query, and it is not retried
-  either: a retry over the most recent thirty days timed out again five times out
-  of five in a live run, so it only loaded an archive that was already struggling.
-  The timeout ends the call (the remaining subreddits are not asked), starts a
-  twenty-second cool-down of the lane under the same rule as a 429, and is
-  reported as a timeout. A step whose archive is timing out therefore costs about
-  one request per query, where it used to cost up to eight;
+- a timeout of the archive's search is either a 422 whose body (not its URL) says
+  "Timeout" or a 200 whose body says the same words. It is the archive's search
+  timing out on its side, not a rate limit and not a bad query, and it is not
+  retried: a retry over the most recent thirty days timed out again five times
+  out of five in a live run, so it only loaded an archive that was already
+  struggling. Both forms are handled alike: the timeout ends the call (the
+  remaining subreddits are not asked), starts a twenty-second cool-down of the
+  lane under the same rule as a 429, and is reported as a timeout. A step whose
+  archive is timing out therefore costs about one request per query, where it
+  used to cost up to eight;
 - the cool-down is checked again before every subreddit's request, because the
   two queries of a step run at the same time and the other one may have started
   it while this one waited;
-- an overload reported in a 200 body is retried once after the wait it asked for
-  (up to five seconds); any other 4xx is a rejected query and is not retried;
+- no request is ever repeated; any other 4xx is a rejected query;
 - twenty-five seconds for the whole lane.
 
 The lane report shows a plain sentence for each failure. The request URL and the

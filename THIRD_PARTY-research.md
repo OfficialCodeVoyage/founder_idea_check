@@ -203,16 +203,16 @@ monthly dumps instead", and it describes 429 rate limiting with `X-RateLimit-Res
 headers. Those are the only terms found.
 
 **What the adapter does against that.** At most one request per second sustained
-(burst of two, `ARCTIC_SHIFT_LIMITER` in `app/http.py`, retries included) and two
+(burst of two, `ARCTIC_SHIFT_LIMITER` in `app/http.py`) and two
 seconds between subreddits; at most two subreddits per call once one has found
 posts or any problem has been seen (while every subreddit asked answered cleanly
-with no posts, the rest are asked too, two seconds apart); at most one retry,
-only for an overload reported in a 200 body (after the wait the archive asks for,
-five seconds or less); no retry for a 429, for a 422 whose body says "Timeout" or
-for any other 4xx; after a 429 the whole lane asks the archive nothing until the
-pause it named is over (thirty seconds when it names none, at most sixty), and
-after a 422 timeout it asks nothing for twenty seconds and the rest of that call's
-subreddits are not asked; keywords are sent as `title`,
+with no posts, the rest are asked too, two seconds apart); no request is ever
+repeated (no retry for a 429, for a timeout reported as a 422 whose body says
+"Timeout" or as a 200 whose body says the same, or for any other 4xx); after a 429
+the whole lane asks the archive nothing until the pause it named is over (thirty
+seconds when it names none, at most sixty), and after a timeout in either form it
+asks nothing for twenty seconds and the rest of that call's subreddits are not
+asked; keywords are sent as `title`,
 the parameter the archive's own search example uses (ten live GET requests on
 2026-11-12 in all, generic queries, nothing stored); the whole lane stops at 25
 seconds; never an unscoped search; a field list that excludes `author`, so no username is ever

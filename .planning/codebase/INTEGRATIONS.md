@@ -87,7 +87,7 @@ A FastAPI service the app reaches only over HTTP; it owns every call to a demand
 | `hackernews` | `https://hn.algolia.com/api/v1/search`, permalinks on `news.ycombinator.com` | none | on | `apps/research/app/sources/hackernews.py`, quality 0.75 |
 | `web-keyless` | SearXNG at `RESEARCH_SEARXNG_URL` (`/search?format=json`), then `https://html.duckduckgo.com/html/` | none | on | `apps/research/app/sources/web_search_keyless.py`; a fully blocked ladder raises `SourceBlocked`; quality 0.5 |
 | `github` | `https://api.github.com/search/issues` (issues, `created:` window, sorted by reactions) | `GITHUB_TOKEN` | off | `apps/research/app/sources/github.py`; missing token is `missing-credential`, never a keyless fallback; quality 0.7 |
-| `arctic-shift` | `https://arctic-shift.photon-reddit.com/api/posts/search` | none | off | `apps/research/app/sources/arctic_shift.py`; the only Reddit lane; needs `options.subreddits`; asks for a field list without the author; 1 request per second, one retry, 25 s per lane; quality 0.6 |
+| `arctic-shift` | `https://arctic-shift.photon-reddit.com/api/posts/search` | none | off | `apps/research/app/sources/arctic_shift.py`; the only Reddit lane; needs `options.subreddits`; asks for a field list without the author; 1 request per second, no retries, 25 s per lane; quality 0.6 |
 
 - All four descriptors are allowed in hosted and self-host mode today; the gate machinery (`apps/research/app/sources/base.py::assert_permitted`,
   mirrored by `apps/chat/lib/signals/provider.ts::decideProviderGate`) checks, in order: hosted bar, self-host bar, operator toggle,

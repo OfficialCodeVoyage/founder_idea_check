@@ -526,9 +526,10 @@ class TestArcticShiftParsing:
 
         The archive sheds load with a 200 whose body carries an error string.
         Returning [] here would write "nobody is discussing this" into a report
-        when the truth is "we never got to ask".
+        when the truth is "we never got to ask". It is the archive's own timeout,
+        the same condition as its HTTP 422 (`_UpstreamTimeout`), not a rate limit.
         """
-        with pytest.raises(SourceRateLimited):
+        with pytest.raises(arctic_shift._UpstreamTimeout):
             arctic_shift.parse_posts(
                 {"data": None, "error": "Timeout. Maybe slow down a bit"},
                 self._prepared(),
@@ -638,35 +639,38 @@ def _archive_timeout():
     )
 
 
-def _retry(url, clock, deadline_in=25.0):
-    return arctic_shift._get_with_retry(
+def _one_request(url, clock, deadline_in=25.0):
+    return arctic_shift._get_payload(
         url,
         deadline=clock() + deadline_in,
         clock=clock,
-        sleep=clock.sleep,
         limiter=_FreeLimiter(),
     )
 
 
 class TestArcticShiftRetry:
-    """Retry only what retrying can fix, at most once. Nothing here waits."""
+    """One request, never repeated; every failure in plain words. Nothing here waits."""
 
-    def test_retries_a_body_reported_overload_once_and_succeeds(self, monkeypatch):
+    def test_returns_the_payload_of_an_answering_archive(self, monkeypatch):
         calls = {"n": 0}
 
         def fake_get_json(url, timeout=None):
             calls["n"] += 1
-            if calls["n"] == 1:
-                return {"data": None, "error": "Timeout. Maybe slow down a bit"}
             return {"data": [_arctic_row()]}
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
-        payload = _retry("u", _Clock())
-        assert calls["n"] == 2
+        payload = _one_request("u", _Clock())
+        assert calls["n"] == 1
         assert len(payload["data"]) == 1
 
-    def test_gives_up_as_rate_limited_after_one_retry_never_as_empty(self, monkeypatch):
-        # Exhausting the retry must still be a FAILURE, never a quiet empty
+    def test_a_timeout_reported_in_a_200_body_is_an_upstream_timeout_and_is_not_retried(
+        self, monkeypatch
+    ):
+        # REGRESSION (code review). The same "Timeout. Maybe slow down a bit" in the
+        # body of a 200 was classed `SourceRateLimited` with no status, retried
+        # once, and started no pause: two calls sent 4 requests and left the pause
+        # at 0. It is the 422 timeout under another status, so it is the same class
+        # with the same sentence, it is never asked again, and it is never an empty
         # result that reads as "nobody is talking about this".
         calls = {"n": 0}
 
@@ -675,10 +679,15 @@ class TestArcticShiftRetry:
             return {"data": None, "error": "Timeout. Maybe slow down a bit"}
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
-        with pytest.raises(SourceRateLimited) as caught:
-            _retry("u", _Clock())
-        assert calls["n"] == 2
-        assert caught.value.detail.startswith("rate-limited")
+        with pytest.raises(arctic_shift._UpstreamTimeout) as caught:
+            _one_request("https://arctic.example/x", _Clock())
+        assert calls["n"] == 1
+        assert caught.value.kind == "unavailable"
+        detail = caught.value.detail
+        assert "timeout on its side" in detail
+        assert "rate-limited" not in detail
+        assert "https://" not in detail
+        assert "Maybe slow down" not in detail
 
     def test_a_429_is_not_retried_and_names_the_pause_it_asked_for(self, monkeypatch):
         # STOP EARLY ON A 429. The archive said it is receiving too many requests;
@@ -692,9 +701,8 @@ class TestArcticShiftRetry:
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         clock = _Clock()
         with pytest.raises(SourceRateLimited) as caught:
-            _retry("u", clock)
+            _one_request("u", clock)
         assert calls["n"] == 1
-        assert clock.slept == []
         assert caught.value.status == 429
         assert caught.value.retry_after == 3.0
         assert "too many requests" in caught.value.detail
@@ -712,9 +720,8 @@ class TestArcticShiftRetry:
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         clock = _Clock()
         with pytest.raises(SourceRateLimited):
-            _retry("u", clock)
+            _one_request("u", clock)
         assert calls["n"] == 1
-        assert clock.slept == []
 
     def test_does_not_retry_a_bad_request_and_says_it_was_rejected(self, monkeypatch):
         """A 400 will not improve by asking again — retrying only slows it."""
@@ -728,7 +735,7 @@ class TestArcticShiftRetry:
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         with pytest.raises(SourceUnavailable) as caught:
-            _retry("u", _Clock())
+            _one_request("u", _Clock())
         assert calls["n"] == 1
         assert caught.value.detail.startswith("rejected the query")
 
@@ -744,7 +751,7 @@ class TestArcticShiftRetry:
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         with pytest.raises(SourceBlocked) as caught:
-            _retry("u", _Clock())
+            _one_request("u", _Clock())
         assert calls["n"] == 1
         assert caught.value.kind == "blocked"
         assert not caught.value.detail.startswith("rejected the query")
@@ -766,9 +773,8 @@ class TestArcticShiftRetry:
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         clock = _Clock()
         with pytest.raises(arctic_shift._UpstreamTimeout) as caught:
-            _retry("full-window-url", clock)
+            _one_request("full-window-url", clock)
         assert urls == ["full-window-url"]
-        assert clock.slept == []
         assert caught.value.kind == "unavailable"
         assert caught.value.status == 422
         detail = caught.value.detail
@@ -790,7 +796,7 @@ class TestArcticShiftRetry:
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         with pytest.raises(SourceUnavailable) as caught:
-            _retry("u", _Clock())
+            _one_request("u", _Clock())
         assert calls["n"] == 1
         assert not isinstance(caught.value, arctic_shift._UpstreamTimeout)
         assert caught.value.detail.startswith("rejected the query (HTTP 422)")
@@ -806,7 +812,7 @@ class TestArcticShiftRetry:
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         with pytest.raises(SourceUnavailable) as caught:
-            _retry("https://arctic.example/x", _Clock())
+            _one_request("https://arctic.example/x", _Clock())
         assert caught.value.detail == "the archive answered HTTP 503"
 
     def test_a_url_that_says_timeout_does_not_make_a_422_a_timeout(self, monkeypatch):
@@ -829,9 +835,8 @@ class TestArcticShiftRetry:
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         clock = _Clock()
         with pytest.raises(SourceUnavailable) as caught:
-            _retry("u", clock)
+            _one_request("u", clock)
         assert calls["n"] == 1
-        assert clock.slept == []
         assert not isinstance(caught.value, arctic_shift._UpstreamTimeout)
         assert caught.value.detail.startswith("rejected the query (HTTP 422)")
 
@@ -847,7 +852,7 @@ class TestArcticShiftRetry:
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         with pytest.raises(SourceUnavailable) as caught:
-            _retry("https://arctic.example/x", _Clock())
+            _one_request("https://arctic.example/x", _Clock())
         assert calls["n"] == 1
         assert caught.value.detail == "the archive reported an error instead of posts"
         assert "could not be reached" not in caught.value.detail
@@ -926,7 +931,7 @@ class TestArcticShiftLaneResilience:
                 raise SourceUnavailable("HTTP 503 from the archive")
             return {"data": [_arctic_row()]}
 
-        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        monkeypatch.setattr(arctic_shift, "_get_payload", fake_retry)
         items = self._fetch(["dead", "alive"])
         assert len(items) == 1
         assert items[0].container == "startups"
@@ -938,7 +943,7 @@ class TestArcticShiftLaneResilience:
             asked.append(url)
             raise SourceRateLimited("rate-limited (HTTP 429)")
 
-        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        monkeypatch.setattr(arctic_shift, "_get_payload", fake_retry)
         with pytest.raises(SourceRateLimited) as caught:
             self._fetch(["a", "b", "c"])
         # Asking the next subreddit of a host that is rate-limiting us would be
@@ -957,7 +962,7 @@ class TestArcticShiftLaneResilience:
                 raise _http_error(SourceUnavailable, 400, "rejected the query (HTTP 400)")
             return {"data": []}
 
-        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        monkeypatch.setattr(arctic_shift, "_get_payload", fake_retry)
         with pytest.raises(SourceUnavailable) as caught:
             self._fetch(["empty", "bad"])
         assert "rejected the query" in caught.value.detail
@@ -974,12 +979,14 @@ class TestArcticShiftLaneResilience:
                 raise _http_error(SourceUnavailable, 400, "rejected the query (HTTP 400)")
             return {"data": []}
 
-        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_rejected_then_empty)
+        monkeypatch.setattr(arctic_shift, "_get_payload", fake_rejected_then_empty)
         with pytest.raises(SourceUnavailable) as capped:
             self._fetch(["a", "b", "c"])
         assert len(asked) == arctic_shift._MAX_SUBREDDITS_PER_CALL
         detail = capped.value.detail
-        assert detail.startswith("Arctic Shift rejected the query and searched only the best-fitting")
+        assert detail.startswith(
+            "Arctic Shift rejected the query and searched only the best-fitting"
+        )
         assert "not a finding" in detail
         assert "r/b: answered, 0 matching posts" in detail
         assert (
@@ -1000,7 +1007,7 @@ class TestArcticShiftLaneResilience:
             asked.append(url)
             return {"data": []}
 
-        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_empty)
+        monkeypatch.setattr(arctic_shift, "_get_payload", fake_empty)
         clock = _Clock()
         assert self._fetch(["a", "b", "c", "d"], clock=clock) == []
         assert len(asked) == 4
@@ -1016,7 +1023,7 @@ class TestArcticShiftLaneResilience:
             asked.append(url)
             return {"data": [_arctic_row()]} if "subreddit=b" in url else {"data": []}
 
-        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_hits_then_empty)
+        monkeypatch.setattr(arctic_shift, "_get_payload", fake_hits_then_empty)
         items = self._fetch(["a", "b", "c", "d"])
         assert len(items) == 1
         assert len(asked) == arctic_shift._MAX_SUBREDDITS_PER_CALL
@@ -1119,6 +1126,44 @@ class TestArcticShiftLaneResilience:
             self._fetch(["a", "b"], clock=clock, cooldown=cooldown)
         assert len(asked) == 2
 
+    def test_a_timeout_in_a_200_body_pauses_the_lane_exactly_like_a_422_timeout(self, monkeypatch):
+        # REGRESSION (code review probe). The archive's "Timeout. Maybe slow down a
+        # bit" in the body of a 200 was retried once and started no pause: two
+        # consecutive calls sent 4 requests and left `cooldown.until` at 0. It must
+        # behave as the 422 timeout does: one request ends the call, the lane is
+        # paused for `_TIMEOUT_COOLDOWN_SECONDS`, and the next call sends nothing.
+        asked: list[str] = []
+
+        def get_json_body_timeout(url, timeout=None):
+            asked.append(url)
+            return {"data": None, "error": _ARCHIVE_TIMEOUT_BODY}
+
+        monkeypatch.setattr(arctic_shift, "get_json", get_json_body_timeout)
+        clock = _Clock()
+        cooldown = arctic_shift._Cooldown()
+        for _ in range(2):
+            with pytest.raises(SourceUnavailable) as caught:
+                self._fetch(["a", "b", "c"], clock=clock, cooldown=cooldown)
+        assert len(asked) == 1
+        assert clock.slept == []
+        assert cooldown.until - clock() == arctic_shift._TIMEOUT_COOLDOWN_SECONDS
+        assert cooldown.reason == "timed out"
+        assert type(caught.value) is SourceUnavailable
+        assert caught.value.detail.startswith("timed out on its own side a moment ago")
+
+        # And the first call said it plainly, with the remaining subreddits not asked.
+        cooldown = arctic_shift._Cooldown()
+        asked.clear()
+        with pytest.raises(SourceUnavailable) as first:
+            self._fetch(["a", "b", "c"], clock=_Clock(), cooldown=cooldown)
+        assert len(asked) == 1
+        detail = first.value.detail
+        assert detail.startswith("Arctic Shift timed out on its own side")
+        assert "rate-limited" not in detail
+        assert "r/b: not asked (the archive's search just timed out on its side)" in detail
+        assert "https://" not in detail
+        assert "Maybe slow down" not in detail
+
     def test_a_429_starts_a_cooldown_that_keeps_the_next_search_off_the_archive(self, monkeypatch):
         # STOP EARLY ON A 429, for the lane and not only for the call: the other
         # query of the same step, and the run's later searches, must not ask an
@@ -1181,7 +1226,7 @@ class TestArcticShiftLaneResilience:
         def fake_retry(url, **_kw):
             raise _http_error(SourceBlocked, 403, "HTTP 403 from the archive")
 
-        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        monkeypatch.setattr(arctic_shift, "_get_payload", fake_retry)
         with pytest.raises(SourceBlocked) as caught:
             self._fetch(["a", "b"])
         assert caught.value.kind == "blocked"
@@ -1196,7 +1241,7 @@ class TestArcticShiftLaneResilience:
                 raise _http_error(SourceBlocked, 403, "HTTP 403 from the archive")
             raise _http_error(SourceRateLimited, 429, "rate-limited (HTTP 429)")
 
-        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        monkeypatch.setattr(arctic_shift, "_get_payload", fake_retry)
         with pytest.raises(SourceBlocked):
             self._fetch(["a", "b"])
 

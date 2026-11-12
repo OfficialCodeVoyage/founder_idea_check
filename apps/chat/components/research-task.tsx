@@ -78,6 +78,13 @@ export const ResearchTask = ({
                   ))}
               </div>
             )}
+          {/* A planned step that was refused before any request. Said in words:
+              it must not look like a search that ran and found nothing. */}
+          {update.type === "web" && update.status === "skipped" && (
+            <p className="text-muted-foreground text-xs">
+              Not run: the search time for this research run had run out.
+            </p>
+          )}
           {/* Search Loading State */}
           {update.type === "web" && update.status === "running" && (
             <div className="py-2">

@@ -211,16 +211,19 @@ function refuseForTime(input: {
     toolCallId,
     describeLanes({ descriptors, signals: [], failures: [], attempted: false })
   );
+  // `skipped`, not `completed`: this step replaces the "running" row written
+  // for the same `updateId`, and a `completed` web update is counted as a search
+  // by `describeResearchRun` ("8 searches" when three never ran). It carries no
+  // `results` for the same reason: there is nothing to count, not a zero.
   dataStream.write({
     type: "data-researchUpdate",
     id: updateId,
     data: {
       toolCallId,
-      title: `Executing ${queries.length} searches`,
+      title: `Skipped ${queries.length === 1 ? "1 search" : `${queries.length} searches`}: search time ran out`,
       type: "web",
-      status: "completed",
+      status: "skipped",
       queries,
-      results: [],
     },
   });
   return {

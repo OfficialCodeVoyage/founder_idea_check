@@ -142,6 +142,48 @@ describe("describeResearchRun", () => {
   });
 });
 
+describe("describeResearchRun with refused steps", () => {
+  function skipped(): ResearchUpdate {
+    return {
+      type: "web",
+      toolCallId: CALL,
+      title: "Skipped 1 search: search time ran out",
+      status: "skipped",
+      queries: ["demand"],
+    };
+  }
+
+  it("does not count a step that was refused before any request as a search", () => {
+    // REGRESSION. The refused step used to be a `completed` web update with no
+    // results, so a run of 5 searches and 3 refusals printed "8 searches".
+    const view = describeResearchRun([
+      web(2, "completed"),
+      web(1, "completed"),
+      skipped(),
+      skipped(),
+      skipped(),
+      marker("started", 0),
+      marker("completed", 4000),
+    ]);
+
+    expect(view.searched).toBe(true);
+    if (view.searched) {
+      expect(view.searches).toBe(2);
+      expect(view.sources).toBe(3);
+    }
+  });
+
+  it("says nothing ran, with no count, when every step was refused", () => {
+    const view = describeResearchRun([skipped(), skipped()]);
+
+    expect(view.searched).toBe(false);
+    const line = researchRunLine(view);
+    expect(line).toContain("No search ran");
+    expect(line).toContain("search time had run out");
+    expect(line).not.toMatch(ANY_DIGIT);
+  });
+});
+
 describe("researchRunLine", () => {
   it("says no search ran, and prints no number, for the not-searched arm", () => {
     const line = researchRunLine(describeResearchRun([]));

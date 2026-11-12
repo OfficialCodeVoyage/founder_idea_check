@@ -63,19 +63,34 @@ export type ResearchRunView =
 const NEVER_SEARCHED =
   "deep research ended before any search was attempted, so there is nothing to count";
 
+const ALL_SKIPPED =
+  "every planned search was skipped because the search time had run out, so there is nothing to count";
+
 /**
  * PURE. Reads the update stream the tool emitted and says what actually ran.
  *
  * The discriminant is the presence of a `web` update, not a count derived from
  * one: `web` updates are written by the search tool itself, at the moment it is
  * called, so zero of them means the search tool was never reached.
+ *
+ * A `skipped` web update is the search tool refusing a step before any request
+ * (the search time had run out). It is in the stream so the founder can see the
+ * step was refused, but it is NOT a search: counting it printed "8 searches"
+ * for a run in which three never ran. A run whose every step was skipped has
+ * nothing to count, and says so on the `searched: false` arm.
  */
 export function describeResearchRun(
   updates: readonly ResearchUpdate[]
 ): ResearchRunView {
-  const webUpdates = updates.filter((update) => update.type === "web");
-  if (webUpdates.length === 0) {
+  const allWebUpdates = updates.filter((update) => update.type === "web");
+  if (allWebUpdates.length === 0) {
     return { searched: false, note: NEVER_SEARCHED };
+  }
+  const webUpdates = allWebUpdates.filter(
+    (update) => update.status !== "skipped"
+  );
+  if (webUpdates.length === 0) {
+    return { searched: false, note: ALL_SKIPPED };
   }
 
   const sources = webUpdates.reduce(

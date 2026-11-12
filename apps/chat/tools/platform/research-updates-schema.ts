@@ -9,8 +9,17 @@ const TaskUpdateSchema = BaseStreamUpdateSchema.extend({
   status: z.enum(["running", "completed"]),
 });
 
+/**
+ * A `web` update is one search step. `skipped` is a step that was PLANNED and
+ * REFUSED before any request (the research run's search time had run out): it
+ * never ran, so it is not a search and carries no results. It is its own status
+ * and not `completed` with an empty result list, because that is exactly what
+ * a search that ran and found nothing looks like, and `describeResearchRun`
+ * counts the one and must not count the other.
+ */
 const WebSearchSchema = TaskUpdateSchema.extend({
   type: z.literal("web"),
+  status: z.enum(["running", "completed", "skipped"]),
   queries: z.array(z.string()),
   results: z
     .array(

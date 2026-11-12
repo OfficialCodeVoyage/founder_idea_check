@@ -460,7 +460,7 @@ describe("sidecarWebSearch", () => {
     // GUARD for the QA run cut at 289 s: a search that cannot finish before
     // the search deadline spends the report's time, so it is never started.
     const seen: string[] = [];
-    const { stream } = recordingStream();
+    const { stream, written } = recordingStream();
     const start = 1_000_000;
     const clock = planResearchClock(start + 290_000, () => start);
     const late = { ...clock, now: () => clock.searchStopAt - 5000 };
@@ -477,5 +477,16 @@ describe("sidecarWebSearch", () => {
     expect(result.searches).toEqual([]);
     expect(result.error).toContain("Not searched");
     expect(late.cuts).toHaveLength(1);
+
+    // The refused step is `skipped`, never `completed`: a completed web update
+    // is counted as a search by `describeResearchRun`, and this one never ran.
+    // It replaces the "running" row on the same id and carries no results.
+    const webUpdates = written.filter((w) => w.data.type === "web");
+    expect(webUpdates.map((w) => w.data.status)).toEqual([
+      "running",
+      "skipped",
+    ]);
+    expect(webUpdates[0].id).toBe(webUpdates[1].id);
+    expect("results" in webUpdates[1].data).toBe(false);
   });
 });

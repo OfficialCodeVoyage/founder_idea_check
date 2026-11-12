@@ -9,22 +9,20 @@ readme = "README.md"
 license = "Apache-2.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PYTHON VERSION IS PINNED TO 3.11 AND THE REASON IS OASIS.
+# PYTHON VERSION IS KEPT AT 3.11, THE VERSION THIS SERVICE WAS BUILT AND TESTED ON.
 #
-# `camel-ai/oasis` @ 40bf1705 declares, in its own pyproject.toml line 25:
+# It was pinned for OASIS: `camel-ai/oasis` @ 40bf1705 (camel-oasis 0.2.5) declared
+# `python = ">=3.10.0,<3.12"`, a hard upper bound on 3.12. That is no longer true:
+# camel-oasis 0.2.6 and camel-ai 0.2.90 both declare `requires-python` as
+# `>=3.10,<3.15` (PyPI metadata, read 2026-11-13). So OASIS is not what holds this
+# at <3.12 any more; 3.11 stays because it is what the CI job, the Dockerfile and
+# the simulation extra are tested on. Everything else here runs happily on 3.13.
+# Loosening the bound is a separate change.
 #
-#     python = ">=3.10.0,<3.12"
-#
-# That is a HARD upper bound on 3.12, not a preference, and it is the binding
-# constraint on this whole service. Everything else here runs happily on 3.13.
-# 3.11 is chosen over 3.10 because it is the newest version inside OASIS's
-# window, so the pin buys the most runtime and stdlib improvements available
-# without leaving the range.
-#
-# Changing this later is expensive: OASIS's dependency table is exact-pinned
-# (`camel-ai = "0.2.90"`, `sentence-transformers = "3.0.0"`, `igraph = "0.11.6"`)
-# with no extras mechanism, so a Python bump means resolving that entire tree
-# again. Decide once, here, and leave it.
+# Doing it is not free: OASIS's dependency table is still exact-pinned
+# (`camel-ai==0.2.90`, `sentence-transformers==3.0.0`, `igraph==0.11.6`, ...) with
+# no extras mechanism, so a Python bump means resolving that entire tree again
+# (and checking those pins have wheels for the new Python) before changing it.
 # ─────────────────────────────────────────────────────────────────────────────
 requires-python = ">=3.11,<3.12"
 
@@ -57,18 +55,22 @@ dependencies = [
 # function, and reports `oasis-not-installed` as a named condition.
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# THE `mcp` PIN IS LOAD-BEARING. camel-oasis 0.2.5 pulls camel-ai 0.2.78, whose
+# THE `mcp` PIN IS A GUARD. camel-oasis 0.2.5 pulled camel-ai 0.2.78, whose
 # `camel/toolkits/base.py` does `from mcp.server import FastMCP`. That name was
 # removed in mcp 2.x, and camel-ai's own requirement is loose enough to resolve
-# to it — so a clean `uv pip install -e ".[simulation]"` installs successfully
-# and then fails at `import oasis` with an ImportError. Verified live: without
-# the pin the multi-gigabyte install completes and the simulation endpoint is
-# still unusable. The lazy import turns that into the named `oasis-not-installed`
-# condition rather than a crash, which is correct but reads as "you forgot to
-# install it" when in fact you did.
+# to it (camel-ai 0.2.90 still asks only `mcp>=1.3.0`) — so with camel-oasis 0.2.5
+# a clean `uv pip install -e ".[simulation]"` installed successfully and then
+# failed at `import oasis` with an ImportError. Verified live then: without the
+# pin the multi-gigabyte install completed and the simulation endpoint was still
+# unusable. camel-oasis 0.2.6 pulls camel-ai 0.2.90 and itself requires
+# `mcp==1.29.0` (PyPI metadata), so the resolver no longer reaches mcp 2 through
+# this extra; `mcp<2` is kept so that a future OASIS release cannot reintroduce it.
+# The lazy import turns an ImportError like that into the named
+# `oasis-not-installed` condition rather than a crash, which is correct but reads
+# as "you forgot to install it" when in fact you did.
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# LICENCE NOTE: `igraph` IS GPL. camel-oasis 0.2.5 requires `igraph==0.11.6`,
+# LICENCE NOTE: `igraph` IS GPL. camel-oasis 0.2.6 requires `igraph==0.11.6`,
 # whose source header grants "version 2 of the License, or (at your option) any
 # later version" (GPL-2.0-or-later). It enters ONLY through this extra: the
 # default dependencies above do not list it, and the default Docker image does

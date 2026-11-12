@@ -1,6 +1,6 @@
 "use client";
 import type { UseChatHelpers } from "@ai-sdk/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { CameraIcon, FileIcon, ImageIcon, PlusIcon, XIcon } from "lucide-react";
 import type React from "react";
 import {
@@ -9,7 +9,6 @@ import {
   memo,
   type SetStateAction,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -36,20 +35,15 @@ import {
   type SelectedModelValue,
   type UiToolName,
 } from "@/lib/ai/types";
-import { useCurrentChatRoute } from "@/lib/chat-route";
 import { config } from "@/lib/config";
-import { buildDraftChatSubmission } from "@/lib/draft-chat-submission";
-import { processFilesForUpload } from "@/lib/files/upload-prep";
 import {
-  addPendingAssistantMessages,
-  createParallelRequestBody,
-  markParallelRequestSpecsFailed,
-  runParallelRequestSpecs,
-} from "@/lib/parallel-chat-requests";
-import { useStartProvisionalChat } from "@/lib/start-provisional-chat";
+  buildDraftChatSubmission,
+  normalizeSelectedModel,
+} from "@/lib/draft-chat-submission";
+import { processFilesForUpload } from "@/lib/files/upload-prep";
+import { useSendDraftChatSubmission } from "@/lib/send-draft-chat-submission";
 import { useChatActions, useChatStoreApi } from "@/lib/stores/base";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
-import { useAddMessageToTree } from "@/lib/stores/hooks-threads";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { cn } from "@/lib/utils";
 import { useChatInput } from "@/providers/chat-input-provider";
@@ -128,16 +122,9 @@ function PureMultimodalInput({
   const { artifact, closeArtifact } = useArtifact();
   const { data: session } = useSession();
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const isMobile = useIsMobile();
-  const addMessageToTree = useAddMessageToTree();
-  const currentRoute = useCurrentChatRoute();
-  const startProvisionalChat = useStartProvisionalChat(chatId);
-  const {
-    setMessages,
-    sendMessage,
-    stop: stopHelper,
-  } = useChatActions<ChatMessage>();
+  const sendDraftChatSubmission = useSendDraftChatSubmission(chatId);
+  const { setMessages, stop: stopHelper } = useChatActions<ChatMessage>();
   const lastMessageId = useLastMessageId();
   const {
     editorRef,
@@ -154,25 +141,23 @@ function PureMultimodalInput({
     getInitialInput,
     isEmpty,
     handleSubmit,
-    criterionTarget,
+    criterionTarget: storedCriterionTarget,
     setCriterionTarget,
   } = useChatInput();
 
-  // A TARGET DOES NOT OUTLIVE ITS PHASE. The gate advances in `after()`, so a
+  // A TARGET DOES NOT OUTLIVE ITS PHASE, and that is derived where it is read
+  // rather than cleared by an effect. The gate advances in `after()`, so a
   // founder can have "Answer" armed on a criterion of phase 3 when phase 4
   // opens; sending the old id then would label an answer with a criterion the
-  // new phase does not have. Null `gatePhaseKey` (no gate on this route, or the
-  // first read not landed) never clears: absence is not a different phase.
+  // new phase does not have. Read through this, a target from another phase (or
+  // with no gate to say which phase this is) is simply not there: no chip, no
+  // hint, no label. The stale value in the provider is overwritten by the next
+  // "Answer" and cleared by the next send.
   const gatePhaseKey = usePhaseGate()?.data?.phaseKey ?? null;
-  useEffect(() => {
-    if (
-      criterionTarget &&
-      gatePhaseKey !== null &&
-      criterionTarget.phaseKey !== gatePhaseKey
-    ) {
-      setCriterionTarget(null);
-    }
-  }, [criterionTarget, gatePhaseKey, setCriterionTarget]);
+  const criterionTarget =
+    storedCriterionTarget && storedCriterionTarget.phaseKey === gatePhaseKey
+      ? storedCriterionTarget
+      : null;
 
   const isAnonymous = !session?.user;
   const isModelDisallowedForAnonymous =
@@ -184,11 +169,10 @@ function PureMultimodalInput({
   const stopStreamMutation = useMutation(
     trpc.chat.stopStream.mutationOptions()
   );
-  const normalizedSelectedModel = useMemo<SelectedModelValue>(() => {
-    const expanded = expandSelectedModelValue(selectedModelSelection);
-
-    return expanded.length > 1 ? selectedModelSelection : selectedModelId;
-  }, [selectedModelId, selectedModelSelection]);
+  const normalizedSelectedModel = useMemo<SelectedModelValue>(
+    () => normalizeSelectedModel({ selectedModelId, selectedModelSelection }),
+    [selectedModelId, selectedModelSelection]
+  );
   const requestedModelIds = useMemo(
     () => expandSelectedModelValue(normalizedSelectedModel),
     [normalizedSelectedModel]
@@ -372,12 +356,6 @@ function PureMultimodalInput({
     ]
   );
 
-  const invalidatePersistedMessages = useCallback(async () => {
-    await queryClient.invalidateQueries({
-      queryKey: trpc.chat.getChatMessages.queryKey({ chatId }),
-    });
-  }, [chatId, queryClient, trpc]);
-
   const coreSubmitLogic = useCallback(() => {
     const input = getInputValue();
 
@@ -405,90 +383,35 @@ function PureMultimodalInput({
 
     onSendMessage?.(message);
 
-    const primaryRequest = requestSpecs[0] ?? null;
+    const startedProvisionalChat = sendDraftChatSubmission({
+      message,
+      onStarted: () => {
+        if (!isMobile) {
+          editorRef.current?.focus();
+        }
+      },
+      requestSpecs,
+    });
 
-    if (
-      startProvisionalChat({
-        message,
-        onStarted: () => {
-          if (!isMobile) {
-            editorRef.current?.focus();
-          }
-        },
-        requestSpecs,
-      })
-    ) {
-      // `startProvisionalChat` has already called `sendMessage` by the time it
-      // returns true, so this is "after the send", as below.
-      setCriterionTarget(null);
+    // CLEARED ONLY AFTER THE SEND, never before it: the label has to be on the
+    // message when it leaves. `sendDraftChatSubmission` has called
+    // `sendMessage` by the time it returns, on the provisional-chat path too.
+    setCriterionTarget(null);
+
+    // A provisional chat refocuses through `onStarted`.
+    if (startedProvisionalChat) {
       return;
     }
-
-    if (primaryRequest) {
-      sendMessage(message, {
-        body: {
-          ...createParallelRequestBody(primaryRequest, true),
-          projectId: currentRoute.projectId ?? undefined,
-        },
-      });
-
-      addMessageToTree(message);
-      handleModelChange(primaryRequest.modelId);
-      addPendingAssistantMessages({
-        addMessageToTree,
-        message,
-        requestSpecs,
-      });
-
-      runParallelRequestSpecs({
-        chatId,
-        message,
-        projectId: currentRoute.projectId,
-        requestSpecs: requestSpecs.slice(1),
-      })
-        .then(async (failedRequestSpecs) => {
-          if (failedRequestSpecs.length > 0) {
-            markParallelRequestSpecsFailed({
-              addMessageToTree,
-              message,
-              requestSpecs: failedRequestSpecs,
-            });
-            toast.error("Failed to complete all parallel responses");
-          }
-
-          await invalidatePersistedMessages();
-        })
-        .catch(() => {
-          toast.error("Failed to complete all parallel responses");
-        });
-    } else {
-      sendMessage(
-        message,
-        currentRoute.projectId
-          ? { body: { projectId: currentRoute.projectId } }
-          : undefined
-      );
-      addMessageToTree(message);
-    }
-
-    // CLEARED ONLY AFTER `sendMessage` HAS BEEN CALLED, never before it: the
-    // label has to be on the message when it leaves.
-    setCriterionTarget(null);
 
     // Refocus after submit
     if (!isMobile) {
       editorRef.current?.focus();
     }
   }, [
-    addMessageToTree,
     attachments,
     criterionTarget?.criterionId,
     isMobile,
-    chatId,
-    currentRoute.projectId,
     editorRef,
-    handleModelChange,
-    invalidatePersistedMessages,
     getInputValue,
     isEditMode,
     lastMessageId,
@@ -497,9 +420,8 @@ function PureMultimodalInput({
     parentMessageId,
     parallelResponsesEnabled,
     selectedTool,
-    sendMessage,
+    sendDraftChatSubmission,
     setCriterionTarget,
-    startProvisionalChat,
     trimMessagesInEditMode,
   ]);
 

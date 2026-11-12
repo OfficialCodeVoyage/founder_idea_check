@@ -22,6 +22,24 @@ export interface DraftChatSubmission {
   requestSpecs: ParallelRequestSpec[];
 }
 
+/**
+ * The model selection a submission is built from: the whole multi-model
+ * selection when it names more than one request, else the single model. One
+ * rule for the composer and for the gate card's "Plan how to find out", so a
+ * founder who picked several models gets the same fan-out from either.
+ */
+export function normalizeSelectedModel({
+  selectedModelId,
+  selectedModelSelection,
+}: {
+  selectedModelId: AppModelId;
+  selectedModelSelection: SelectedModelValue;
+}): SelectedModelValue {
+  return expandSelectedModelValue(selectedModelSelection).length > 1
+    ? selectedModelSelection
+    : selectedModelId;
+}
+
 export function buildDraftChatSubmission({
   attachments,
   input,

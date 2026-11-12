@@ -145,10 +145,15 @@ const messageMetadataSchema = z.object({
   streamStopped: z.boolean().optional(),
   selectedTool: frontendToolsSchema.optional(),
   /**
-   * The exit criterion the founder pointed this message at (the gate card's
-   * "Answer" and "Plan how to find out"). A label on the message, never part of
-   * its text: the text is sent exactly as typed, so the judge and the extractor
-   * read the founder's own words and nothing the UI put there. An id the phase
+   * The exit criterion the founder pointed this message at: set by the
+   * composer when the founder armed the gate card's "Answer" or "Report what
+   * you found" on that criterion. A label on the message, never part of its
+   * text: the label never alters what the founder typed, so the judge and the
+   * extractor read the founder's own words and nothing the UI put there.
+   *
+   * It labels an answer, so it is never set on the gate card's "Plan how to
+   * find out", which sends a fixed request for help (like a follow-up
+   * suggestion) and states no claim about the criterion. An id the phase
    * definitions do not carry is ignored by every reader.
    */
   targetCriterionId: z.string().max(64).optional(),

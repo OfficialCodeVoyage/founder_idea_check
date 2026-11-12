@@ -618,7 +618,7 @@ async function createChatStream({
           messageId,
           dataStream,
           onError: (error) => {
-            log.error({ error }, "streamText error");
+            log.error(errorLogFields(error), "streamText error");
           },
           onChunk,
           onContextTrimmed: (omittedMessages) => {
@@ -812,7 +812,7 @@ async function createChatStream({
             })
           ).catch((dbError) => {
             log.error(
-              { error: dbError },
+              errorLogFields(dbError),
               "Failed to clear activeStreamId on stream error"
             );
           })
@@ -1015,7 +1015,7 @@ async function executeChatRequest({
           );
         }
       } catch (error) {
-        log.error({ error }, "Failed to set TTL on stream keys");
+        log.error(errorLogFields(error), "Failed to set TTL on stream keys");
       }
     });
   }
@@ -1072,7 +1072,10 @@ async function executeChatRequest({
     settlementStream
       .pipeTo(new WritableStream())
       .catch((error: unknown) => {
-        log.error({ error, streamId }, "chat stream failed before its end");
+        log.error(
+          { ...errorLogFields(error), streamId },
+          "chat stream failed before its end"
+        );
       })
       .then(() =>
         chargeTurnOnce({
@@ -1458,7 +1461,10 @@ async function writePartialDocument({
     // already happened. If it throws, the turn must still finish and the
     // founder must still be told — swallowing the report as well would put us
     // back exactly where 2026-08-21 started.
-    log.error({ error, messageId }, "failed to persist salvaged document");
+    log.error(
+      { ...errorLogFields(error), messageId },
+      "failed to persist salvaged document"
+    );
     return null;
   }
 }
@@ -1498,7 +1504,7 @@ async function chargeAccumulatedCost({
       await deductCredits(userId, cents);
     }
   } catch (error) {
-    log.error({ error }, `Failed to charge the ${label} cost`);
+    log.error(errorLogFields(error), `Failed to charge the ${label} cost`);
   }
 }
 
@@ -1591,7 +1597,7 @@ async function chargeTurnOnce({
     }
   } catch (error) {
     log.error(
-      { error, chatId, from },
+      { ...errorLogFields(error), chatId, from },
       "Failed to finalize credits for the turn"
     );
   }
@@ -1659,7 +1665,7 @@ async function finalizeMessageAndCredits({
     });
   } catch (error) {
     log.error(
-      { error, chatId },
+      { ...errorLogFields(error), chatId },
       "Failed to save the assistant message; the turn is still charged"
     );
   }

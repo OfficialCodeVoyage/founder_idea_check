@@ -1,4 +1,5 @@
 import { config } from "@/lib/config";
+import { ISSUES_URL } from "@/lib/project-links";
 
 function getPlanTypesLabel({
   hasFree,
@@ -252,7 +253,9 @@ export default function TermsPage() {
       <h2>14. Contact Us</h2>
       <p>
         If you have any questions about these Terms of Service, contact us at{" "}
-        {config.organization.contact.legalEmail}
+        {config.organization.contact.legalEmail ?? (
+          <a href={ISSUES_URL}>{ISSUES_URL}</a>
+        )}
       </p>
 
       <p>

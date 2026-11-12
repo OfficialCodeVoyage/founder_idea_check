@@ -1,4 +1,5 @@
 import { config } from "@/lib/config";
+import { ISSUES_URL } from "@/lib/project-links";
 
 export default function PrivacyPage() {
   const _currencySymbolMap: Record<string, string> = {
@@ -145,7 +146,10 @@ export default function PrivacyPage() {
       <h2>Contact Us</h2>
       <p>
         If you have any questions about this Privacy Policy, please contact us
-        at: {config.organization.contact.privacyEmail}
+        at:{" "}
+        {config.organization.contact.privacyEmail ?? (
+          <a href={ISSUES_URL}>{ISSUES_URL}</a>
+        )}
       </p>
 
       <p>

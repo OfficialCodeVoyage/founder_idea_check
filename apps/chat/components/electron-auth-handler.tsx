@@ -125,8 +125,7 @@ function ElectronAuthOverlay({ state }: { state: ElectronRendererAuthState }) {
   if (state.status === "awaiting-browser") {
     detailMessage = "Complete sign-in in your browser, then come back here.";
   } else if (state.status === "finishing") {
-    detailMessage =
-      "Your browser has returned to ChatJS. We're finalizing the session now.";
+    detailMessage = `Your browser has returned to ${config.appName}. We're finalizing the session now.`;
   } else {
     detailMessage =
       state.detail || "If nothing changes, try the browser flow again.";

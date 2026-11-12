@@ -413,20 +413,27 @@ export const DESKTOP_APP_DEFAULTS = {
 export const desktopAppConfigSchema =
   desktopAppConfigObjectSchema.default(DESKTOP_APP_DEFAULTS);
 
+/**
+ * Who the privacy and terms pages tell a reader to write to. Both are optional:
+ * a project with no mailbox of its own must not be made to invent one, and the
+ * pages fall back to the issue tracker (`lib/project-links.ts`).
+ */
+const contactSchema = z.object({
+  privacyEmail: z.string().email().optional(),
+  legalEmail: z.string().email().optional(),
+});
+
 export const configDescriptionSchema = z.object({
-  appPrefix: z.string().default("chatjs"),
-  appName: z.string().default("My AI Chat"),
+  appPrefix: z.string().default("ideacheck"),
+  appName: z.string().default("Founder Idea Check"),
   appTitle: z
     .string()
     .optional()
     .describe("Browser tab title (defaults to appName)"),
-  appDescription: z.string().default("AI chat powered by ChatJS"),
+  appDescription: z.string().default("Test a startup idea before you build it"),
   organization: z.object({
     name: z.string(),
-    contact: z.object({
-      privacyEmail: z.string().email(),
-      legalEmail: z.string().email(),
-    }),
+    contact: contactSchema,
   }),
   services: z.object({
     hosting: z.string(),
@@ -459,21 +466,18 @@ export const configDescriptionSchema = z.object({
 });
 
 export const configSchema = z.object({
-  appPrefix: z.string().default("chatjs"),
-  appName: z.string().default("My AI Chat"),
+  appPrefix: z.string().default("ideacheck"),
+  appName: z.string().default("Founder Idea Check"),
   appTitle: z
     .string()
     .optional()
     .describe("Browser tab title (defaults to appName)"),
-  appDescription: z.string().default("AI chat powered by ChatJS"),
+  appDescription: z.string().default("Test a startup idea before you build it"),
 
   organization: z
     .object({
       name: z.string(),
-      contact: z.object({
-        privacyEmail: z.string().email(),
-        legalEmail: z.string().email(),
-      }),
+      contact: contactSchema,
     })
     .default({
       name: "Your Organization",

@@ -1,7 +1,7 @@
 import pino, { type Logger, stdTimeFunctions } from "pino";
 import userConfig from "@/chat.config";
 
-const appBinding = userConfig.appPrefix || userConfig.appName || "chatjs";
+const appBinding = userConfig.appPrefix || userConfig.appName || "ideacheck";
 
 // Prefer JSON in production; pretty in development.
 // We also add base bindings so child loggers inherit app metadata.

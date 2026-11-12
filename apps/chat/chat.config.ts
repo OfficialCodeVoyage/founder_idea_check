@@ -3,23 +3,25 @@ import { defineConfig } from "@/lib/config-schema";
 const isProd = process.env.NODE_ENV === "production";
 
 /**
- * ChatJS Configuration
+ * Founder Idea Check configuration
  *
- * Edit this file to customize your app.
- * @see https://chatjs.dev/docs/reference/config
+ * Edit this file to customize your app. The schema and every default live in
+ * `lib/config-schema.ts`.
+ *
+ * There is no `appUrl` here on purpose: the public URL is read at runtime from
+ * `lib/url.ts::getBaseUrl` (APP_URL, then the Vercel URLs, then localhost).
  */
 const config = defineConfig({
   appPrefix: "ideacheck",
-  appName: "idea_check",
-  appTitle: "idea_check - validate your idea before you build it",
+  appName: "Founder Idea Check",
+  appTitle: "Founder Idea Check - validate your idea before you build it",
   appDescription:
-    "Build and deploy AI chat applications in minutes. ChatJS provides authentication, streaming, tool calling, and all the features you need for production-ready AI conversations.",
+    "Test a startup idea before you build it: an eight-phase conversation whose gates refuse to advance without evidence, backed by public demand research.",
   organization: {
-    name: "ChatJS",
-    contact: {
-      privacyEmail: "privacy@chatjs.dev",
-      legalEmail: "legal@chatjs.dev",
-    },
+    name: "Founder Idea Check",
+    // No mailbox is published for this project: the privacy and terms pages
+    // point to the issue tracker (`lib/project-links.ts`) until one is set.
+    contact: {},
   },
   services: {
     hosting: "Vercel",

@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { config } from "@/lib/config";
 import { getAllAttachmentUrls } from "@/lib/db/queries";
@@ -7,11 +8,26 @@ import { isFileStorageKey, keyFromFileUrl } from "@/lib/file-url";
 
 const ORPHANED_ATTACHMENTS_RETENTION_TIME = 4 * 60 * 60 * 1000; // 4 hours
 
+/**
+ * Vercel cron sends `Authorization: Bearer <CRON_SECRET>`. `CRON_SECRET` is
+ * optional, so an unset secret must refuse every caller: comparing against a
+ * template string would accept the literal `Bearer undefined`. Hashing both
+ * sides gives equal-length buffers, so timingSafeEqual leaks neither the
+ * secret's bytes nor its length.
+ */
+function isAuthorizedCronRequest(request: NextRequest): boolean {
+  const secret = env.CRON_SECRET;
+  if (!secret) {
+    return false;
+  }
+  const header = request.headers.get("authorization") ?? "";
+  const digest = (value: string) => createHash("sha256").update(value).digest();
+  return timingSafeEqual(digest(header), digest(`Bearer ${secret}`));
+}
+
 export async function GET(request: NextRequest) {
   try {
-    // Verify this is being called by Vercel cron
-    const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${env.CRON_SECRET}`) {
+    if (!isAuthorizedCronRequest(request)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

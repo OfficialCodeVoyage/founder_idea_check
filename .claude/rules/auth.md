@@ -21,7 +21,9 @@ paths:
   `DATABASE_URL`/`AUTH_SECRET` test defaults (`lib/env-schema.ts`). Never set them in a deployed environment.
 - **`/api/dev-login` exists only when `NODE_ENV === "development"`** (404 otherwise). It signs a session cookie
   for `dev@localhost` with `AUTH_SECRET`. Keep that guard first in the handler.
-- **A shared secret read from env must be checked as set before it is compared.** `app/api/cron/cleanup/route.ts`
-  compares against `` `Bearer ${env.CRON_SECRET}` `` while `CRON_SECRET` is optional (known open item, release plan
-  FIX-3).
+- **A shared secret read from env must be checked as set before it is compared.** `CRON_SECRET` is optional, and
+  `` `Bearer ${undefined}` `` is the string `Bearer undefined`. Pattern:
+  `app/api/cron/cleanup/route.ts::isAuthorizedCronRequest` (refuse when unset, constant-time compare).
+- **Auth trusts only this deployment's own URL** (`lib/url.ts::getBaseUrl`). Never add `config.appUrl` to
+  `trustedOrigins` or use it as `baseURL`: a fork inherits it pointing at a domain it does not own.
 - **Placeholder credentials count as unset** (`lib/auth.ts`); do not add a provider that treats them as real.

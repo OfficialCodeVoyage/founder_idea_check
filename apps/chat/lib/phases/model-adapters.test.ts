@@ -164,6 +164,42 @@ describe("createModelGateJudge", () => {
       judge({ system: "s", prompt: "p", criteria: [] })
     ).rejects.toThrow("gateway 503");
   });
+
+  it("charges a reply that fails the schema, and still rejects so the gate BLOCKs", async () => {
+    // The provider answered and was paid; the reply was not JSON. The SDK
+    // throws from inside generateText, so there is no response to read usage
+    // from — it has to come off the error, or the call rides free.
+    const spent: ModelUsage[] = [];
+    const judge = createModelGateJudge({
+      model: mockModel("not json at all", { input: 900, output: 30 }),
+      onUsage: (usage) => spent.push(usage),
+    });
+
+    await expect(
+      judge({ system: "s", prompt: "p", criteria: [] })
+    ).rejects.toThrow("No object generated");
+    expect(spent).toEqual([
+      {
+        functionId: "phase-gate",
+        inputTokens: 900,
+        outputTokens: 30,
+        totalTokens: 930,
+      },
+    ]);
+  });
+
+  it("reports nothing for a call that failed before the provider answered", async () => {
+    const spent: ModelUsage[] = [];
+    const judge = createModelGateJudge({
+      model: failingModel("gateway 503"),
+      onUsage: (usage) => spent.push(usage),
+    });
+
+    await expect(
+      judge({ system: "s", prompt: "p", criteria: [] })
+    ).rejects.toThrow("gateway 503");
+    expect(spent).toEqual([]);
+  });
 });
 
 describe("createModelFactExtractor", () => {
@@ -211,5 +247,23 @@ describe("createModelFactExtractor", () => {
     await expect(extract({ system: "s", prompt: "p" })).rejects.toThrow(
       "no credit"
     );
+  });
+
+  it("charges a reply that does not match the extraction schema", async () => {
+    const spent: ModelUsage[] = [];
+    const extract = createModelFactExtractor({
+      model: mockModel(JSON.stringify({ facts: "not a list" }), {
+        input: 500,
+        output: 20,
+      }),
+      onUsage: (usage) => spent.push(usage),
+    });
+
+    await expect(extract({ system: "s", prompt: "p" })).rejects.toThrow(
+      "No object generated"
+    );
+    expect(spent).toHaveLength(1);
+    expect(spent[0].functionId).toBe("phase-extract");
+    expect(spent[0].inputTokens).toBe(500);
   });
 });

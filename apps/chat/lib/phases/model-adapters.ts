@@ -1,4 +1,9 @@
-import { generateText, type LanguageModel, Output } from "ai";
+import {
+  generateText,
+  type LanguageModel,
+  NoObjectGeneratedError,
+  Output,
+} from "ai";
 import type { AppModelId } from "@/lib/ai/app-models";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
 import type { FactExtractor } from "./extract";
@@ -73,16 +78,18 @@ export function chargeUsageTo(
     );
 }
 
+type CallUsage =
+  | {
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+    }
+  | undefined;
+
 function reportUsage(
   onUsage: UsageSink | undefined,
   functionId: string,
-  usage:
-    | {
-        inputTokens?: number;
-        outputTokens?: number;
-        totalTokens?: number;
-      }
-    | undefined
+  usage: CallUsage
 ): void {
   onUsage?.({
     functionId,
@@ -92,6 +99,38 @@ function reportUsage(
   });
 }
 
+/**
+ * Runs one structured-output `generateText` call and reports its usage
+ * WHETHER OR NOT THE REPLY PARSED, then hands back the output or re-throws.
+ *
+ * A reply that is not JSON, or does not match the schema, makes
+ * `Output.object().parseCompleteOutput` throw `NoObjectGeneratedError` from
+ * inside `generateText`: the provider was paid, but no `response` exists to
+ * read `usage` from. The error carries that call's `usage`, so it is reported
+ * from there before re-throwing. Re-throwing is what keeps the callers fail
+ * closed exactly as before (`gate.ts` turns a rejection into a BLOCK,
+ * `extract.ts` and the persona generator into their own refusals); only the
+ * charge changes. Any other error is re-thrown untouched: a call that failed
+ * before the provider answered has no usage to report.
+ */
+export async function generateReportingUsage<T>(
+  onUsage: UsageSink | undefined,
+  functionId: string,
+  call: () => Promise<{ usage: CallUsage; output: T }>
+): Promise<T> {
+  let response: { usage: CallUsage; output: T };
+  try {
+    response = await call();
+  } catch (error) {
+    if (NoObjectGeneratedError.isInstance(error)) {
+      reportUsage(onUsage, functionId, error.usage);
+    }
+    throw error;
+  }
+  reportUsage(onUsage, functionId, response.usage);
+  return response.output;
+}
+
 export function createModelGateJudge({
   model,
   onUsage,
@@ -99,18 +138,17 @@ export function createModelGateJudge({
   model: LanguageModel;
   onUsage?: UsageSink;
 }): GateJudge {
-  return async ({ system, prompt }) => {
-    const response = await generateText({
-      model,
-      system,
-      prompt,
-      output: Output.object({ schema: JudgeOutputSchema }),
-      providerOptions: LENIENT_SCHEMA_OPTIONS,
-      experimental_telemetry: { isEnabled: true, functionId: "phase-gate" },
-    });
-    reportUsage(onUsage, "phase-gate", response.usage);
-    return response.output;
-  };
+  return ({ system, prompt }) =>
+    generateReportingUsage(onUsage, "phase-gate", () =>
+      generateText({
+        model,
+        system,
+        prompt,
+        output: Output.object({ schema: JudgeOutputSchema }),
+        providerOptions: LENIENT_SCHEMA_OPTIONS,
+        experimental_telemetry: { isEnabled: true, functionId: "phase-gate" },
+      })
+    );
 }
 
 export function createModelFactExtractor({
@@ -120,16 +158,18 @@ export function createModelFactExtractor({
   model: LanguageModel;
   onUsage?: UsageSink;
 }): FactExtractor {
-  return async ({ system, prompt }) => {
-    const response = await generateText({
-      model,
-      system,
-      prompt,
-      output: Output.object({ schema: ExtractionOutputSchema }),
-      providerOptions: LENIENT_SCHEMA_OPTIONS,
-      experimental_telemetry: { isEnabled: true, functionId: "phase-extract" },
-    });
-    reportUsage(onUsage, "phase-extract", response.usage);
-    return response.output;
-  };
+  return ({ system, prompt }) =>
+    generateReportingUsage(onUsage, "phase-extract", () =>
+      generateText({
+        model,
+        system,
+        prompt,
+        output: Output.object({ schema: ExtractionOutputSchema }),
+        providerOptions: LENIENT_SCHEMA_OPTIONS,
+        experimental_telemetry: {
+          isEnabled: true,
+          functionId: "phase-extract",
+        },
+      })
+    );
 }

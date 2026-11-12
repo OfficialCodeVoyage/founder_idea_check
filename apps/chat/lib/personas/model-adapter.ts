@@ -1,5 +1,8 @@
 import { generateText, type LanguageModel, Output } from "ai";
-import type { UsageSink } from "../phases/model-adapters";
+import {
+  generateReportingUsage,
+  type UsageSink,
+} from "../phases/model-adapters";
 import type { PersonaGenerator } from "./generate";
 import { PersonaDraftSchema } from "./types";
 
@@ -44,24 +47,20 @@ export function createModelPersonaGenerator({
   /** Same seam as the gate judge's: see lib/phases/model-adapters.ts. */
   onUsage?: UsageSink;
 }): PersonaGenerator {
-  return async ({ system, prompt }) => {
-    const response = await generateText({
-      model,
-      system,
-      prompt,
-      output: Output.object({ schema: PersonaDraftSchema }),
-      providerOptions: LENIENT_SCHEMA_OPTIONS,
-      experimental_telemetry: {
-        isEnabled: true,
-        functionId: "persona-generate",
-      },
-    });
-    onUsage?.({
-      functionId: "persona-generate",
-      inputTokens: response.usage?.inputTokens ?? null,
-      outputTokens: response.usage?.outputTokens ?? null,
-      totalTokens: response.usage?.totalTokens ?? null,
-    });
-    return response.output;
-  };
+  // Usage is reported even when the reply fails the schema: see
+  // `generateReportingUsage`.
+  return ({ system, prompt }) =>
+    generateReportingUsage(onUsage, "persona-generate", () =>
+      generateText({
+        model,
+        system,
+        prompt,
+        output: Output.object({ schema: PersonaDraftSchema }),
+        providerOptions: LENIENT_SCHEMA_OPTIONS,
+        experimental_telemetry: {
+          isEnabled: true,
+          functionId: "persona-generate",
+        },
+      })
+    );
 }

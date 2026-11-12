@@ -100,7 +100,8 @@ let globalStreamContext: ResumableStreamContext | null = null;
  * could show (live QA, re-check 5: with Redis out, the only sign was the absent
  * "Returning resumable stream" line). Say so, but not on every request: once per
  * reason, then at most once a minute. A reason is a kind of fallback, not a
- * request, so a busy server logs a few lines an hour rather than one per reply.
+ * request, so a busy server whose Redis stays out logs one line a minute per
+ * reason (60 an hour at most) rather than one per reply.
  */
 const RESUMABLE_OFF_NOTICE_INTERVAL_MS = 60_000;
 const resumableOffNoticeAt = new Map<string, number>();
@@ -464,13 +465,15 @@ async function getSystemPrompt({
 /**
  * WHO ENDED THE TURN EARLY. `abortController` has exactly two callers: the
  * cancel check in `executeChatRequest` (the founder pressed Stop and
- * `chat.stopStream` set `canceledAt`) and the deadline timer in `POST`. A turn
- * stopped either way is not a failure, and its leftovers (the `AbortError` the
- * SDK throws out of `execute`, a tool input cut off mid-stream) used to be
- * logged at ERROR with an empty error object (live QA, re-check 5), which reads
- * as an incident in a log search. The timer fires at the deadline and never
- * earlier, so a controller that fired at or after it is the deadline's; any
- * other firing is the founder's Stop.
+ * `chat.stopStream` set `canceledAt`) and the deadline timer in `POST`. The
+ * leftovers of a Stop (the `AbortError` the SDK throws out of `execute`, a tool
+ * input cut off mid-stream) used to be logged at ERROR with an empty error
+ * object (live QA, re-check 5), which reads as an incident in a log search.
+ * Only the founder's Stop is demoted (INFO, and WARN for a tool input it cut
+ * off): the DEADLINE is the backstop, a turn that ran into it is one to look at,
+ * so its lines stay ERROR, now naming the cause instead of an empty error. The
+ * timer fires at the deadline and never earlier, so a controller that fired at
+ * or after it is the deadline's; any other firing is the founder's Stop.
  */
 type TurnStopCause = "user" | "deadline";
 
@@ -480,6 +483,19 @@ const TURN_STOP_MESSAGES: Record<TurnStopCause, string> = {
   user: "turn stopped by the user",
   deadline: "turn stopped at the request deadline",
 };
+
+/**
+ * The fields to log a caught failure under. An Error under the key `error`
+ * prints as `{}` (its properties are not enumerable), so its name, message and
+ * stack are written out; anything else is logged as it is.
+ */
+function errorLogFields(error: unknown): Record<string, unknown> {
+  return error instanceof Error
+    ? {
+        err: { name: error.name, message: error.message, stack: error.stack },
+      }
+    : { error };
+}
 
 function turnStopCause(
   abortController: AbortController,
@@ -821,25 +837,15 @@ async function createChatStream({
           if (stopCause === "user") {
             log.info(stopLog, TURN_STOP_MESSAGES.user);
           } else {
-            log.warn(stopLog, TURN_STOP_MESSAGES.deadline);
+            // The deadline is the backstop: a turn that ran into it is an
+            // incident to look at, not a choice the founder made.
+            log.error(stopLog, TURN_STOP_MESSAGES.deadline);
           }
           return returnedMessage;
         }
       }
 
-      // An Error under `error` prints as `{}`: name the failure.
-      log.error(
-        error instanceof Error
-          ? {
-              err: {
-                name: error.name,
-                message: error.message,
-                stack: error.stack,
-              },
-            }
-          : { error },
-        "onError"
-      );
+      log.error(errorLogFields(error), "onError");
       return returnedMessage;
     },
   });
@@ -1120,7 +1126,7 @@ async function executeChatRequest({
         throw error;
       }
       log.error(
-        { error, streamId },
+        { ...errorLogFields(error), streamId },
         "resumable stream failed before it took the chat stream; serving it plain"
       );
       noticeResumableStreamsOff("redis-failed", error);
@@ -1297,8 +1303,10 @@ async function rescueDeadToolInputStreams({
   assistantMessage: ChatMessage;
   /**
    * Why the turn ended early, or null. A tool input still streaming when the
-   * founder pressed Stop, or the deadline fired, is cut off on purpose: it is
-   * salvaged and marked exactly the same, but the log line is not an ERROR.
+   * founder pressed Stop or the deadline fired is salvaged and marked exactly
+   * the same either way, and so is a real death. The log line differs: a Stop
+   * is a choice, so it is a WARN; the deadline is the backstop and, like a death
+   * with no cause, an ERROR.
    */
   stopCause: TurnStopCause | null;
   userId: string | null;
@@ -1347,11 +1355,19 @@ async function rescueDeadToolInputStreams({
         : null,
       documentId: saved.get(death.toolCallId)?.documentId ?? null,
     };
-    if (cause) {
-      // Expected: the turn was stopped while this input was still arriving.
+    if (cause === "user") {
+      // Expected: the founder stopped the turn while this input was still
+      // arriving. The part is still marked FAILED (`output-error`): the call
+      // never ran, and the model must see that on the next turn.
       log.warn(
         { ...deathLog, stopCause: cause },
-        `${TURN_STOP_MESSAGES[cause]} while a tool input was still streaming — marking the call stopped`
+        `${TURN_STOP_MESSAGES.user} while a tool input was still streaming — marking the call failed`
+      );
+    } else if (cause === "deadline") {
+      // The backstop: the request ran out of time with a tool input unfinished.
+      log.error(
+        { ...deathLog, stopCause: cause },
+        `${TURN_STOP_MESSAGES.deadline} while a tool input was still streaming — marking the call failed`
       );
     } else {
       log.error(

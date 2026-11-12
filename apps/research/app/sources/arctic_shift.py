@@ -838,16 +838,23 @@ def _paused(reason: str, left: float) -> SourceError:
 
     A paused lane is a lane that was not searched, so it says so in the same words
     a failed one does, and never reads as "nobody discusses the topic".
+
+    The `detail` is shown to the founder VERBATIM as the whole lane line, so it
+    must stand on its own: whole sentences, each with a subject. It used to begin
+    "timed out on its own side a moment ago (...)", a predicate with nothing it
+    was said of.
     """
-    not_searched = "Reddit was not searched, which is not a finding that nobody discusses the topic"
+    not_searched = "Reddit was not searched, which is not a finding that nobody discusses the topic."
     if reason == _TIMED_OUT:
         return SourceUnavailable(
-            f"timed out on its own side a moment ago (the archive could not run a search in "
-            f"time, so this lane is not asking it for another {left:.0f} s); {not_searched}"
+            f"The Reddit archive (Arctic Shift) timed out on its own side a moment ago, so "
+            f"this search did not ask it again; the lane stays paused for another "
+            f"{left:.0f} s. {not_searched}"
         )
     return SourceRateLimited(
-        f"rate-limited (the archive said it is receiving too many requests, so this lane "
-        f"is not asking it for another {left:.0f} s); {not_searched}"
+        f"The Reddit archive (Arctic Shift) said a moment ago that it is receiving too many "
+        f"requests, so this search did not ask it again; the lane stays paused for another "
+        f"{left:.0f} s. {not_searched}"
     )
 
 
@@ -864,10 +871,11 @@ def _lane_failure(keywords: str, problems: set[str], outcomes: list[str]) -> Sou
     sits beside the problem that made the cap apply.
     """
     words = [_PROBLEM_WORDS[key] for key in _PROBLEM_WORDS if key in problems]
+    # Whole sentences, each with a subject: the founder reads this line verbatim.
     detail = (
-        f"Arctic Shift {' and '.join(words)}, so Reddit was not searched in full: "
-        f"this is not a finding that nobody discusses the topic. Searched for "
-        f"{keywords!r}. " + "; ".join(outcomes)
+        f"Arctic Shift {' and '.join(words)}, so Reddit was not searched in full, which "
+        f"is not a finding that nobody discusses the topic. The words sent to the archive "
+        f"were {keywords!r}. What happened to each subreddit: " + "; ".join(outcomes) + "."
     )
     if "blocked" in problems:
         return SourceBlocked(detail)

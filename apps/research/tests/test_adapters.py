@@ -1116,9 +1116,10 @@ class TestArcticShiftLaneResilience:
         assert cooldown.reason == "timed out"
         # The calls made during the pause say why nothing was sent, in plain words.
         detail = caught.value.detail
-        assert detail.startswith("timed out on its own side a moment ago")
-        assert "for another 20 s" in detail
-        assert "not a finding" in detail
+        # A whole sentence with a subject: the founder reads this line verbatim.
+        assert detail.startswith("The Reddit archive (Arctic Shift) timed out on its own side")
+        assert "for another 20 s." in detail
+        assert detail.endswith("not a finding that nobody discusses the topic.")
         assert "https://" not in detail
 
         clock.now += pause + 1.0  # the pause is over
@@ -1149,7 +1150,9 @@ class TestArcticShiftLaneResilience:
         assert cooldown.until - clock() == arctic_shift._TIMEOUT_COOLDOWN_SECONDS
         assert cooldown.reason == "timed out"
         assert type(caught.value) is SourceUnavailable
-        assert caught.value.detail.startswith("timed out on its own side a moment ago")
+        assert caught.value.detail.startswith(
+            "The Reddit archive (Arctic Shift) timed out on its own side a moment ago"
+        )
 
         # And the first call said it plainly, with the remaining subreddits not asked.
         cooldown = arctic_shift._Cooldown()
@@ -1185,7 +1188,10 @@ class TestArcticShiftLaneResilience:
         with pytest.raises(SourceRateLimited) as caught:
             self._fetch(["a", "b"], clock=clock, cooldown=cooldown)
         assert len(asked) == 1  # nothing was sent
-        assert "not asking it for another 15 s" in caught.value.detail
+        detail = caught.value.detail
+        assert detail.startswith("The Reddit archive (Arctic Shift) said a moment ago that")
+        assert "stays paused for another 15 s." in detail
+        assert detail.endswith("not a finding that nobody discusses the topic.")
 
         clock.now += 20.0  # the pause is over
         with pytest.raises(SourceRateLimited):

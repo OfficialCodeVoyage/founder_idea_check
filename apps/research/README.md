@@ -124,7 +124,9 @@ the dominant failure, so the lane is polite and bounded:
 - no request is ever repeated; any other 4xx is a rejected query;
 - twenty-five seconds for the whole lane.
 
-The lane report shows a plain sentence for each failure. The request URL and the
+The lane report shows a plain sentence for each failure, and since it is shown to
+the founder verbatim every line the lane raises is a whole sentence with a subject
+(including the one a paused lane answers with). The request URL and the
 start of the response body are written to the sidecar's log (`research.arctic_shift`)
 and never returned, because the report is shown to the founder verbatim. When the
 lane returns nothing because it was rate-limited, timed out, rejected the query or

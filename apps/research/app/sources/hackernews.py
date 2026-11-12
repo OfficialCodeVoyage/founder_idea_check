@@ -179,6 +179,12 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 #           the same title are ("code review", "price comparison").
 #   CONTENT every other word. One in the title is enough.
 #
+# A word an "-ing", "-ed" or "-er" was added to has the kind of the word it was added
+# to ("tooling" is as broad as "tool", "marketing" as weak as "market", "researchers"
+# as filler as "research"): the title is compared by word family, so a derived form
+# that counted as CONTENT would match a title that has only the NEVER or WEAK word in
+# it ("tooling for dentists" and "Show HN: A tool for lawyers").
+#
 # A hit is on topic when its TITLE shares one CONTENT word with the query or two
 # distinct WEAK words. THE STORY TEXT IS NOT READ: a title is what the story is
 # called, and a body is where a story can mention anything. "Different" means a
@@ -330,7 +336,8 @@ def _stem(token: str) -> str:
 
     This stem is for LOOKING A WORD UP in the NEVER and WEAK lists (`_kind`),
     where "sources" is a research-filler word and "source" is not, so it must
-    stay exactly this small. COUNTING words is `_family`'s job.
+    stay exactly this small. COUNTING words is `_family`'s job, and `_kind` adds
+    the family only for a word an "-ing", "-ed" or "-er" was added to.
     """
     if len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us")):
         return token[:-1]
@@ -395,9 +402,8 @@ def _family(token: str) -> str:
     word of three letters or fewer is never touched ("bus", "ios", "api"). The key
     is crude both ways. Two unrelated words can meet ("number" and "numb"), which
     costs one wrong match; two forms of one word can still part ("child" and
-    "children"), which costs one missed one. `_kind` does NOT use this: the NEVER and
-    WEAK lists are written in whole words, and "source" must stay a content word
-    while "sources" does not.
+    "children"), which costs one missed one. `_kind` looks a word up on this only
+    for a word an "-ing", "-ed" or "-er" was added to (`_is_derived`).
     """
     if len(token) <= 3:
         return token
@@ -409,12 +415,55 @@ def _family(token: str) -> str:
     return word
 
 
+def _is_derived(token: str) -> bool:
+    """PURE. Is `token` a word that an "-ing", "-ed" or "-er" was added to?
+
+    "tooling", "reporting", "marketing", "studying" and "researchers" are; "tool",
+    "report" and "sources" are not. A hand-written list of whole words says nothing
+    about these (nobody lists "tooling" beside "tool"), so `_kind` looks them up by
+    family, and by family ONLY these: a word's family also holds the words it is
+    itself built from ("sources" and "source" share "sourc", "customer" and "custom"
+    share "custom"), and "source" and "custom" are not filler.
+    """
+    word = _without_plural(token)
+    return len(token) > 3 and _without_endings(word) != word
+
+
+def _families(words: frozenset[str]) -> frozenset[str]:
+    """PURE. The families of the listed `words`, leaving out a listed word that is
+    itself built with "-ing", "-ed" or "-er" ("customer", "united", "running",
+    "finding", "number"): its family is its base word's ("custom", "unit", "run",
+    "find", "numb"), and the list names the word, not the base."""
+    return frozenset(_family(word) for word in words if not _is_derived(word))
+
+
+#: The NEVER and WEAK lists by family, for `_kind`'s look-up of a derived word. The two
+#: are kept apart as the lists are: a family that a WEAK word has is not a NEVER one.
+_WEAK_FAMILIES = _families(_WEAK_TOKENS)
+_NEVER_FAMILIES = _families(_NEVER_TOKENS) - _WEAK_FAMILIES
+
+
 def _kind(token: str) -> str:
-    """PURE. Which of NEVER, WEAK and CONTENT a query word is (see above)."""
+    """PURE. Which of NEVER, WEAK and CONTENT a query word is (see above).
+
+    A word is looked up as written and on its plural stem (`_stem`): "sources" is a
+    research-filler word and "source" is not, so that look-up must stay this small.
+    A word an "-ing", "-ed" or "-er" was added to is also looked up by FAMILY, on the
+    families of the lists, because `matches_a_content_word` COUNTS by family: "tooling"
+    is as broad as "tool" and must not qualify a title that has only "tool" in it, and
+    "marketing" is as weak as "market" ("marketing automation" and "Stock market
+    falls" share one weak word and no content word).
+    """
     stem = _stem(token)
-    if _NUMBER.match(token) or token in _NEVER_TOKENS or stem in _NEVER_TOKENS:
+    family = _family(token) if _is_derived(token) else None
+    if (
+        _NUMBER.match(token)
+        or token in _NEVER_TOKENS
+        or stem in _NEVER_TOKENS
+        or family in _NEVER_FAMILIES
+    ):
         return _NEVER
-    if token in _WEAK_TOKENS or stem in _WEAK_TOKENS:
+    if token in _WEAK_TOKENS or stem in _WEAK_TOKENS or family in _WEAK_FAMILIES:
         return _WEAK
     return _CONTENT
 

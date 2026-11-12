@@ -330,6 +330,39 @@ class TestHackerNews:
         assert self._kept_titles("early literacy interventions", ["Interventions that work"]) != []
         assert self._kept_titles("open source licensing", ["Open source is eating the world"]) != []
 
+    def test_a_derived_form_of_a_filler_or_weak_word_is_as_broad_as_the_word(self):
+        # REGRESSION (final review): words were CLASSIFIED on the plural stem but
+        # MATCHED on the word family, so "tooling", "reporting", "marketing",
+        # "studying" and "researchers" counted as content words and then matched a
+        # title that has only "tool", "report", "market", "study" or "research" in it.
+        cases = [
+            ("tooling for dentists", "Show HN: A tool for lawyers"),
+            ("reporting dashboard", "Annual report of things"),
+            ("marketing automation", "Stock market falls"),
+            ("studying abroad", "Study finds coffee good"),
+            ("dental researchers", "Research funding drops"),
+        ]
+        for query, title in cases:
+            assert self._kept_titles(query, [title]) == [], (query, title)
+        # The kinds themselves. A word the lists were built from is not made filler by
+        # it: "source" stays content beside "sources", and "custom", "run" and "unit"
+        # beside "customers", "running" and "united".
+        for word, kind in [
+            ("tooling", "never"),
+            ("reporting", "never"),
+            ("researchers", "never"),
+            ("marketing", "weak"),
+            ("reviewers", "weak"),
+            ("source", "content"),
+            ("custom", "content"),
+            ("run", "content"),
+            ("unit", "content"),
+        ]:
+            assert hackernews._kind(word) == kind, word
+        # A query made only of such words keeps the documented fallback (any query
+        # word in the title), as "AI tools" does above.
+        assert self._kept_titles("researchers", ["Research funding drops"]) != []
+
     @staticmethod
     def _kept_stories(query, stories):
         """`stories` are (title, story_text) pairs; returns the kept titles."""

@@ -156,7 +156,9 @@ the topic and whose text does is missed. "Different" means a different word fami
 and "engineer", "engineers" and "engineering" are one word).
 Stopwords, numbers and years, countries, file types, research filler
 (report, survey, official, qualitative), time and age words and broad tech words
-(AI, app, tool) are never content words. A query with no content word falls back to
+(AI, app, tool) are never content words, and neither is a word one of them was
+turned into with "-ing", "-ed" or "-er" ("tooling", "reporting", "researchers"):
+a derived form that counted would match a title that has only the filler word. A query with no content word falls back to
 any weak word, then any word, **in the title**, rather than returning nothing; a lane
 with nothing titled for the query is an empty finding, not a failure.
 

@@ -21,9 +21,22 @@ const electronAuthPlugin = electron({
   clientID: ELECTRON_AUTH_CLIENT_ID,
   cookiePrefix: ELECTRON_AUTH_COOKIE_PREFIX,
 }) as unknown as BetterAuthPlugin;
-const baseUrl =
-  env.APP_URL ||
-  (process.env.VERCEL_ENV === "production" ? config.appUrl : getBaseUrl());
+/**
+ * The auth base URL and every trusted origin come from this deployment's own
+ * URL (`lib/url.ts::getBaseUrl`), never from `config.appUrl`: that value is
+ * committed in `chat.config.ts`, a fork inherits it pointing at a domain it
+ * does not own, and trusting it would let that domain make cookie-bearing auth
+ * requests here. A production server with no URL of its own falls back to
+ * localhost, which only makes its auth POSTs fail with INVALID_ORIGIN; say so
+ * loudly instead of failing quietly. `scripts/check-env.ts` already fails the
+ * build in that case.
+ */
+const baseUrl = getBaseUrl();
+if (process.env.NODE_ENV === "production" && !(env.APP_URL || env.VERCEL_URL)) {
+  console.error(
+    `APP_URL is not set: auth trusts only ${baseUrl}, so sign-in from any other origin is refused. Set APP_URL to this deployment's public URL.`
+  );
+}
 
 /**
  * The committed `.env.local` ships placeholder OAuth values so the env
@@ -48,9 +61,9 @@ export const auth = betterAuth({
   }),
   trustedOrigins: [
     baseUrl,
-    // Vercel URL for preview branches
+    // This deployment's own Vercel URL (previews, and the per-deployment URL
+    // of a production build).
     ...(env.VERCEL_URL ? [`https://${env.VERCEL_URL}`] : []),
-    config.appUrl,
     ...(config.desktopApp.enabled ? ELECTRON_TRUSTED_ORIGINS : []),
   ],
   secret: env.AUTH_SECRET,

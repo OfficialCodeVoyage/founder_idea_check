@@ -184,14 +184,26 @@ export const serverEnvSchema = {
     .optional()
     .describe("Vercel sandbox runtime identifier for JavaScript execution"),
 
-  // App URL (for non-Vercel deployments) - full URL including https://
+  // This deployment's public URL - full URL including https://. Auth trusts
+  // only this origin (plus the Vercel ones below); required in production
+  // outside Vercel.
   APP_URL: z
     .url()
     .optional()
     .describe(
-      "App URL for non-Vercel deployments (full URL including https://)"
+      "This deployment's public URL (full URL including https://); required in production outside Vercel"
     ),
 
   // Vercel platform (auto-set by Vercel)
   VERCEL_URL: z.string().optional().describe("Auto-set by Vercel platform"),
+  VERCEL_ENV: z
+    .string()
+    .optional()
+    .describe(
+      "Auto-set by Vercel platform: production, preview or development"
+    ),
+  VERCEL_PROJECT_PRODUCTION_URL: z
+    .string()
+    .optional()
+    .describe("Auto-set by Vercel platform: the project's production domain"),
 };

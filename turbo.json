@@ -36,7 +36,9 @@
     "APP_URL",
     "ELECTRON_APP_URL",
     "PORT",
-    "VERCEL_URL"
+    "VERCEL_URL",
+    "VERCEL_ENV",
+    "VERCEL_PROJECT_PRODUCTION_URL"
   ],
   "tasks": {
     "dev": {

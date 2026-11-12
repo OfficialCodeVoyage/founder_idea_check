@@ -74,6 +74,10 @@ That second part is load-bearing: better-auth builds `trustedOrigins` from `APP_
 otherwise assumes `http://localhost:3000`, so on any other port every cookie-bearing POST
 to `/api/auth` — **sign-out included** — returns `403 INVALID_ORIGIN`.
 
+In production `APP_URL` is required outside Vercel: auth trusts only this deployment's own
+URL (`APP_URL`, else on Vercel the project's production domain and `VERCEL_URL`), never
+`appUrl` from `chat.config.ts`.
+
 Both `dev` scripts run `check-env --dev`, which reports missing optional env vars as
 warnings instead of exiting. `prebuild` still runs `check-env` strictly, so production
 builds fail loudly.

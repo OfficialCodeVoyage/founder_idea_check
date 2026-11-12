@@ -152,7 +152,8 @@ long query: a notes app, a password-cracking write-up, a browser extension), so 
 rule is title-only. The cost: an Ask HN or Show HN thread whose title does not name
 the topic and whose text does is missed. "Different" means a different word family:
 "read", "reader" and "reading" are one word (a plural comes off, and so do "-ing",
-"-ed" and "-er" when four letters or more are left, so "ring" stays whole).
+"-ed" and "-er", in turn, when four letters or more are left, so "ring" stays whole
+and "engineer", "engineers" and "engineering" are one word).
 Stopwords, numbers and years, countries, file types, research filler
 (report, survey, official, qualitative), time and age words and broad tech words
 (AI, app, tool) are never content words. A query with no content word falls back to

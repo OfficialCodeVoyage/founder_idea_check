@@ -348,40 +348,60 @@ _MIN_FAMILY_STEM = 4
 _UNDOUBLED = "bdgmnprt"
 
 
-def _family(token: str) -> str:
-    """PURE. A key for the word FAMILY `token` belongs to: its inflections share it.
+def _without_plural(token: str) -> str:
+    """PURE. `token` without its plural: the "s" (`_stem`), or the "es" of "boxes",
+    "watches", "dishes" and "classes"."""
+    return token[:-2] if token.endswith(("xes", "ches", "shes", "sses")) else _stem(token)
 
-    A comparison key and not a word: "read", "reads", "reader", "readers" and
-    "reading" all become "read"; "pricing" and "prices" become "pric"; "batteries"
-    and "battery" become "batteri". It is what `matches_a_content_word` COUNTS, so
-    that one word said twice in two forms is one word. The rule, in order:
 
-    1. a plural comes off: the "s" (`_stem`), or the "es" of "boxes", "watches",
-       "dishes" and "classes";
-    2. one of "ing", "ed", "er" comes off, only when four letters or more are left
-       ("ring", "string", "need", "water" stay), and a doubled consonant it leaves
-       behind is undoubled ("running", "stopped");
-    3. a trailing "e" comes off a word of five letters or more ("create" meets
-       "creating"), and a trailing "y" after a consonant becomes "i" ("battery"
-       and "batteries" meet; "movie" and "movies" meet at "movi").
+def _without_endings(word: str) -> str:
+    """PURE. `word` with "ing", "ed" and "er" each taken off IN TURN, in that order.
 
-    Everything else stays a different word: "migration" is not "migrating", and a
-    word of three letters or fewer is never touched ("bus", "ios", "api"). Two
-    unrelated words can still meet ("number" and "numb"); that costs one wrong match,
-    and since the rule counts DISTINCT families it can only merge words, never make
-    two words out of one. `_kind` does NOT use this: the NEVER and WEAK lists are
-    written in whole words, and "source" must stay a content word while "sources"
-    does not.
+    In turn and not "the first that fits": "engineering" is "engineer" plus "ing" and
+    "engineer" is "engine" plus "er", so one pass that stopped at "ing" left
+    "engineering" one step behind "engineers" and "engineer". Each ending comes off
+    only when `_MIN_FAMILY_STEM` letters or more are left ("ring", "string", "need",
+    "water" stay), and a doubled consonant it leaves behind is undoubled ("running",
+    "stopped").
     """
-    if len(token) <= 3:
-        return token
-    word = token[:-2] if token.endswith(("xes", "ches", "shes", "sses")) else _stem(token)
     for suffix in ("ing", "ed", "er"):
         if word.endswith(suffix) and len(word) - len(suffix) >= _MIN_FAMILY_STEM:
             word = word[: -len(suffix)]
             if word[-1] == word[-2] and word[-1] in _UNDOUBLED:
                 word = word[:-1]
-            break
+    return word
+
+
+def _family(token: str) -> str:
+    """PURE. A key for the word FAMILY `token` belongs to: its inflections share it.
+
+    A comparison key and not a word: "read", "reads", "reader", "readers" and
+    "reading" all become "read"; "pricing" and "prices" become "pric"; "batteries"
+    and "battery" become "batteri"; "engineer", "engineers" and "engineering" all
+    become "engin". It is what `matches_a_content_word` COUNTS, so that one word
+    said twice in two forms is one word. The rule, in order:
+
+    1. a plural comes off: the "s" (`_stem`), or the "es" of "boxes", "watches",
+       "dishes" and "classes" (`_without_plural`);
+    2. "ing", "ed" and "er" come off in turn, each only when four letters or more are
+       left ("ring", "string", "need", "water" stay), and a doubled consonant an
+       ending leaves behind is undoubled ("running", "stopped")
+       (`_without_endings`);
+    3. a trailing "e" comes off a word of five letters or more ("create" meets
+       "creating"), and a trailing "y" after a consonant becomes "i" ("battery"
+       and "batteries" meet; "movie" and "movies" meet at "movi").
+
+    Everything else stays a different word: "migration" is not "migrating", and a
+    word of three letters or fewer is never touched ("bus", "ios", "api"). The key
+    is crude both ways. Two unrelated words can meet ("number" and "numb"), which
+    costs one wrong match; two forms of one word can still part ("child" and
+    "children"), which costs one missed one. `_kind` does NOT use this: the NEVER and
+    WEAK lists are written in whole words, and "source" must stay a content word
+    while "sources" does not.
+    """
+    if len(token) <= 3:
+        return token
+    word = _without_endings(_without_plural(token))
     if len(word) > 4 and word.endswith("e"):
         word = word[:-1]
     elif len(word) > 3 and word.endswith("y") and word[-2] not in "aeiou":

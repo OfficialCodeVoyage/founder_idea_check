@@ -461,6 +461,10 @@ class TestHackerNews:
         assert self._kept_titles("readers", ["Reading apps for kids"]) != []
         assert self._kept_titles("reading", ["Why my kid reads less"]) != []
         assert self._kept_titles("reading books", ["Bedtime with my daughter's books"]) != []
+        # REGRESSION (final review): "engineering management" dropped "Why engineers
+        # burn out", because "engineers" and "engineering" kept different families.
+        assert self._kept_titles("engineering management", ["Why engineers burn out"]) != []
+        assert self._kept_titles("answering machines", ["Who answers the phone?"]) != []
 
     def test_the_weak_pair_counts_families_too(self):
         # "price" and "pricing" are one weak word, so they are not a pair.
@@ -481,6 +485,12 @@ class TestHackerNews:
             ("box", "boxes"),
             ("watch", "watches"),
             ("api", "apis"),
+            # An ending on top of an ending: "engineering" is "engineer" plus "ing",
+            # and "engineer" is "engine" plus "er". One pass that stopped at the
+            # first ending put "engineering" beside neither of the other two.
+            ("engineer", "engineers", "engineering"),
+            ("register", "registered", "registering"),
+            ("answer", "answering", "answered"),
         ]
         for words in joined:
             assert len({family(word) for word in words}) == 1, words

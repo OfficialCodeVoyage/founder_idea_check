@@ -15,6 +15,9 @@ name: CI
 
 on:
   pull_request:
+    # `labeled` and `unlabeled` re-run CI when a maintainer adds or removes the
+    # `test-removal-approved` label that the `integrity` job reads.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
@@ -33,8 +36,9 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
-  # Decides which language jobs run. A pull request that touches only docs runs neither,
-  # and `ci-success` still passes. A push to `main` always runs both.
+  # Decides which jobs run. A pull request that touches only docs runs neither language job,
+  # and `ci-success` still passes. A push to `main` always runs both language jobs and skips
+  # `integrity`, which only makes sense against a pull request's base.
   changes:
     name: Changes
     runs-on: ubuntu-24.04
@@ -45,6 +49,7 @@ jobs:
     outputs:
       typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
       python: ${{ github.event_name != 'pull_request' || steps.filter.outputs.python == 'true' }}
+      integrity: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -120,13 +125,37 @@ jobs:
       - run: .venv/bin/python -m ruff check app tests
       - run: .venv/bin/python -m pytest
 
+  # Test-integrity guard, pull requests only (see scripts/test-integrity.sh for the rules): fails
+  # when a pull request deletes a test file, adds a skip or `.only` marker to one, or lowers the
+  # number of test cases. A maintainer's `test-removal-approved` label waives deletions and count
+  # drops (never skip markers). The checkout keeps two commits of history so the base commit is
+  # present; the fetch is a fallback for when it is not.
+  integrity:
+    name: Test integrity
+    needs: changes
+    if: needs.changes.outputs.integrity == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Compare the tests with the base branch
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TEST_REMOVAL_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'test-removal-approved') }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "fetching the base failed; relying on the checkout"
+          bash scripts/test-integrity.sh "$BASE_SHA" HEAD
+
   # The ONLY required status check. Passes when every needed job succeeded, or was skipped
-  # because `changes` said its files were untouched. Anything else (failed, cancelled, or
-  # skipped for another reason) fails it.
+  # because `changes` said it should be (files untouched, or not a pull request). Anything else
+  # (failed, cancelled, or skipped for another reason) fails it.
   ci-success:
     name: ci-success
     if: always()
-    needs: [changes, typescript, python]
+    needs: [changes, typescript, python, integrity]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -137,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          for job in changes typescript python; do
+          for job in changes typescript python integrity; do
             result="$(jq -r --arg j "$job" '.[$j].result' <<<"$NEEDS")"
             echo "$job: $result"
             case "$result" in

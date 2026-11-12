@@ -60,6 +60,14 @@ Add a test when you fix a bug or change behaviour, and make it one that would fa
 change. Do not delete, skip or `.only` an existing test to get a green run; if a test is wrong,
 fix it and say why in the pull request.
 
+CI enforces this on pull requests (`scripts/test-integrity.sh`, the `Test integrity` job). It
+fails when a pull request deletes a test file, adds `.only`, `.skip`, `pytest.mark.skip` or a
+similar marker to a test file, or lowers the number of test cases. You can run it yourself:
+`scripts/test-integrity.sh main` (use the branch your pull request targets). If a removal is intentional because the code under test
+is gone, say so in the pull request description and a maintainer will add the
+`test-removal-approved` label, which waives deletions and lower counts. Skip and `.only` markers
+are never waived.
+
 ## Commits and branches
 
 - The commit subject is one sentence that states the problem being fixed, for example

@@ -84,5 +84,5 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
 | Branch ruleset JSON | written (`.github/rulesets/main.json`) | applied on GitHub at go-live, after the first green run |
 | Module-boundary tool | missing | ask the owner after the release (new dependency) |
 | Census tests | missing | add one per incident as incidents are written |
-| Test-integrity guard in CI | missing | CI lane |
+| Test-integrity guard in CI | written (`scripts/test-integrity.sh`, `integrity` job in `ci.yml`), not yet run on GitHub | confirm on the first PR; the `test-removal-approved` label must exist on GitHub for the waiver |
 | pre-commit (lint-staged + gitleaks) | missing | owner decision after the release (git hooks) |

@@ -79,6 +79,8 @@ None: nothing is deployed.
 - **CI:** `.github/workflows/ci.yml` is the only workflow and the only one with a `push` trigger; `ci-success` is the
   one required check (`.github/rulesets/main.json`, applied on GitHub at go-live). Pin every action to a full commit
   SHA with a version comment; no secrets, `schedule`, `workflow_run` or `release` triggers. Playwright e2e is local only.
+  On PRs `scripts/test-integrity.sh` fails a deleted test file, an added `.only`/`.skip`/`pytest.mark.skip`, or a lower
+  test-case count; never get a green run that way.
 - **This repository is public.** Every file and every commit message is published, `.planning/` included: no personal
   data, local paths, session ids or secrets anywhere.
 

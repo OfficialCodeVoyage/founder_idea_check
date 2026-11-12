@@ -41,6 +41,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from ..errors import (
+    SourceBlocked,
     SourceError,
     SourceRateLimited,
     SourceSchemaDrift,
@@ -362,6 +363,11 @@ class _LaneOutOfTime(Exception):
 def _normalise(error: SourceError) -> tuple[SourceError, bool]:
     """PURE. The failure in plain words, and whether asking once more can help.
 
+    - 403 (`SourceBlocked`): kept AS BLOCKED, not retryable. The host refused this
+      server (typically a datacenter egress range), which is a fact about where
+      the sidecar runs and not about the query; rewording it as "rejected the
+      query" would send an operator to fix a query that is fine. See
+      `errors.py::SourceBlocked`.
     - 429, or overload reported in a 200 body: RATE-LIMITED, retryable once.
     - Any other 4xx: not retryable, because the archive has decided about this
       request. With the overload wording (the archive sends "Timeout. Maybe
@@ -369,6 +375,8 @@ def _normalise(error: SourceError) -> tuple[SourceError, bool]:
       REJECTED THE QUERY.
     - Anything else (5xx, network, timeout, schema drift): as raised, no retry.
     """
+    if isinstance(error, SourceBlocked):
+        return error, False
     status = error.status
     if status == 429 or (status is None and isinstance(error, SourceRateLimited)):
         limited = SourceRateLimited(f"rate-limited ({error.detail})")
@@ -476,7 +484,8 @@ class ArcticShiftSource:
         seen_urls: set[str] = set()
         # One plain line per subreddit, for the founder-facing lane report.
         outcomes: list[str] = []
-        # Which of "rate-limited", "rejected", "out of time", "failed" happened.
+        # Which of "blocked", "rate-limited", "rejected", "out of time", "failed"
+        # happened.
         problems: set[str] = set()
         deadline = clock() + _LANE_WALL_TIME_SECONDS
         stop_reason: str | None = None
@@ -514,7 +523,12 @@ class ArcticShiftSource:
                 # lane failing, and a narrower catch would let another sibling
                 # of SourceError kill the lane and discard what was collected.
                 status = error.status
-                problems.add("rejected" if status is not None and 400 <= status < 500 else "failed")
+                if isinstance(error, SourceBlocked):
+                    problems.add("blocked")
+                elif status is not None and 400 <= status < 500:
+                    problems.add("rejected")
+                else:
+                    problems.add("failed")
                 outcomes.append(f"r/{subreddit}: {error.detail}")
                 continue
 
@@ -539,6 +553,7 @@ class ArcticShiftSource:
 
 
 _PROBLEM_WORDS = {
+    "blocked": "refused this server (HTTP 403: a blocked host, not a bad query)",
     "rate-limited": "rate-limited this lane",
     "rejected": "rejected the query",
     "failed": "failed to answer",
@@ -549,8 +564,11 @@ _PROBLEM_WORDS = {
 def _lane_failure(keywords: str, problems: set[str], outcomes: list[str]) -> SourceError:
     """PURE. The lane's failure, headline first, in words a founder can read.
 
-    `rate-limited` when every problem was a rate limit or the lane's own time
-    limit (asking later can help); `unavailable` otherwise.
+    `blocked` when any subreddit was answered with a 403: that is the remedy that
+    matters (run the sidecar from another network), and waiting cannot fix it, so
+    it outranks a rate limit seen alongside it. `rate-limited` when every problem
+    was a rate limit or the lane's own time limit (asking later can help);
+    `unavailable` otherwise.
     """
     words = [_PROBLEM_WORDS[key] for key in _PROBLEM_WORDS if key in problems]
     detail = (
@@ -558,6 +576,8 @@ def _lane_failure(keywords: str, problems: set[str], outcomes: list[str]) -> Sou
         f"this is not a finding that nobody discusses the topic. Searched for "
         f"{keywords!r}. " + "; ".join(outcomes)
     )
+    if "blocked" in problems:
+        return SourceBlocked(detail)
     if problems <= {"rate-limited", "out of time"}:
         return SourceRateLimited(detail)
     return SourceUnavailable(detail)

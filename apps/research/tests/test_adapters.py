@@ -552,6 +552,23 @@ class TestArcticShiftRetry:
         assert calls["n"] == 1
         assert caught.value.detail.startswith("rejected the query")
 
+    def test_a_403_stays_blocked_and_is_not_retried(self, monkeypatch):
+        # A 403 is the host refusing this server (a datacenter egress range), not
+        # the archive rejecting the query. It must keep the wire kind `blocked`
+        # so the lane report names a blocked host.
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            raise _http_error(SourceBlocked, 403, "HTTP 403 from the archive")
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        with pytest.raises(SourceBlocked) as caught:
+            _retry("u", _Clock())
+        assert calls["n"] == 1
+        assert caught.value.kind == "blocked"
+        assert not caught.value.detail.startswith("rejected the query")
+
     def test_a_422_overload_is_rate_limited_but_not_retried(self, monkeypatch):
         # The archive sends "slow down" as a 422 too. It is a rate limit in
         # meaning, but a 4xx other than 429 is never retried.
@@ -665,6 +682,32 @@ class TestArcticShiftLaneResilience:
         with pytest.raises(SourceUnavailable) as caught:
             self._fetch(["empty", "bad"])
         assert "rejected the query" in caught.value.detail
+
+    def test_a_lane_refused_with_403_is_reported_blocked_not_rejected(self, monkeypatch):
+        # Every subreddit answered 403: the archive refused this server. The
+        # lane failure must reach the TypeScript side as kind `blocked`, and its
+        # headline must not blame the query.
+        def fake_retry(url, **_kw):
+            raise _http_error(SourceBlocked, 403, "HTTP 403 from the archive")
+
+        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        with pytest.raises(SourceBlocked) as caught:
+            self._fetch(["a", "b"])
+        assert caught.value.kind == "blocked"
+        assert "blocked host" in caught.value.detail
+        assert "rejected the query" not in caught.value.detail
+
+    def test_a_403_next_to_a_rate_limit_still_reads_blocked(self, monkeypatch):
+        # Waiting cannot fix a blocked host, so the blocked kind outranks a rate
+        # limit seen in the same lane.
+        def fake_retry(url, **_kw):
+            if "subreddit=a" in url:
+                raise _http_error(SourceBlocked, 403, "HTTP 403 from the archive")
+            raise _http_error(SourceRateLimited, 429, "rate-limited (HTTP 429)")
+
+        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        with pytest.raises(SourceBlocked):
+            self._fetch(["a", "b"])
 
     def test_the_lane_stops_at_its_time_limit(self, monkeypatch):
         """The guard for the QA run: a slow archive cannot eat the research run."""

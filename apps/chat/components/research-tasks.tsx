@@ -13,26 +13,59 @@ import { cn } from "@/lib/utils";
 import type { ResearchUpdate } from "@/tools/platform/research-updates-schema";
 import { ResearchTask } from "./research-task";
 
-export const ResearchTasks = ({ updates }: { updates: ResearchUpdate[] }) => (
-  <div className="relative">
-    {updates.map((update, index) => (
-      <StepWrapper
-        isLast={index === updates.length - 1}
-        key={update.toolCallId}
-        update={update}
-      >
-        <ResearchTask
-          isRunning={
-            (update.type === "web" && update.status === "running") ||
-            (index === updates.length - 1 && update.type !== "completed")
-          }
-          minimal={false}
+/**
+ * A KEY PER STEP — AND `toolCallId` IS NOT ONE.
+ *
+ * `updates` is every `data-researchUpdate` part of ONE tool call
+ * (`useMessageResearchUpdatePartByToolCallId`), so by construction they all
+ * share a `toolCallId`: the pipeline, the supervisor and the researcher agents
+ * write `started`, `thoughts`, `web`, `lanes`, `writing` and `completed` under
+ * the one id of the `deepResearch` call that ran them
+ * (`tools/platform/deep-research/pipeline.ts`, `supervisor-agent.ts`,
+ * `researcher-agent.ts`, `sidecar-search.ts`). Keying on it gave every step but
+ * the first a duplicate key as soon as a run had two of them, which is every
+ * run.
+ *
+ * The update carries no id of its own (the part-level `id` that reconciles a
+ * `web` update from running to completed is not copied into `data`), so the key
+ * is the call, the kind of step, and which one of that kind this is. The list
+ * only ever grows at the end and a `web` update is replaced in place, so an
+ * existing step keeps its ordinal for the life of the run and React keeps its
+ * state (the open/closed `ResearchTask`) when a later step arrives.
+ */
+function stepKeys(updates: ResearchUpdate[]): string[] {
+  const seen = new Map<string, number>();
+  return updates.map((update) => {
+    const kind = `${update.toolCallId}:${update.type}`;
+    const ordinal = seen.get(kind) ?? 0;
+    seen.set(kind, ordinal + 1);
+    return `${kind}:${ordinal}`;
+  });
+}
+
+export const ResearchTasks = ({ updates }: { updates: ResearchUpdate[] }) => {
+  const keys = stepKeys(updates);
+  return (
+    <div className="relative">
+      {updates.map((update, index) => (
+        <StepWrapper
+          isLast={index === updates.length - 1}
+          key={keys[index]}
           update={update}
-        />
-      </StepWrapper>
-    ))}
-  </div>
-);
+        >
+          <ResearchTask
+            isRunning={
+              (update.type === "web" && update.status === "running") ||
+              (index === updates.length - 1 && update.type !== "completed")
+            }
+            minimal={false}
+            update={update}
+          />
+        </StepWrapper>
+      ))}
+    </div>
+  );
+};
 
 interface StepWrapperProps {
   children: ReactNode;

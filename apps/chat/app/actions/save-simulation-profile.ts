@@ -26,6 +26,16 @@ import { MAX_SIMULATION_SEATS } from "@/lib/research/simulation";
  */
 
 /**
+ * Postgres text columns cannot hold U+0000 and `.trim()` keeps it, so without
+ * this check the value passes every bound below and fails at the insert.
+ */
+function hasNoNul(value: string): boolean {
+  return !value.includes("\u0000");
+}
+
+const NUL_MESSAGE = "contains a null character (U+0000); remove it";
+
+/**
  * MIRRORS THE COLUMN LIMITS AND THE CHECK CONSTRAINTS, so a bad value comes back
  * as a field-level message instead of a Postgres error. `handle` is
  * varchar(64) and `mbti` varchar(8); gender and country stay free text but are
@@ -33,9 +43,9 @@ import { MAX_SIMULATION_SEATS } from "@/lib/research/simulation";
  */
 const ProfileSchema = z.object({
   age: z.number().int().min(13).max(120),
-  country: z.string().trim().min(1).max(120),
-  gender: z.string().trim().min(1).max(60),
-  handle: z.string().trim().min(1).max(64),
+  country: z.string().trim().min(1).max(120).refine(hasNoNul, NUL_MESSAGE),
+  gender: z.string().trim().min(1).max(60).refine(hasNoNul, NUL_MESSAGE),
+  handle: z.string().trim().min(1).max(64).refine(hasNoNul, NUL_MESSAGE),
   id: z.string().uuid().optional(),
   /**
    * BLANK COLLAPSES TO NULL HERE, before min(1) is ever applied. The form tells
@@ -47,6 +57,7 @@ const ProfileSchema = z.object({
   mbti: z
     .string()
     .max(8)
+    .refine(hasNoNul, NUL_MESSAGE)
     .transform((value) => value.trim() || null)
     .nullable(),
   personaDocumentId: z.string().uuid(),

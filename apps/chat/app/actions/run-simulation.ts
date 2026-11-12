@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import config from "@/chat.config";
 import { auth } from "@/lib/auth";
-import { canSpend, deductCredits } from "@/lib/db/credits";
+import { addCredits, reserveCredits } from "@/lib/db/credits";
 import { getProjectFacts } from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
 import {
@@ -35,8 +35,9 @@ import {
  * said the same thing, which is the most useful diagnostic this feature
  * produces: it usually means they were seeded from too few facts. Recording
  * only the runs that "worked" would delete exactly the evidence a founder needs.
- * Only a run that never happened — no personas, no sidecar — goes unrecorded,
- * because there is nothing to record.
+ * A run that never happened — no personas, no sidecar — goes unrecorded,
+ * because there is nothing to record; so does one that broke part way and
+ * returned no reactions, though it is charged (`simulationReachedModel`).
  */
 
 const DEFAULT_ROUNDS = 2;
@@ -86,6 +87,11 @@ function pitchProblem(pitch: string): string | null {
   if (pitch.length === 0) {
     return "Write a pitch for the personas to react to.";
   }
+  // Postgres `text` cannot hold U+0000 and `.trim()` keeps it, so a pitch
+  // carrying one would run (and be charged) and then fail to be recorded.
+  if (pitch.includes("\u0000")) {
+    return "The pitch contains a null character (U+0000). Remove it and run the simulation again.";
+  }
   if (pitch.length > MAX_SIMULATION_PITCH_CHARS) {
     return `The pitch is ${pitch.length} characters; a simulation takes at most ${MAX_SIMULATION_PITCH_CHARS}. Shorten it to the one or two sentences a buyer would hear.`;
   }
@@ -120,12 +126,6 @@ export async function runProjectSimulation({
     return { detail: problem, status: "invalid" };
   }
 
-  // THE SAME GATE AS A CHAT TURN. A run spends a model call per seat per
-  // round, on the operator's key; it was the one paid path with no check.
-  if (!(await canSpend(userId))) {
-    return { status: "insufficient-credits" };
-  }
-
   const [versions, profiles, facts] = await Promise.all([
     getProjectPersonas({ projectId, userId: project.userId }),
     getSimulationProfiles({ projectId }),
@@ -158,6 +158,28 @@ export async function runProjectSimulation({
     };
   }
 
+  // CHARGED UP FRONT, REFUNDED ONLY WHEN THE RUN NEVER STARTED.
+  //
+  // The same gate as a chat turn (a positive balance), but taken atomically
+  // with the charge: `reserveCredits` deducts only while the balance is
+  // positive, in one statement, so concurrent runs cannot all start on the
+  // same last cent. It sits after every local refusal above, so a request
+  // refused here is never charged at all.
+  //
+  // The charge was once deducted after the run's row was written, so a run
+  // whose insert failed (a database error, the project deleted mid-run) had
+  // spent the operator's key and was free. The insert's success now decides
+  // nothing about money: the only refund is for an outcome that provably
+  // never reached the model (`simulationReachedModel`, by
+  // `SIMULATION_NEVER_STARTED_KINDS`). The amount is an estimate — see
+  // `estimateSimulationCostCents`. Both take this run's own seat and round
+  // counts.
+  const size = { seats: seeded.personas.length, rounds: DEFAULT_ROUNDS };
+  const cost = estimateSimulationCostCents(size);
+  if (!(await reserveCredits(userId, cost))) {
+    return { status: "insufficient-credits" };
+  }
+
   const outcome = await runSimulation(
     {
       run: createSidecarSimulationRunner({
@@ -177,6 +199,10 @@ export async function runProjectSimulation({
       rounds: DEFAULT_ROUNDS,
     }
   );
+
+  if (!simulationReachedModel(outcome, size)) {
+    await addCredits(userId, cost);
+  }
 
   if (outcome.ok) {
     await insertSimulationRun({
@@ -198,10 +224,10 @@ export async function runProjectSimulation({
     // looking at a gap in their run history has no way to tell whether they
     // forgot to run one or whether one broke.
     //
-    // The other failure kinds are NOT recorded, and the distinction is the
-    // same one the panel draws: `invalid-personas`, `oasis-not-installed`,
-    // `unavailable` and `unknown-simulation-model` all mean the run never
-    // started, so there is nothing that happened to record.
+    // The other failure kinds are NOT recorded: either the run never started
+    // (`SIMULATION_NEVER_STARTED_KINDS`), or it broke part way and left no
+    // reactions to record. The panel draws the same lines, and the second
+    // case is still charged above.
     await insertSimulationRun({
       projectId,
       pitch,
@@ -212,19 +238,6 @@ export async function runProjectSimulation({
       reactions: [],
     });
     revalidatePath(`/project/${projectId}/simulation`);
-  }
-
-  // CHARGED UNLESS THE RUN DEMONSTRABLY SPENT NOTHING. A NO RESULT run is
-  // recorded above either way; its charge is waived only when every expected
-  // model call failed (no key on the sidecar, every call refused). A refusal
-  // before the sidecar (no seats, OASIS missing, the sidecar unreachable or
-  // refusing the app) is neither recorded nor charged. The rule is
-  // `simulationReachedModel`; the amount is an estimate — see
-  // `estimateSimulationCostCents`. Both take this run's own seat and round
-  // counts.
-  const size = { seats: seeded.personas.length, rounds: DEFAULT_ROUNDS };
-  if (simulationReachedModel(outcome, size)) {
-    await deductCredits(userId, estimateSimulationCostCents(size));
   }
 
   return { status: "ran", outcome };

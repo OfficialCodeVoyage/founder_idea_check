@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { db } from "./client";
 import { userCredit } from "./schema";
 
@@ -54,9 +54,37 @@ export async function deductCredits(
 }
 
 /**
- * Add credits to user (for purchases, refunds, etc).
+ * Deducts `amount` only if the balance is positive, in one statement, and
+ * says whether it did. For a paid call whose cost is taken BEFORE it runs
+ * (`app/actions/run-simulation.ts::runProjectSimulation`): `canSpend` followed
+ * by `deductCredits` lets concurrent requests all pass the check on the same
+ * last cent, while Postgres re-checks this WHERE after taking the row lock, so
+ * only the first of them is admitted. Like `deductCredits` it may leave the
+ * balance slightly negative when `amount` exceeds what is left.
  */
-async function _addCredits(userId: string, amount: number): Promise<void> {
+export async function reserveCredits(
+  userId: string,
+  amount: number
+): Promise<boolean> {
+  await ensureUserCreditRow(userId);
+  const rows = await db
+    .update(userCredit)
+    .set({
+      credits: sql`${userCredit.credits} - ${amount}`,
+    })
+    .where(and(eq(userCredit.userId, userId), gt(userCredit.credits, 0)))
+    .returning({ credits: userCredit.credits });
+  return rows.length > 0;
+}
+
+/**
+ * Add credits to user: hands back a `reserveCredits` amount for a call that
+ * turned out never to reach the model.
+ */
+export async function addCredits(
+  userId: string,
+  amount: number
+): Promise<void> {
   await ensureUserCreditRow(userId);
   await db
     .update(userCredit)

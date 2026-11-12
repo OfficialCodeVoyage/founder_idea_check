@@ -57,6 +57,13 @@ function recordingStream(): { stream: StreamWriter; written: Written[] } {
   return { stream, written };
 }
 
+/** The top-level markers written, in order: "started" and "completed" only. */
+function topLevelMarkers(written: Written[]): unknown[] {
+  return written
+    .map((w) => w.data.type)
+    .filter((type) => type === "started" || type === "completed");
+}
+
 function signalBody(sourceId: string, signals: unknown[]) {
   return { ok: true, source_id: sourceId, signals };
 }
@@ -328,7 +335,7 @@ describe("sidecarWebSearch", () => {
     const { stream, written } = recordingStream();
     const tool = sidecarWebSearch({
       dataStream: stream,
-      writeTopLevelUpdates: false,
+      writeTopLevelUpdates: true,
       fetchImpl: (() => {
         called = true;
         return Promise.resolve(jsonResponse(signalBody("hackernews", [])));
@@ -351,6 +358,9 @@ describe("sidecarWebSearch", () => {
     ]);
     expect(webUpdates[0].id).toBe(webUpdates[1].id);
     expect("results" in webUpdates[1].data).toBe(false);
+    // And the top-level pair is closed: a "started" with no "completed" skews
+    // the elapsed time in the run summary.
+    expect(topLevelMarkers(written)).toEqual(["started", "completed"]);
   });
 
   it("still searches the non-empty queries when one is blank", async () => {
@@ -478,7 +488,7 @@ describe("sidecarWebSearch", () => {
 
     const tool = sidecarWebSearch({
       dataStream: stream,
-      writeTopLevelUpdates: false,
+      writeTopLevelUpdates: true,
       fetchImpl: fetchReturning({}, seen),
       clock: late,
     });
@@ -499,5 +509,6 @@ describe("sidecarWebSearch", () => {
     ]);
     expect(webUpdates[0].id).toBe(webUpdates[1].id);
     expect("results" in webUpdates[1].data).toBe(false);
+    expect(topLevelMarkers(written)).toEqual(["started", "completed"]);
   });
 });

@@ -179,6 +179,32 @@ function stepAbortSignal(
 }
 
 /**
+ * The top-level "Search complete" marker that pairs with the "Searching" marker
+ * written when the call opens. Standalone web search (`writeTopLevelUpdates`)
+ * reads the pair to time the step, so EVERY return path must write it: a path
+ * that returns without it leaves a "started" with no end, and the elapsed time
+ * in the run summary is then taken from the wrong pair.
+ */
+function writeSearchComplete(
+  dataStream: StreamWriter,
+  toolCallId: string,
+  writeTopLevelUpdates: boolean
+): void {
+  if (!writeTopLevelUpdates) {
+    return;
+  }
+  dataStream.write({
+    type: "data-researchUpdate",
+    data: {
+      toolCallId,
+      title: "Search complete",
+      timestamp: Date.now(),
+      type: "completed",
+    },
+  });
+}
+
+/**
  * THE TERMINAL ROW FOR A STEP THAT NEVER RAN.
  *
  * Every step opens a `running` web update on its `updateId` before it knows
@@ -189,6 +215,10 @@ function stepAbortSignal(
  * with an empty result list is what a search that ran and found nothing looks
  * like. It carries no `results` for the same reason: there is nothing to count,
  * not a zero. `reason` is the founder-facing why, shown in the card's title.
+ *
+ * It also closes the top-level "Searching" marker (`writeSearchComplete`), for
+ * the same reason it closes the row: a step that returns early has still opened
+ * both.
  */
 function writeSkippedStep(input: {
   dataStream: StreamWriter;
@@ -196,8 +226,16 @@ function writeSkippedStep(input: {
   updateId: string;
   queries: string[];
   reason: string;
+  writeTopLevelUpdates: boolean;
 }): void {
-  const { dataStream, toolCallId, updateId, queries, reason } = input;
+  const {
+    dataStream,
+    toolCallId,
+    updateId,
+    queries,
+    reason,
+    writeTopLevelUpdates,
+  } = input;
   const count =
     queries.length === 1 ? "1 search" : `${queries.length} searches`;
   dataStream.write({
@@ -211,6 +249,7 @@ function writeSkippedStep(input: {
       queries,
     },
   });
+  writeSearchComplete(dataStream, toolCallId, writeTopLevelUpdates);
 }
 
 /**
@@ -226,9 +265,17 @@ function refuseForTime(input: {
   updateId: string;
   queries: string[];
   descriptors: Parameters<typeof describeLanes>[0]["descriptors"];
+  writeTopLevelUpdates: boolean;
 }) {
-  const { clock, dataStream, toolCallId, updateId, queries, descriptors } =
-    input;
+  const {
+    clock,
+    dataStream,
+    toolCallId,
+    updateId,
+    queries,
+    descriptors,
+    writeTopLevelUpdates,
+  } = input;
   recordCut(
     clock,
     "a planned search was not run because the search time had run out"
@@ -244,6 +291,7 @@ function refuseForTime(input: {
     updateId,
     queries,
     reason: "search time ran out",
+    writeTopLevelUpdates,
   });
   return {
     searches: [],
@@ -407,6 +455,7 @@ Avoid:
           updateId,
           queries,
           reason: "no search query was supplied",
+          writeTopLevelUpdates,
         });
         return {
           searches: [],
@@ -429,6 +478,7 @@ Avoid:
           updateId,
           queries,
           descriptors,
+          writeTopLevelUpdates,
         });
       }
       const stepSignal = stepAbortSignal(abortSignal, clock);
@@ -513,17 +563,7 @@ Avoid:
         },
       });
 
-      if (writeTopLevelUpdates) {
-        dataStream.write({
-          type: "data-researchUpdate",
-          data: {
-            toolCallId,
-            title: "Search complete",
-            timestamp: Date.now(),
-            type: "completed",
-          },
-        });
-      }
+      writeSearchComplete(dataStream, toolCallId, writeTopLevelUpdates);
 
       // FAIL CLOSED. Zero results with named failures behind them is "we could
       // not look", and returning a bare empty array would let the researcher

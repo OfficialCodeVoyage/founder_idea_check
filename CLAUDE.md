@@ -10,9 +10,8 @@ validated project to a coding agent. It is a fork of ChatJS (Apache-2.0, see `NO
 <!-- Maintainers: keep this file ≤200 lines. Path-specific facts go in .claude/rules/, geography in docs/. -->
 
 ### Orientation — read this first
-- **Navigation map:** `RECONSTRUCTION.md` — not generated yet (it is written at the end of the release clean-up so it
-  maps the code that ships). Until then read `docs/ARCHITECTURE.md`.
-- **Deep dives:** `.planning/codebase/` — not generated yet.
+- **Navigation map:** `RECONSTRUCTION.md` (≤100 lines): directory map, where the core logic lives, landmines.
+- **Deep dives:** `.planning/codebase/` (architecture, structure, conventions, testing, stack, integrations, concerns).
 - **Trust signal:** the session-start `Orientation:` / `Codebase maps:` lines say whether those are stale. If stale,
   trust the code over the docs.
 - **Path-scoped rules** live in `.claude/rules/` and load when a matching file is read or edited. Don't copy them here.

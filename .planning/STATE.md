@@ -1,14 +1,16 @@
 # Project State
-_Last updated: 2026-11-12 (`chore/agent-setup-261112`)_
+_Last updated: 2026-11-12 (`release/public-prep-261112`)_
 
 <!-- This file is public. Nothing private goes here: no personal data, no local paths, no secrets. -->
 
 ## Current focus
-- Branch: `release/public-prep-261112` (not pushed). Agent-structure setup on `chore/agent-setup-261112`.
-- In flight: preparing the first public open-source release of Founder Idea Check.
-- Next: 1) code review of the QA batch, then browser QA of its seven manual checks
-  2) fix wave (QA findings, three product decisions, deploy-safety items)
-  3) open-source clean-up (licences, rebrand, CI, docs for strangers), then the release gate.
+- Branch: `release/public-prep-261112` (not pushed).
+- In flight: the first public open-source release of Founder Idea Check. Done on the branch: browser QA and its
+  fixes, the three product decisions, deploy-safety and security-review fixes, licences, rebrand, CI, docs for
+  strangers, the navigation map and deep dives.
+- Next: 1) rebuild the public history and run the release gate on it
+  2) a private dress-rehearsal push: a stranger's clone boots, CI is green
+  3) the public push, then the repository settings.
 - Waiting on owner: nothing.
 - Setup progress and the mapping table: `.planning/agent-setup.md`.
 

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "chatjs-monorepo",
+      "name": "founder-idea-check",
       "devDependencies": {
         "dotenv-cli": "^8.0.0",
         "turbo": "2.9.5",

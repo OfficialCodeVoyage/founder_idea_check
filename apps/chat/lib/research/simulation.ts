@@ -636,8 +636,8 @@ export type SimulationDeps = { run: SimulationRunner };
 /**
  * THE MOST SEATS ONE PROJECT MAY HOLD, and so the most agents one run seats.
  * Every agent is one model call per round on the sidecar's key, so this bounds
- * what one run can spend. Real runs use two to four seats (DATA-LAYER.md
- * records the two-seat end-to-end run); ten leaves room for a deliberately
+ * what one run can spend. Real runs use two to four seats (the end-to-end run
+ * recorded during development used two); ten leaves room for a deliberately
  * varied room without letting a script queue hundreds.
  *
  * MIRRORED as `MAX_SIMULATION_PERSONAS` in apps/research/app/main.py, which

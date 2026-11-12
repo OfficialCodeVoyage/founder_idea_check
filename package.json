@@ -46,7 +46,7 @@
 		"@better-auth/core": "1.5.6"
 	},
 	"devDependencies": {
-		"dotenv-cli": "^8.0.0",
+		"dotenv-cli": "^11.1.0",
 		"turbo": "2.11.10"
 	}
 }

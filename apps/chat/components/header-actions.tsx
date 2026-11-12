@@ -3,7 +3,6 @@
 import { LogIn } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { memo } from "react";
-import { DocsLink } from "@/components/docs-link";
 import { GitHubLink } from "@/components/github-link";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,7 +38,6 @@ function PureHeaderActions() {
           <TooltipContent>Sign in to your account</TooltipContent>
         </Tooltip>
       )}
-      <DocsLink />
       <GitHubLink />
     </div>
   );

@@ -387,7 +387,16 @@ export const chatRouter = createTRPCRouter({
         })),
       });
       if (clonedDocuments.length > 0) {
-        await saveDocuments({ documents: clonedDocuments });
+        // The copies belong to the cloner's new chat, which is filed under no
+        // project. Spreading the source rows used to carry their `projectId`
+        // across, so cloning a shared chat filed persona copies under the
+        // SOURCE founder's project, where project-scoped reads list them.
+        await saveDocuments({
+          documents: clonedDocuments.map((doc) => ({
+            ...doc,
+            projectId: null,
+          })),
+        });
       }
 
       return { chatId: newChatId };

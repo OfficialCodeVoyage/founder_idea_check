@@ -994,6 +994,8 @@ export async function saveDocuments({
     content: string | null;
     userId: string;
     messageId: string;
+    /** Stated so a caller has to decide it; spread rows used to carry it. */
+    projectId: string | null;
     createdAt: Date;
   }>;
 }) {

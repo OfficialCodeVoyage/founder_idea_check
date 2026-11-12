@@ -252,3 +252,148 @@ describe("settle() names what it could not price", () => {
     expect(unpriced[0].reason).toContain("publishes no output price");
   });
 });
+
+// GUARD: the chat model's usage is recorded per step, and a step an abort cuts
+// off is estimated, so a stopped or deadline-cut turn is never free. Before
+// this, "main-chat" usage came only from the stream's final `finish` part,
+// which `streamText` does not write on abort or when a later step fails.
+describe("createMainChatUsageMeter", () => {
+  const usage = (inputTokens?: number, outputTokens?: number) => ({
+    inputTokens,
+    outputTokens,
+    totalTokens: undefined,
+    inputTokenDetails: {
+      noCacheTokens: undefined,
+      cacheReadTokens: undefined,
+      cacheWriteTokens: undefined,
+    },
+    outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+  });
+  const finishStep = (
+    inputTokens?: number,
+    outputTokens?: number,
+    finishReason = "stop"
+  ) => ({
+    type: "finish-step",
+    finishReason,
+    usage: usage(inputTokens, outputTokens),
+  });
+
+  async function meter(parts: Record<string, unknown>[]) {
+    const { createMainChatUsageMeter, MAIN_CHAT_CUT_STEP_SOURCE } =
+      await import("./main-chat-usage");
+    const accumulator = new CostAccumulator();
+    const countPromptTokens = vi.fn(() => 5000);
+    const transform = createMainChatUsageMeter({
+      costAccumulator: accumulator,
+      modelId: "test-model" as never,
+      countTokens: (text) => Math.ceil(text.length / 4),
+      countPromptTokens,
+    })();
+    const passed: unknown[] = [];
+    const reading = (async () => {
+      const reader = transform.readable.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          return;
+        }
+        passed.push(value);
+      }
+    })();
+    const writer = transform.writable.getWriter();
+    for (const part of parts) {
+      await writer.write(part as never);
+    }
+    await writer.close();
+    await reading;
+    const entries = accumulator
+      .getEntries()
+      .map((entry) =>
+        entry.type === "llm"
+          ? [entry.source, entry.usage.inputTokens, entry.usage.outputTokens]
+          : null
+      );
+    return {
+      entries,
+      passed,
+      countPromptTokens,
+      cutSource: MAIN_CHAT_CUT_STEP_SOURCE,
+    };
+  }
+
+  it("records each completed step once, from its finish-step", async () => {
+    const { entries, passed } = await meter([
+      { type: "start-step" },
+      { type: "tool-input-delta", id: "c1", delta: "{}" },
+      finishStep(40_000, 3000, "tool-calls"),
+      { type: "start-step" },
+      { type: "text-delta", id: "t", text: "hello" },
+      finishStep(43_000, 2000),
+      { type: "finish", totalUsage: usage(83_000, 5000) },
+    ]);
+    expect(entries).toEqual([
+      ["main-chat", 40_000, 3000],
+      ["main-chat", 43_000, 2000],
+    ]);
+    // Every part still reaches the rest of the pipeline.
+    expect(passed).toHaveLength(7);
+  });
+
+  it("estimates a step cut off in step 2 from the step before it", async () => {
+    const { entries, countPromptTokens, cutSource } = await meter([
+      { type: "start-step" },
+      finishStep(40_000, 3000, "tool-calls"),
+      { type: "start-step" },
+      { type: "text-delta", id: "t", text: "x".repeat(400) },
+      { type: "reasoning-delta", id: "r", text: "y".repeat(40) },
+      { type: "abort" },
+    ]);
+    expect(entries).toEqual([
+      ["main-chat", 40_000, 3000],
+      [cutSource, 43_000, 110],
+    ]);
+    expect(countPromptTokens).not.toHaveBeenCalled();
+  });
+
+  it("estimates a step cut off in step 1 from the counted prompt", async () => {
+    const { entries, cutSource } = await meter([
+      { type: "start-step" },
+      { type: "text-delta", id: "t", text: "x".repeat(40) },
+      { type: "abort" },
+    ]);
+    expect(entries).toEqual([[cutSource, 5000, 10]]);
+  });
+
+  it("charges nothing for a step the provider never started", async () => {
+    const { entries } = await meter([
+      { type: "start-step" },
+      finishStep(40_000, 3000, "tool-calls"),
+      { type: "abort" },
+    ]);
+    expect(entries).toEqual([["main-chat", 40_000, 3000]]);
+  });
+
+  it("charges a failed step's usage when the provider reported it, and skips it when not", async () => {
+    const reported = await meter([
+      { type: "start-step" },
+      finishStep(40_000, 3000, "tool-calls"),
+      { type: "start-step" },
+      { type: "error", error: "response.failed" },
+      finishStep(43_000, 40, "error"),
+    ]);
+    expect(reported.entries).toEqual([
+      ["main-chat", 40_000, 3000],
+      ["main-chat", 43_000, 40],
+    ]);
+
+    const unreported = await meter([
+      { type: "start-step" },
+      finishStep(40_000, 3000, "tool-calls"),
+      { type: "start-step" },
+      { type: "error", error: "provider error" },
+      finishStep(undefined, undefined, "error"),
+    ]);
+    expect(unreported.entries).toEqual([["main-chat", 40_000, 3000]]);
+  });
+});

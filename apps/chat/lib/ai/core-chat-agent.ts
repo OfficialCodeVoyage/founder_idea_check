@@ -7,11 +7,13 @@ import { type AppModelId, getAppModelDefinition } from "@/lib/ai/app-models";
 import { selectContextWindow } from "@/lib/ai/context-window";
 import { markdownJoinerTransform } from "@/lib/ai/markdown-joiner-transform";
 import { getLanguageModel, getModelProviderOptions } from "@/lib/ai/providers";
-import { countTextTokens } from "@/lib/ai/token-utils";
+import { calculateMessagesTokens, countTextTokens } from "@/lib/ai/token-utils";
 import type { ChatMessage, StreamWriter, ToolName } from "@/lib/ai/types";
 import { config } from "@/lib/config";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
+import { createMainChatUsageMeter } from "@/lib/credits/main-chat-usage";
 import type { McpConnector } from "@/lib/db/schema";
+import { createModuleLogger } from "@/lib/logger";
 import { GATE_TRANSCRIPT_BUDGET_TOKENS } from "@/lib/phases/context";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { replaceFilePartUrlByBinaryDataInMessages } from "@/lib/utils/download-assets";
@@ -91,8 +93,14 @@ export async function createCoreChatAgent({
    */
   onContextTrimmed?: (omittedMessages: number) => void;
   mcpConnectors?: McpConnector[];
+  /**
+   * The turn's accumulator. The chat model's own usage is recorded on it here,
+   * step by step (`createMainChatUsageMeter`); the tools record their own
+   * model calls on it.
+   */
   costAccumulator: CostAccumulator;
 }) {
+  const log = createModuleLogger("ai:core-chat-agent");
   const modelDefinition = await getAppModelDefinition(selectedModelId);
 
   // Build message thread. The history is fitted to a token budget; the user's
@@ -208,6 +216,29 @@ export async function createCoreChatAgent({
       ? modelDefinition.max_tokens
       : config.ai.maxOutputTokens;
 
+  // The chat model's usage, recorded per step as the stream passes; see
+  // `createMainChatUsageMeter` for why it is a transform and how a step cut
+  // off by an abort is estimated.
+  const recordMainChatUsage = createMainChatUsageMeter<typeof allTools>({
+    costAccumulator,
+    modelId: selectedModelId,
+    countTokens: countTextTokens,
+    countPromptTokens: () =>
+      countTextTokens(system) + calculateMessagesTokens(contextForLLM),
+    onCutStepEstimated: (estimate) => {
+      log.warn(
+        { messageId, chatId, selectedModelId, ...estimate },
+        "chat step cut off by an abort: its usage is an estimate"
+      );
+    },
+    onStepWithoutUsage: (finishReason) => {
+      log.warn(
+        { messageId, chatId, selectedModelId, finishReason },
+        "chat step finished with no usage reported: nothing charged for it"
+      );
+    },
+  });
+
   const result = streamText({
     model,
     system,
@@ -242,7 +273,9 @@ export async function createCoreChatAgent({
       },
     ],
     activeTools,
-    experimental_transform: markdownJoinerTransform(),
+    // The usage meter goes FIRST so it counts what the model streamed, not
+    // what the markdown joiner has released so far.
+    experimental_transform: [recordMainChatUsage, markdownJoinerTransform()],
     experimental_telemetry: {
       isEnabled: true,
       functionId: "chat-response",

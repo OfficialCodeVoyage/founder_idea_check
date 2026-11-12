@@ -474,29 +474,21 @@ async function createChatStream({
   const log = createModuleLogger("api:chat:stream");
   const costAccumulator = turnCost.accumulator;
 
-  // WHEN THE TURN'S SPENDING IS ALL RECORDED. The model's "main-chat" usage
-  // reaches the accumulator from the finish part, in `messageMetadata` below,
-  // while `dataStream.merge` reads the model's UI stream, and the follow-up
-  // suggestions are recorded later still, inside `execute`. onFinish does not
-  // mark that moment: it runs from the finish transform's `flush` at the end,
-  // but also from its `cancel`, which an error partway through the stream
-  // reaches at once while the model goes on (verified with ai@6.0.219 on Node:
-  // onFinish ran with no usage recorded, then the usage landed). So a charge
-  // waits for `execute` to end, which awaits `result.consumeStream()`, and
-  // then one macrotask: the finish part was queued for the merge loop by the
-  // time `consumeStream` resolved (both read tee branches of the same model
-  // stream), and that loop and its transforms run on microtasks, which all
-  // drain before a timer fires. Resolves whether `execute` succeeds or throws.
+  // WHEN THE TURN'S SPENDING IS ALL RECORDED. The model's "main-chat" usage is
+  // recorded step by step by a transform inside `streamText`
+  // (`createCoreChatAgent`, `createMainChatUsageMeter`), upstream of both
+  // readers of the model stream, so all of it is in by the time
+  // `result.consumeStream()` resolves, an aborted turn's estimate included;
+  // the follow-up suggestions are recorded after that, inside `execute`.
+  // onFinish does not mark that moment: it runs from the finish transform's
+  // `flush` at the end, but also from its `cancel`, which an error partway
+  // through the stream reaches at once while the model goes on (verified with
+  // ai@6.0.219 on Node). So a charge waits for `execute` to end. Resolves
+  // whether `execute` succeeds or throws.
   let markExecuteEnded: () => void = () => undefined;
-  const executeEnded = new Promise<void>((resolve) => {
+  const spendRecorded = new Promise<void>((resolve) => {
     markExecuteEnded = resolve;
   });
-  const spendRecorded = executeEnded.then(
-    () =>
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, 0);
-      })
-  );
 
   const system = await getSystemPrompt({
     isAnonymous,
@@ -568,16 +560,13 @@ async function createChatStream({
                 return initialMetadata;
               }
 
-              // when the message is finished, send additional information:
+              // when the message is finished, send additional information.
+              // The usage here is for the client only: the turn's
+              // "main-chat" cost is recorded step by step inside
+              // `createCoreChatAgent` (`createMainChatUsageMeter`), because
+              // an aborted turn, or one a provider error ends in a later
+              // step, never reaches this part.
               if (part.type === "finish") {
-                // Add main stream LLM usage to accumulator
-                if (part.totalUsage) {
-                  costAccumulator.addLLMCost(
-                    selectedModelId,
-                    part.totalUsage,
-                    "main-chat"
-                  );
-                }
                 return {
                   ...initialMetadata,
                   usage: part.totalUsage,
@@ -910,8 +899,7 @@ async function executeChatRequest({
   //  - A plain Response body is cancelled when the client disconnects. onFinish
   //    then ran at once and settled the accumulator, while the model went on
   //    (`abortController` is not tied to the request), and its "main-chat"
-  //    usage, recorded by `createChatStream`'s `messageMetadata` on the finish
-  //    part, landed after settlement: closing the tab mid-reply on a
+  //    usage landed after settlement: closing the tab mid-reply on a
   //    deployment without Redis made the turn free.
   //  - resumable-stream's read loop (`createNewResumableStream`) has no catch:
   //    a rejected Redis publish while someone resumes stops it reading for

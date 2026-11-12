@@ -44,7 +44,7 @@ const LENIENT_SCHEMA_OPTIONS = {
  * pre-flight budget cap that REFUSES TO START, and a cap needs a meter.
  */
 export type ModelUsage = {
-  /** Which seam spent it: "phase-gate" or "phase-extract". */
+  /** Which seam spent it, e.g. "phase-gate" or "deep-research-brief". */
   functionId: string;
   inputTokens: number | null;
   outputTokens: number | null;
@@ -109,8 +109,10 @@ function reportUsage(
  * read `usage` from. The error carries that call's `usage`, so it is reported
  * from there before re-throwing. Re-throwing is what keeps the callers fail
  * closed exactly as before (`gate.ts` turns a rejection into a BLOCK,
- * `extract.ts` and the persona generator into their own refusals); only the
- * charge changes. Any other error is re-thrown untouched: a call that failed
+ * `extract.ts` and the persona generator into their own refusals, and the
+ * deep-research tool's clarify and brief steps in
+ * `tools/platform/deep-research/pipeline.ts` fail the run as they did); only
+ * the charge changes. Any other error is re-thrown untouched: a call that failed
  * before the provider answered has no usage to report.
  */
 export async function generateReportingUsage<T>(

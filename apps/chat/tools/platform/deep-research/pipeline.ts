@@ -3,6 +3,10 @@ import type { z } from "zod";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { truncateMessages } from "@/lib/ai/token-utils";
+import {
+  chargeUsageTo,
+  generateReportingUsage,
+} from "@/lib/phases/model-adapters";
 import { readAudience } from "@/lib/signals/audience";
 import { generateUUID, getTextContentFromModelMessage } from "@/lib/utils";
 import { createTextDocumentTool } from "../documents/create-text-document";
@@ -174,24 +178,21 @@ async function clarifyWithUser(
   ];
   const truncatedMessages = truncateMessages(clarifyMessages, contextWindow);
 
-  const response = await generateText({
-    model,
-    output: Output.object({ schema: ClarifyWithUserSchema }),
-    messages: truncatedMessages,
-    maxOutputTokens: config.research_model_max_tokens,
-    experimental_telemetry: createTelemetry("clarifyWithUser", ctx),
-    abortSignal,
-  });
-
-  if (response.usage) {
-    costAccumulator?.addLLMCost(
-      config.research_model as AppModelId,
-      response.usage,
-      "deep-research-clarify"
+  // Charged whether or not the reply parses: see `generateReportingUsage`.
+  const output: z.infer<typeof ClarifyWithUserSchema> =
+    await generateReportingUsage(
+      chargeUsageTo(costAccumulator, config.research_model as AppModelId),
+      "deep-research-clarify",
+      () =>
+        generateText({
+          model,
+          output: Output.object({ schema: ClarifyWithUserSchema }),
+          messages: truncatedMessages,
+          maxOutputTokens: config.research_model_max_tokens,
+          experimental_telemetry: createTelemetry("clarifyWithUser", ctx),
+          abortSignal,
+        })
     );
-  }
-
-  const output = response.output as z.infer<typeof ClarifyWithUserSchema>;
   if (output.need_clarification) {
     return {
       needsClarification: true,
@@ -242,24 +243,21 @@ async function writeResearchBrief(
   ];
   const truncatedMessages = truncateMessages(briefMessages, contextWindow);
 
-  const result = await generateText({
-    model,
-    output: Output.object({ schema: ResearchQuestionSchema }),
-    messages: truncatedMessages,
-    maxOutputTokens: config.research_model_max_tokens,
-    experimental_telemetry: createTelemetry("writeResearchBrief", ctx),
-    abortSignal,
-  });
-
-  if (result.usage) {
-    costAccumulator?.addLLMCost(
-      config.research_model as AppModelId,
-      result.usage,
-      "deep-research-brief"
+  // Charged whether or not the reply parses: see `generateReportingUsage`.
+  const output: z.infer<typeof ResearchQuestionSchema> =
+    await generateReportingUsage(
+      chargeUsageTo(costAccumulator, config.research_model as AppModelId),
+      "deep-research-brief",
+      () =>
+        generateText({
+          model,
+          output: Output.object({ schema: ResearchQuestionSchema }),
+          messages: truncatedMessages,
+          maxOutputTokens: config.research_model_max_tokens,
+          experimental_telemetry: createTelemetry("writeResearchBrief", ctx),
+          abortSignal,
+        })
     );
-  }
-
-  const output = result.output as z.infer<typeof ResearchQuestionSchema>;
 
   dataStream.write({
     id: dataPartId,

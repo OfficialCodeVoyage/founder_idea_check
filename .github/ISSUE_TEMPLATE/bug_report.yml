@@ -1,0 +1,76 @@
+name: Bug report
+description: Something does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Please search the existing issues first.
+
+        **Security problems do not belong here.** Report them privately through
+        [GitHub private vulnerability reporting](https://github.com/OfficialCodeVoyage/founder_idea_check/security/advisories/new).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, and what did you see?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest path from a fresh clone, or from a running app, to the problem.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where is the problem
+      options:
+        - Chat app (apps/chat)
+        - Phase gate or fact extraction
+        - Research sidecar (apps/research)
+        - Export (handoff folder)
+        - Setup, scripts or CI
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or branch
+      description: Output of `git rev-parse --short HEAD`, or the branch you are on.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Bun version (`bun --version`), Node version, Docker version, browser if it matters.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste the relevant lines only. Remove API keys, tokens, database URLs and personal data first.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: I removed every secret and piece of personal data from what I pasted.
+          required: true

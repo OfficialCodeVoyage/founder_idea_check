@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/OfficialCodeVoyage/founder_idea_check/security/advisories/new
+    about: Report security problems privately. Never open a public issue for them.
+  - name: Setting up the project
+    url: https://github.com/OfficialCodeVoyage/founder_idea_check/blob/main/GETTING-STARTED.md
+    about: The copy-paste path from a fresh clone to a running app.

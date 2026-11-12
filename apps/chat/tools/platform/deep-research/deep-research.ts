@@ -14,6 +14,7 @@ import {
   researchToolDescriptionFor,
   researchUnavailableMessage,
 } from "./research-availability";
+import { defaultRequestDeadline, planResearchClock } from "./research-clock";
 import { checkResearchRequest } from "./research-request";
 
 const log = createModuleLogger("tools/deep-research");
@@ -38,12 +39,18 @@ export const deepResearch = ({
   messageId,
   messages,
   costAccumulator,
+  requestDeadlineAt,
 }: {
   session: ToolSession;
   dataStream: StreamWriter;
   messageId: string;
   messages: ModelMessage[];
   costAccumulator: CostAccumulator;
+  /**
+   * When the chat route aborts this request. The pipeline plans every stage
+   * against it (research-clock.ts) so the report is finished before then.
+   */
+  requestDeadlineAt?: number;
 }) => {
   const researchConfig = getDeepResearchConfig();
 
@@ -114,7 +121,17 @@ export const deepResearch = ({
           },
           researchConfig,
           dataStream,
-          { session, costAccumulator, abortSignal }
+          {
+            session,
+            costAccumulator,
+            abortSignal,
+            // No route deadline (an eval or a script): assume the whole budget
+            // from now, which is what the route would have given a request
+            // that called the tool at once.
+            clock: planResearchClock(
+              requestDeadlineAt ?? defaultRequestDeadline()
+            ),
+          }
         );
 
         // biome-ignore lint/style/useDefaultSwitchClause: researchResult is of type never but this might be reached other

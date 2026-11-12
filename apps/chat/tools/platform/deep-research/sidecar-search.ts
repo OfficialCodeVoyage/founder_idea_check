@@ -18,6 +18,12 @@ import { generateUUID } from "@/lib/utils";
 import type { LaneReport } from "../research-updates-schema";
 import { currentDeployment } from "./deployment-mode";
 import { describeLanes } from "./lane-report";
+import {
+  canStartSearchStep,
+  type ResearchClock,
+  recordCut,
+  searchStepTimeoutMs,
+} from "./research-clock";
 
 /**
  * THE `apps/research` SIDECAR, EXPOSED AS A DEEP-RESEARCH SEARCH TOOL.
@@ -165,6 +171,65 @@ function toSearchResults(signals: readonly DemandSignal[]): SearchResult[] {
   return results;
 }
 
+/**
+ * The step's lanes are cut at the step cap (`searchStepTimeoutMs`), or when the
+ * researcher calling this tool is stopped — whichever comes first.
+ */
+function stepAbortSignal(
+  abortSignal: AbortSignal | undefined,
+  clock: ResearchClock | undefined
+): AbortSignal | undefined {
+  const signals = [
+    ...(abortSignal ? [abortSignal] : []),
+    ...(clock ? [AbortSignal.timeout(searchStepTimeoutMs(clock))] : []),
+  ];
+  return signals.length > 0 ? AbortSignal.any(signals) : undefined;
+}
+
+/**
+ * A search step that cannot finish before the search deadline, refused before
+ * any fetch. `attempted: false` keeps every lane "not attempted" rather than
+ * "found nothing", and the reply is an error so the researcher stops searching
+ * instead of reading an absence of evidence into it.
+ */
+function refuseForTime(input: {
+  clock: ResearchClock;
+  dataStream: StreamWriter;
+  toolCallId: string;
+  updateId: string;
+  queries: string[];
+  descriptors: Parameters<typeof describeLanes>[0]["descriptors"];
+}) {
+  const { clock, dataStream, toolCallId, updateId, queries, descriptors } =
+    input;
+  recordCut(
+    clock,
+    "a planned search was not run because the search time had run out"
+  );
+  writeLaneReport(
+    dataStream,
+    toolCallId,
+    describeLanes({ descriptors, signals: [], failures: [], attempted: false })
+  );
+  dataStream.write({
+    type: "data-researchUpdate",
+    id: updateId,
+    data: {
+      toolCallId,
+      title: `Executing ${queries.length} searches`,
+      type: "web",
+      status: "completed",
+      queries,
+      results: [],
+    },
+  });
+  return {
+    searches: [],
+    error:
+      "Not searched: the search time for this research run has run out, so this search was skipped to leave time for the report. This is not a finding that the topic has no evidence. Stop searching and write up what you have.",
+  };
+}
+
 const searchQueriesSchema = z
   .array(
     z.object({
@@ -195,6 +260,7 @@ export const sidecarWebSearch = ({
   audience,
   fetchImpl,
   now,
+  clock,
 }: {
   dataStream: StreamWriter;
   writeTopLevelUpdates: boolean;
@@ -208,6 +274,13 @@ export const sidecarWebSearch = ({
   fetchImpl?: typeof fetch;
   /** Injected so the lookback window is deterministic under test. */
   now?: () => Date;
+  /**
+   * The research run's deadlines. With it, a step that cannot finish before
+   * the search deadline is not started, and one that starts is capped at
+   * `searchStepTimeoutMs` (30 s at most). Omitted, the per-source 45 s timeout
+   * in lib/signals/sidecar.ts is the only bound.
+   */
+  clock?: ResearchClock;
 }) =>
   tool({
     description: `Multi-query web search over the local research sidecar. The lanes it can reach are whatever this deployment has enabled — Hacker News, a keyless general-web ladder, the Reddit archive, GitHub — and they are RANKED AGAINST THE FOUNDER'S BUYER before the results come back, so the first results are from the room that buyer is actually in. Do not assume which lane answered; the result carries a \`sourceRanking\` sentence saying why the order is what it is. Always cite sources inline.
@@ -226,7 +299,10 @@ Avoid:
       }: {
         search_queries: { query: string; maxResults: number | null }[];
       },
-      { toolCallId: sdkToolCallId }: { toolCallId: string }
+      {
+        toolCallId: sdkToolCallId,
+        abortSignal,
+      }: { toolCallId: string; abortSignal?: AbortSignal }
     ) => {
       const toolCallId = toolCallIdOverride ?? sdkToolCallId;
       const updateId = generateUUID();
@@ -308,6 +384,24 @@ Avoid:
         };
       }
 
+      /*
+        NOT STARTED WHEN IT CANNOT FINISH. Past this point the run would spend
+        the time the report needs (research-clock.ts). Said to the model as an
+        error, like every other empty-but-explained outcome here, and recorded
+        so the report says the search was cut short.
+      */
+      if (clock && !canStartSearchStep(clock)) {
+        return refuseForTime({
+          clock,
+          dataStream,
+          toolCallId,
+          updateId,
+          queries,
+          descriptors,
+        });
+      }
+      const stepSignal = stepAbortSignal(abortSignal, clock);
+
       const to = now?.() ?? new Date();
       const from = new Date(to.getTime() - LOOKBACK_DAYS * DAY_MS);
       const { mode, unknownSourceIds } = currentDeployment();
@@ -333,6 +427,7 @@ Avoid:
                 to: isoDate(to),
                 sourceOptions: sourceOptionsFor(ranking),
               },
+              abortSignal: stepSignal,
             }
           )
         )

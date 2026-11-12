@@ -8,6 +8,7 @@ import { createModuleLogger } from "@/lib/logger";
 import type { AudienceView } from "@/lib/signals/audience";
 import { firecrawlWebSearch, tavilyWebSearch } from "../web-search";
 import type { DeepResearchRuntimeConfig, SearchAPI } from "./configuration";
+import type { ResearchClock } from "./research-clock";
 import { sidecarWebSearch } from "./sidecar-search";
 
 const log = createModuleLogger("tools/deep-research/utils");
@@ -91,7 +92,13 @@ function getSearchTool(
    * lanes — one key, one endpoint — so there is no lane ordering to decide and
    * nothing an audience could change.
    */
-  audience?: AudienceView
+  audience?: AudienceView,
+  /**
+   * Only the sidecar arm caps its own steps with this. The cloud arms are
+   * still bounded: the researcher that calls them is stopped at the search
+   * deadline (researcher-agent.ts).
+   */
+  clock?: ResearchClock
 ): ToolSet {
   if (searchApi === "tavily") {
     return {
@@ -112,6 +119,7 @@ function getSearchTool(
         writeTopLevelUpdates: false,
         toolCallIdOverride: parentToolCallId,
         audience,
+        clock,
       }),
     };
   }
@@ -137,7 +145,9 @@ export async function getAllTools(
    * to the developer-audience one. Optional so the existing callers in the test
    * suite keep describing the state they mean to describe.
    */
-  audience?: AudienceView
+  audience?: AudienceView,
+  /** The run's deadlines. Optional for the same reason as `audience`. */
+  clock?: ResearchClock
 ): Promise<ToolSet> {
   if (config.search_api === "none") {
     const mcpTools = await loadMcpTools(config, new Set<string>());
@@ -149,7 +159,8 @@ export async function getAllTools(
     config,
     dataStream,
     id,
-    audience
+    audience,
+    clock
   );
   const existingToolNames = new Set<string>(Object.keys(searchTools));
 

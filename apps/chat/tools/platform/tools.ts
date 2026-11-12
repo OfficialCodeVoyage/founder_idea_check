@@ -33,6 +33,7 @@ export function getTools({
   lastGeneratedImage = null,
   contextForLLM,
   costAccumulator,
+  requestDeadlineAt,
 }: {
   dataStream: StreamWriter;
   session: ToolSession;
@@ -42,6 +43,8 @@ export function getTools({
   lastGeneratedImage: { imageUrl: string; name: string } | null;
   contextForLLM: ModelMessage[];
   costAccumulator: CostAccumulator;
+  /** See `createCoreChatAgent`. Only deep research reads it. */
+  requestDeadlineAt?: number;
 }) {
   const documentToolProps = {
     session,
@@ -122,6 +125,7 @@ export function getTools({
             messageId,
             messages: contextForLLM,
             costAccumulator,
+            requestDeadlineAt,
           }),
         }
       : {}),

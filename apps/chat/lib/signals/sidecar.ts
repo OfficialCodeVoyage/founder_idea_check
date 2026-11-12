@@ -197,6 +197,31 @@ function requestBody(
 }
 
 /**
+ * The failure for a fetch that threw. Stopped by the caller (a research
+ * step's time cap) is told apart from unreachable, or a slow lane would read
+ * as a sidecar outage.
+ */
+function unreachable(
+  descriptor: ProviderDescriptor,
+  base: string,
+  error: unknown,
+  abortSignal?: AbortSignal
+): SignalFetchOutcome {
+  if (abortSignal?.aborted) {
+    return failure(
+      descriptor.id,
+      "unavailable",
+      `${descriptor.label} did not answer before this search step's time ran out, so it was stopped. This is not a finding that the topic has no evidence.`
+    );
+  }
+  return failure(
+    descriptor.id,
+    "unavailable",
+    `Could not reach the research sidecar at ${base} for ${descriptor.label}: ${error instanceof Error ? error.message : String(error)}`
+  );
+}
+
+/**
  * Builds the fetcher for one source. NEVER THROWS — every path returns a
  * `SignalFetchOutcome`, because `runSignalHarvest` runs these concurrently and
  * a throw would be the one bad source taking down the good ones.
@@ -225,11 +250,7 @@ export function createSidecarSignalFetcher(config: SidecarConfig) {
           signal,
         });
       } catch (error) {
-        return failure(
-          descriptor.id,
-          "unavailable",
-          `Could not reach the research sidecar at ${base} for ${descriptor.label}: ${error instanceof Error ? error.message : String(error)}`
-        );
+        return unreachable(descriptor, base, error, abortSignal);
       }
 
       if (!response.ok) {

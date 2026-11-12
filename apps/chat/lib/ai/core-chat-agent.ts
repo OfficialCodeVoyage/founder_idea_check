@@ -50,6 +50,7 @@ export async function createCoreChatAgent({
   userId,
   isAnonymous = false,
   abortSignal,
+  requestDeadlineAt,
   messageId,
   dataStream,
   onError,
@@ -66,6 +67,12 @@ export async function createCoreChatAgent({
   userId: string | null;
   isAnonymous?: boolean;
   abortSignal?: AbortSignal;
+  /**
+   * Epoch ms at which the caller aborts `abortSignal` (the chat route's
+   * timer). Deep research plans its stages against it. Omitted by callers with
+   * no timer; the tool then assumes a full budget from when it starts.
+   */
+  requestDeadlineAt?: number;
   messageId: string;
   dataStream: StreamWriter;
   onError?: (error: unknown) => void;
@@ -132,6 +139,7 @@ export async function createCoreChatAgent({
     attachments: userMessage.parts.filter((part) => part.type === "file"),
     lastGeneratedImage,
     costAccumulator,
+    requestDeadlineAt,
   });
 
   // Merge base tools with MCP tools

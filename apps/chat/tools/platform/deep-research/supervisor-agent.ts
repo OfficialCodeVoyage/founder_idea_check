@@ -4,6 +4,7 @@ import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { createSemaphore } from "@/lib/research/supervisor";
 import { leadResearcherPrompt } from "./prompts";
+import { canStartResearchTopic, recordCut, stopAt } from "./research-clock";
 import { runResearcher } from "./researcher-agent";
 import { type AgentOptions, createTelemetry } from "./types";
 import { getTodayStr } from "./utils";
@@ -12,7 +13,7 @@ export async function runSupervisor(
   researchBrief: string,
   options: AgentOptions
 ): Promise<string[]> {
-  const { config, dataStream, toolCallId, abortSignal } = options;
+  const { clock, config, dataStream, toolCallId, abortSignal } = options;
   const model = await getLanguageModel(config.research_model as ModelId);
 
   /**
@@ -35,6 +36,14 @@ export async function runSupervisor(
    */
   const semaphore = createSemaphore(config.max_concurrent_research_units);
 
+  /*
+    NOTES ARE COLLECTED AS EACH TOPIC FINISHES, not read back from the agent's
+    steps at the end. The supervisor is stopped at `findingsDueAt` so the report
+    keeps its time (research-clock.ts); a stopped `generate` returns no steps,
+    and reading notes from them would throw away every topic already finished.
+  */
+  const notes: string[] = [];
+
   const conductResearchTool = tool({
     description: "Call this tool to conduct research on a specific topic.",
     inputSchema: z.object({
@@ -47,7 +56,18 @@ export async function runSupervisor(
     execute: async ({ research_topic }) => {
       const release = await semaphore.acquire();
       try {
-        return await runResearcher(research_topic, options);
+        // Checked AFTER the semaphore: a topic queued behind two others may
+        // reach the front with no search time left.
+        if (!canStartResearchTopic(clock)) {
+          recordCut(
+            clock,
+            "a planned research topic was not started because the search time had run out"
+          );
+          return `NOT RESEARCHED: the search time for this run ran out before this topic could start, so nothing was searched for it. Topic: ${research_topic}`;
+        }
+        const note = await runResearcher(research_topic, options);
+        notes.push(note);
+        return note;
       } finally {
         release();
       }
@@ -74,7 +94,25 @@ export async function runSupervisor(
       researchComplete: researchCompleteTool,
     },
     maxOutputTokens: config.research_model_max_tokens,
-    stopWhen: [hasToolCall("researchComplete"), stepCountIs(maxSteps)],
+    stopWhen: [
+      hasToolCall("researchComplete"),
+      stepCountIs(maxSteps),
+      // Evaluated only when the last step called a tool, i.e. when the
+      // supervisor wanted another round. Past the search deadline it gets none.
+      ({ steps }) => {
+        const finished = steps
+          .at(-1)
+          ?.toolCalls.some((call) => call.toolName === "researchComplete");
+        if (finished || clock.now() < clock.searchStopAt) {
+          return false;
+        }
+        recordCut(
+          clock,
+          "the lead researcher wanted another round of research and the search time had run out"
+        );
+        return true;
+      },
+    ],
     experimental_telemetry: createTelemetry("supervisor", options),
     onStepFinish: ({ usage, toolCalls }) => {
       if (usage) {
@@ -107,14 +145,24 @@ export async function runSupervisor(
     },
   });
 
-  const { steps } = await supervisorAgent.generate({
-    prompt: researchBrief,
-    abortSignal,
-  });
+  const stop = stopAt(clock, clock.findingsDueAt, abortSignal);
+  try {
+    await supervisorAgent.generate({
+      prompt: researchBrief,
+      abortSignal: stop.signal,
+    });
+  } catch (error) {
+    // The route's abort ends the request, and any other error is a real
+    // failure: both rethrow. Only the planned `findingsDueAt` stop is
+    // absorbed, and the report is written from the topics that finished.
+    if (!stop.stoppedByDeadline()) {
+      throw error;
+    }
+    recordCut(
+      clock,
+      "the lead researcher was stopped so the report could start on time"
+    );
+  }
 
-  return steps.flatMap((step) =>
-    step.toolResults
-      .filter((tr) => tr.toolName === "conductResearch")
-      .map((tr) => String(tr.output))
-  );
+  return [...notes];
 }

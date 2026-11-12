@@ -5,6 +5,7 @@ import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
 import type { AudienceView } from "@/lib/signals/audience";
 import type { DocumentToolResult } from "../documents/types";
 import type { DeepResearchRuntimeConfig } from "./configuration";
+import type { ResearchClock } from "./research-clock";
 
 //##################
 // Shared Agent Options
@@ -26,6 +27,13 @@ export interface AgentOptions {
    * to the developer-audience default that put Hacker News first for everyone.
    */
   audience: AudienceView;
+  /**
+   * The run's deadlines, derived from the chat route's budget, and the record
+   * of what was cut short for time. One object for the whole run: the search
+   * tool, the researchers and the supervisor all stop against the same clock,
+   * and the report reads the cuts they recorded. See research-clock.ts.
+   */
+  clock: ResearchClock;
   config: DeepResearchRuntimeConfig;
   costAccumulator?: CostAccumulator;
   dataStream: StreamWriter;

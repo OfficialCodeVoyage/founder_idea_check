@@ -41,6 +41,7 @@ vi.mock("@/lib/env", () => ({
 }));
 
 import { getDeepResearchConfig } from "./configuration";
+import { planResearchClock } from "./research-clock";
 import { sidecarWebSearch } from "./sidecar-search";
 import { getAllTools } from "./utils";
 
@@ -453,5 +454,28 @@ describe("sidecarWebSearch", () => {
     expect(bodies[0].date_to).toBe("2026-08-20");
     expect(bodies[0].date_from).toBe("2025-08-20");
     expect(bodies[0].limit).toBe(5);
+  });
+
+  it("does not start a search the run has no time left for, and records the cut", async () => {
+    // GUARD for the QA run cut at 289 s: a search that cannot finish before
+    // the search deadline spends the report's time, so it is never started.
+    const seen: string[] = [];
+    const { stream } = recordingStream();
+    const start = 1_000_000;
+    const clock = planResearchClock(start + 290_000, () => start);
+    const late = { ...clock, now: () => clock.searchStopAt - 5000 };
+
+    const tool = sidecarWebSearch({
+      dataStream: stream,
+      writeTopLevelUpdates: false,
+      fetchImpl: fetchReturning({}, seen),
+      clock: late,
+    });
+    const result = await runTool(tool, [{ query: "demand", maxResults: 5 }]);
+
+    expect(seen).toEqual([]);
+    expect(result.searches).toEqual([]);
+    expect(result.error).toContain("Not searched");
+    expect(late.cuts).toHaveLength(1);
   });
 });

@@ -25,6 +25,7 @@ import {
   streamFollowupSuggestions,
 } from "@/lib/ai/followup-suggestions";
 import { systemPrompt } from "@/lib/ai/prompts";
+import { CHAT_REQUEST_BUDGET_MS } from "@/lib/ai/request-budget";
 import { getStreamErrorMessage } from "@/lib/ai/stream-errors";
 import { calculateMessagesTokens } from "@/lib/ai/token-utils";
 import {
@@ -357,6 +358,7 @@ async function createChatStream({
   explicitlyRequestedTools,
   userId,
   abortController,
+  requestDeadlineAt,
   isAnonymous,
   isNewChat,
   timeoutId,
@@ -375,6 +377,7 @@ async function createChatStream({
   explicitlyRequestedTools: ToolName[] | null;
   userId: string | null;
   abortController: AbortController;
+  requestDeadlineAt: number;
   isAnonymous: boolean;
   isNewChat: boolean;
   timeoutId: NodeJS.Timeout;
@@ -410,6 +413,7 @@ async function createChatStream({
         userId,
         isAnonymous,
         abortSignal: abortController.signal,
+        requestDeadlineAt,
         messageId,
         dataStream,
         onError: (error) => {
@@ -594,6 +598,7 @@ async function executeChatRequest({
   isAnonymous,
   isNewChat,
   abortController,
+  requestDeadlineAt,
   timeoutId,
   mcpConnectors,
 }: {
@@ -610,6 +615,8 @@ async function executeChatRequest({
   isAnonymous: boolean;
   isNewChat: boolean;
   abortController: AbortController;
+  /** Epoch ms at which `abortController` is aborted by the route's timer. */
+  requestDeadlineAt: number;
   timeoutId: NodeJS.Timeout;
   mcpConnectors: McpConnector[];
 }): Promise<Response> {
@@ -675,6 +682,7 @@ async function executeChatRequest({
     explicitlyRequestedTools,
     userId,
     abortController,
+    requestDeadlineAt,
     isAnonymous,
     isNewChat,
     timeoutId,
@@ -1393,11 +1401,14 @@ export async function POST(request: NextRequest) {
       userMessage.metadata.selectedTool ?? null
     );
 
-    // Create AbortController with timeout
+    // The request's hard stop. `requestDeadlineAt` travels to the tools so a
+    // long one (deep research) plans its own stages to finish before this
+    // fires; the timer stays as the backstop. Both come from one constant.
     const abortController = new AbortController();
+    const requestDeadlineAt = Date.now() + CHAT_REQUEST_BUDGET_MS;
     const timeoutId = setTimeout(() => {
       abortController.abort();
-    }, 290_000); // 290 seconds
+    }, CHAT_REQUEST_BUDGET_MS);
 
     return await executeChatRequest({
       chatId,
@@ -1414,6 +1425,7 @@ export async function POST(request: NextRequest) {
       isAnonymous,
       isNewChat: persistenceResult.isNewChat,
       abortController,
+      requestDeadlineAt,
       timeoutId,
       mcpConnectors: executionInputs.mcpConnectors,
     });

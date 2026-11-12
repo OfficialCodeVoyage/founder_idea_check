@@ -258,6 +258,7 @@ function PureDocumentTool({
     isLastMessage,
     chatStatus: status,
     activeStreamId: metadata.activeStreamId,
+    stopped: metadata.streamStopped === true,
   });
 
   const verdict = describeInputStream({

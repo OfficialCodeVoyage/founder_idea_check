@@ -291,6 +291,28 @@ export function useCloneChat() {
   });
 }
 
+/**
+ * WHEN THE BALANCE IS READ AGAIN AFTER A TURN. A turn is charged by the server
+ * AFTER its stream has closed (`chargeTurnOnce`, handed to `after()`), and a
+ * Stop is acted on up to a second after it is pressed, so the refetch made the
+ * moment the client's stream ends reads the balance from before the charge: the
+ * sidebar kept $996.95 for a database that said $996.94 until a reload (live QA,
+ * re-check 5). The project turn's second charge (the extraction and gate calls)
+ * lands seconds later still. So the balance is read at the end of the turn and
+ * twice more.
+ */
+const CREDITS_REFETCH_AFTER_TURN_MS = [2000, 10_000] as const;
+
+function refetchCreditsAfterTurn(
+  qc: ReturnType<typeof useQueryClient>,
+  queryKey: QueryKey
+) {
+  qc.invalidateQueries({ queryKey });
+  for (const delayMs of CREDITS_REFETCH_AFTER_TURN_MS) {
+    setTimeout(() => qc.invalidateQueries({ queryKey }), delayMs);
+  }
+}
+
 export function useSaveMessageMutation() {
   const { data: session } = useSession();
   const isAuthenticated = !!session?.user;
@@ -313,9 +335,10 @@ export function useSaveMessageMutation() {
     onSuccess: async (_data, { message, chatId }) => {
       if (message.role === "assistant") {
         if (isAuthenticated) {
-          qc.invalidateQueries({
-            queryKey: trpc.credits.getAvailableCredits.queryKey(),
-          });
+          refetchCreditsAfterTurn(
+            qc,
+            trpc.credits.getAvailableCredits.queryKey()
+          );
           await Promise.all([
             qc.invalidateQueries({
               queryKey: trpc.chat.getAllChats.queryKey(),

@@ -446,7 +446,7 @@ function continueRequest(
  * WHETHER NO MORE INPUT CAN ARRIVE FOR A TOOL PART IN THIS CHAT, FROM THE
  * RENDERER'S SIDE. It is the renderer's `streamEnded`.
  *
- * Four facts, none sufficient alone:
+ * Five facts, none sufficient alone:
  *
  *  - Only the LAST message can be receiving a stream, so any earlier message
  *    has ended whatever the chat is doing. A chat-wide `submitted`/`streaming`
@@ -460,6 +460,10 @@ function continueRequest(
  *    got at `start` and `activeStreamId` alone calls the part alive forever —
  *    a "Creating…" spinner beside a "Something went wrong" banner, until a
  *    reload.
+ *  - `stopped` means this tab's own Stop cut the message's stream (an aborted
+ *    request, noted by `ChatSync`'s `onFinish`). Like an `error`, it leaves the
+ *    client's copy with the id it got at `start`, and the chat goes back to
+ *    `ready`; without this fact the part spun on "Creating…" until a reload.
  *  - Otherwise the chat is `ready`, which is also how it looks for a beat on
  *    load while a resumable stream is being reattached. Only a message that is
  *    still waiting on a stream (`activeStreamId` set) may be called alive
@@ -470,10 +474,13 @@ export function hasInputStreamEnded({
   isLastMessage,
   chatStatus,
   activeStreamId,
+  stopped = false,
 }: {
   isLastMessage: boolean;
   chatStatus: ChatStatus;
   activeStreamId: string | null | undefined;
+  /** This tab's own Stop cut the message's stream (`metadata.streamStopped`). */
+  stopped?: boolean;
 }): boolean {
   if (!isLastMessage) {
     return true;
@@ -481,7 +488,7 @@ export function hasInputStreamEnded({
   if (chatStatus === "submitted" || chatStatus === "streaming") {
     return false;
   }
-  if (chatStatus === "error") {
+  if (chatStatus === "error" || stopped) {
     return true;
   }
   return !activeStreamId;

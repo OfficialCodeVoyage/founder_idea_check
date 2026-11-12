@@ -134,6 +134,15 @@ const messageMetadataSchema = z.object({
   isPrimaryParallel: z.boolean().nullable().optional(),
   selectedModel: z.custom<SelectedModelValue>(isSelectedModelValue),
   activeStreamId: z.string().nullable(),
+  /**
+   * CLIENT ONLY, never stored: this tab's own Stop (an aborted request) ended the
+   * stream of this message. The `finish` chunk that clears `activeStreamId` never
+   * arrives after a Stop, so the client's copy keeps the id it got at `start` and,
+   * with the chat `ready`, looks like a page about to reattach to a live stream;
+   * this tells them apart (`ChatSync`'s `onFinish` sets it, `hasInputStreamEnded`
+   * reads it).
+   */
+  streamStopped: z.boolean().optional(),
   selectedTool: frontendToolsSchema.optional(),
   usage: z.custom<LanguageModelUsage | undefined>((_val) => true).optional(),
 });

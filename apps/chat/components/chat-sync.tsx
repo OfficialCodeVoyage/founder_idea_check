@@ -7,7 +7,7 @@ import { useSaveMessageMutation } from "@/hooks/chat-sync-hooks";
 import { useCompleteDataPart } from "@/hooks/use-complete-data-part";
 import { getStreamErrorToastContent } from "@/lib/ai/stream-errors";
 import type { ChatMessage } from "@/lib/ai/types";
-import { useChat } from "@/lib/stores/base";
+import { type UseChatHelpers, useChat } from "@/lib/stores/base";
 import { useChatPersistenceActions } from "@/lib/stores/hooks-chat-persistence";
 import { useDataStream } from "@/lib/stores/hooks-data-stream";
 import {
@@ -43,7 +43,12 @@ export function ChatSync({ id }: { id: string }) {
       ? `${lastMessage.id}:${activeStreamId}`
       : null;
 
-  const { resumeStream } = useChat<ChatMessage>({
+  // `onFinish` is built before `useChat` returns `setMessages`, so it reads it here.
+  const setMessagesRef = useRef<UseChatHelpers<ChatMessage>["setMessages"]>(
+    () => undefined
+  );
+
+  const { resumeStream, setMessages } = useChat<ChatMessage>({
     experimental_throttle: 100,
     id,
     // TODO: this is a special "snapshot" value in the store that is only updated
@@ -51,7 +56,31 @@ export function ChatSync({ id }: { id: string }) {
     // messages at ChatSync remount time, we can likely remove this override.
     messages: threadInitialMessages,
     generateId: generateUUID,
-    onFinish: ({ message }) => {
+    onFinish: ({ message: finished, isAbort }) => {
+      // A STOP LEAVES THE MESSAGE LOOKING ALIVE. Its `finish` chunk never came,
+      // so the client's copy keeps the `activeStreamId` it got at `start` and
+      // the chat is `ready`: a tool part still in `input-streaming` kept its
+      // "Creating" spinner until a reload (live QA, re-check 5). Note the Stop on
+      // the message itself, in the chat's state and in the tree copy, so a
+      // renderer can tell it from a page about to reattach to a live stream.
+      const message: ChatMessage = isAbort
+        ? {
+            ...finished,
+            metadata: { ...finished.metadata, streamStopped: true },
+          }
+        : finished;
+      if (isAbort) {
+        setMessagesRef.current((messages) =>
+          messages.map((existing) =>
+            existing.id === message.id
+              ? {
+                  ...existing,
+                  metadata: { ...existing.metadata, streamStopped: true },
+                }
+              : existing
+          )
+        );
+      }
       addMessageToTree(message);
       saveChatMessage({ message, chatId: id });
     },
@@ -98,6 +127,8 @@ export function ChatSync({ id }: { id: string }) {
       toast.error(message, description ? { description } : undefined);
     },
   });
+
+  setMessagesRef.current = setMessages;
 
   // RESUME EACH STREAM ONCE, NOT ONCE PER EFFECT RUN.
   //

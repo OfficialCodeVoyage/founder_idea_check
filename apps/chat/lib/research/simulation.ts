@@ -684,17 +684,55 @@ export function estimateSimulationCostCents({
 }
 
 /**
+ * FAILURE KINDS THAT PROVABLY HAPPEN BEFORE ANY MODEL CALL, and the only
+ * failures whose charge is waived. Each is named by where it is raised:
+ *
+ *   - `disabled` (`createSidecarSimulationRunner`, no sidecar URL) and
+ *     `missing-credential` (the sidecar refused the app with 401/403): the
+ *     request never reached `/v1/simulate`;
+ *   - `sidecar-unreachable` (`runSimulation`, see `isConnectionRefusal`): the
+ *     connection was never opened, so no request was sent;
+ *   - `invalid-personas`: `runSimulation` refuses before `deps.run`, and the
+ *     sidecar's `oasis_runner.py::run_simulation` before the OASIS import;
+ *   - `unknown-simulation-model`: `oasis_runner.py::_validate_model_id` asks
+ *     the provider's `/models` endpoint (not a paid call) before the run;
+ *   - `oasis-not-installed`: `oasis_runner.py::_require_oasis` /
+ *     `_build_model`, before any agent exists.
+ *
+ * A LIST OF "NEVER STARTED", NOT A LIST OF "PAID". Every kind outside it is
+ * charged, because each can happen after agents already called the model:
+ * `simulation-failed` is any exception inside `oasis_runner.py::_run`,
+ * mid-round included; `no-simulation-database` and `simulation-schema-drift`
+ * come from `_read_reactions` after the whole run; `unavailable` covers the
+ * app's own timeout, after which the sidecar keeps running and spending;
+ * `schema-drift` is a body the app could not read, which may be a completed
+ * run's. An unknown future kind is charged too: waiving it would let a new
+ * failure ride free until someone remembered to list it.
+ */
+export const SIMULATION_NEVER_STARTED_KINDS: ReadonlySet<string> = new Set([
+  "disabled",
+  "missing-credential",
+  "sidecar-unreachable",
+  "invalid-personas",
+  "unknown-simulation-model",
+  "oasis-not-installed",
+]);
+
+/**
  * PURE. Whether a run is charged. A NO RESULT run is recorded either way, but
  * the charge is waived only when the run demonstrably spent nothing.
  *
  *   - a judged run, or one with a single reaction: an agent answered, so yes;
+ *   - a kind in `SIMULATION_NEVER_STARTED_KINDS`: the run was refused before
+ *     any model call, so no;
  *   - no reactions: yes, UNLESS the sidecar reports at least as many failed
  *     agent actions as the run could make (`seats × rounds`) — every expected
  *     call failed, which is the sidecar-with-no-model-key case;
  *   - no reactions and no count (an older sidecar): yes. A missing count is
  *     not evidence that nothing was spent, and waiving on it would let any
  *     run that omits the field ride free;
- *   - every other failure means the run never started: no.
+ *   - every other failure: yes. It may have come after agents were called
+ *     (see `SIMULATION_NEVER_STARTED_KINDS` for which and why).
  *
  * WAIVE ONLY ON A COMPLETE FAILURE, never a partial one. An earlier version
  * waived any run with one failed action, so a run where most agents were
@@ -711,14 +749,49 @@ export function simulationReachedModel(
   if (outcome.ok) {
     return true;
   }
-  if (outcome.kind === "too-few-reactions") {
-    return true;
+  if (SIMULATION_NEVER_STARTED_KINDS.has(outcome.kind)) {
+    return false;
   }
   if (outcome.kind === "no-reactions") {
     const failed = outcome.agentErrors;
     return failed === null || failed === undefined || failed < seats * rounds;
   }
-  return false;
+  return true;
+}
+
+/**
+ * Error codes that mean the TCP connection was never opened: the sidecar is
+ * not listening or its host does not resolve. Node's `fetch` (undici) throws
+ * `TypeError("fetch failed")` with the socket error as `cause`; Bun's fetch
+ * puts its own code on the error itself. Anything else (a reset, a timeout, a
+ * body that would not parse) may have come after the request was sent, so it
+ * is not on this list.
+ */
+const CONNECTION_REFUSAL_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ConnectionRefused",
+]);
+
+function errorCode(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || !("code" in value)) {
+    return;
+  }
+  return typeof value.code === "string" ? value.code : undefined;
+}
+
+/** PURE. Whether a thrown fetch error means no request was ever sent. */
+function isConnectionRefusal(error: unknown): boolean {
+  const own = errorCode(error);
+  const cause =
+    typeof error === "object" && error !== null && "cause" in error
+      ? errorCode(error.cause)
+      : undefined;
+  return (
+    (own !== undefined && CONNECTION_REFUSAL_CODES.has(own)) ||
+    (cause !== undefined && CONNECTION_REFUSAL_CODES.has(cause))
+  );
 }
 
 export type SimulationInput = {
@@ -752,9 +825,11 @@ export async function runSimulation(
       rounds: input.rounds,
     });
   } catch (error) {
+    // Split because the charge differs: a refused connection sent nothing, a
+    // timeout or a dropped response may have left the sidecar running agents.
     return {
       ok: false,
-      kind: "unavailable",
+      kind: isConnectionRefusal(error) ? "sidecar-unreachable" : "unavailable",
       detail: `The simulation sidecar could not be reached: ${error instanceof Error ? error.message : String(error)}`,
     };
   }

@@ -280,6 +280,73 @@ describe("simulationReachedModel — when a run is charged", () => {
     });
     expect(simulationReachedModel(neverStarted, SIZE)).toBe(false);
   });
+
+  it("waives only the kinds raised before any model call", async () => {
+    for (const kind of [
+      "disabled",
+      "missing-credential",
+      "invalid-personas",
+      "unknown-simulation-model",
+      "oasis-not-installed",
+    ]) {
+      const outcome = await outcomeFor({ ok: false, kind, detail: kind });
+      expect(simulationReachedModel(outcome, SIZE)).toBe(false);
+    }
+  });
+
+  it("charges a failure that can come after agents already called the model", async () => {
+    // `simulation-failed` is any exception mid-run; the other two are raised
+    // reading the trace after the whole run. A kind nobody listed is charged
+    // too, so a new failure cannot ride free.
+    for (const kind of [
+      "simulation-failed",
+      "no-simulation-database",
+      "simulation-schema-drift",
+      "a-kind-added-later",
+    ]) {
+      const outcome = await outcomeFor({ ok: false, kind, detail: kind });
+      expect(simulationReachedModel(outcome, SIZE)).toBe(true);
+    }
+
+    // A body the app cannot read may be a completed run's.
+    const drift = await outcomeFor({ ok: true, reactions: "not a list" });
+    expect(!drift.ok && drift.kind).toBe("schema-drift");
+    expect(simulationReachedModel(drift, SIZE)).toBe(true);
+  });
+
+  it("charges a timeout but not a connection that was never opened", async () => {
+    const run = (error: unknown) =>
+      runSimulation(
+        { run: () => Promise.reject(error) },
+        {
+          personas: [persona(), persona({ id: "p2", name: "Other" })],
+          facts: [],
+          pitch: "p",
+          rounds: SIZE.rounds,
+        }
+      );
+
+    // The app's AbortSignal.timeout: the sidecar keeps running agents.
+    const timedOut = await run(
+      new DOMException(
+        "The operation was aborted due to timeout",
+        "TimeoutError"
+      )
+    );
+    expect(!timedOut.ok && timedOut.kind).toBe("unavailable");
+    expect(simulationReachedModel(timedOut, SIZE)).toBe(true);
+
+    // undici's shape for a sidecar that is not listening.
+    const refused = await run(
+      new TypeError("fetch failed", {
+        cause: Object.assign(new Error("connect ECONNREFUSED"), {
+          code: "ECONNREFUSED",
+        }),
+      })
+    );
+    expect(!refused.ok && refused.kind).toBe("sidecar-unreachable");
+    expect(simulationReachedModel(refused, SIZE)).toBe(false);
+  });
 });
 
 describe("reactionSimilarity", () => {

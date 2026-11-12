@@ -14,9 +14,10 @@ import {
   describeSeedGap,
   type SimulationSeedGap,
 } from "@/lib/personas/simulation-gaps";
-import type {
-  DivergenceReport,
-  PersonaReaction,
+import {
+  type DivergenceReport,
+  type PersonaReaction,
+  SIMULATION_NEVER_STARTED_KINDS,
 } from "@/lib/research/simulation";
 
 /**
@@ -35,6 +36,42 @@ import type {
  * opposed to never having started. `judgeSimulation` produces both names.
  */
 const RAN_BUT_EMPTY = new Set(["no-reactions", "too-few-reactions"]);
+
+/**
+ * What the panel says about a failed run, in the three cases the action
+ * distinguishes. Which kinds are free is `SIMULATION_NEVER_STARTED_KINDS`,
+ * the same set `simulationReachedModel` charges by, so the sentence about
+ * credits cannot drift from the charge.
+ */
+function describeFailure(kind: string): {
+  headline: string;
+  ran: boolean;
+  record: string;
+} {
+  if (RAN_BUT_EMPTY.has(kind)) {
+    return {
+      headline:
+        "The simulation ran and came back empty — this is NOT a verdict.",
+      ran: true,
+      record:
+        "kept in the run history as not assessed, because a run that produced nothing is not a finding about your personas.",
+    };
+  }
+  if (SIMULATION_NEVER_STARTED_KINDS.has(kind)) {
+    return {
+      headline: "The simulation did not run.",
+      ran: false,
+      record:
+        "nothing was recorded or charged, because it stopped before any persona was called.",
+    };
+  }
+  return {
+    headline: "The simulation failed before it could report a result.",
+    ran: false,
+    record:
+      "nothing was recorded, but personas may already have been called before it stopped, so the run was charged.",
+  };
+}
 
 /** One gap per persona or per seat, so the identifier is the stable half. */
 function gapKey(gap: SimulationSeedGap): string {
@@ -134,20 +171,17 @@ function OutcomePanel({ result }: { result: RunSimulationResult }) {
 
   const { outcome } = result;
   if (!outcome.ok) {
-    // "It never started" and "it ran and came back empty" are different facts
-    // and get different sentences. Telling a founder "nothing happened" about a
-    // run in which every agent was called and every call failed would be the
-    // same substitution as the COLLAPSED badge, pointing the other way.
-    const ran = RAN_BUT_EMPTY.has(outcome.kind);
+    // "It never started", "it ran and came back empty" and "it failed part
+    // way" are different facts and get different sentences. Telling a founder
+    // "nothing happened" about a run in which every agent was called and every
+    // call failed would be the same substitution as the COLLAPSED badge,
+    // pointing the other way.
+    const failure = describeFailure(outcome.kind);
     return (
       <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-        <p className="font-medium">
-          {ran
-            ? "The simulation ran and came back empty — this is NOT a verdict."
-            : "The simulation did not run."}
-        </p>
+        <p className="font-medium">{failure.headline}</p>
         <p className="mt-1 text-muted-foreground">{outcome.detail}</p>
-        {ran && typeof outcome.agentErrors === "number" ? (
+        {failure.ran && typeof outcome.agentErrors === "number" ? (
           <p className="mt-1 text-muted-foreground text-xs">
             {outcome.agentErrors > 0
               ? `${outcome.agentErrors} agent action(s) failed during the run.`
@@ -155,10 +189,7 @@ function OutcomePanel({ result }: { result: RunSimulationResult }) {
           </p>
         ) : null}
         <p className="mt-1 text-muted-foreground text-xs">
-          Reported as <code>{outcome.kind}</code> —{" "}
-          {ran
-            ? "not recorded as a run, because a run that produced nothing is not a finding about your personas."
-            : "nothing was recorded, because nothing happened."}
+          Reported as <code>{outcome.kind}</code> — {failure.record}
         </p>
       </div>
     );

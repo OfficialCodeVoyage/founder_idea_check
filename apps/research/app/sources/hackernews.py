@@ -9,10 +9,9 @@
 # enrichment fan-out, and the `log.source_log` sink. Errors now raise named
 # exceptions instead of returning `{"hits": [], "error": ...}`. Added: a hit is
 # dropped unless its TITLE shares a CONTENT word with the query (or two distinct
-# weak words), or its story text, with nothing of the kind in the title, shares
-# TWO distinct content words with it, where stopwords, numbers and years,
-# countries, file types, research filler and broad tech words do not count
-# (`matches_a_content_word`, `_NEVER_TOKENS`).
+# weak words), where stopwords, numbers and years, countries, file types,
+# research filler and broad tech words do not count; the story's text is never
+# read for this (`matches_a_content_word`, `_NEVER_TOKENS`).
 #
 #   gh api "repos/mvanhorn/last30days-skill/commits?path=skills/last30days/scripts/lib/hackernews.py&since=2026-08-18" --jq '.[].commit.message'
 # ─────────────────────────────────────────────────────────────────────────────
@@ -28,10 +27,8 @@ from urllib.parse import urlencode
 from ..errors import SourceSchemaDrift
 from ..http import get_json
 from ..schema import SourceItem
-from ..text import cjk
 from ..text.relevance import (
     LOW_SIGNAL_QUERY_TOKENS,
-    STOPWORDS,
     PreparedQuery,
     token_overlap_relevance,
     tokenize,
@@ -99,9 +96,10 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
     `optionalWords` makes Algolia rank by how many tokens match instead of
     requiring every one.
 
-    Also deliberate: `restrictSearchableAttributes=title` is NOT set. It would
-    miss the Ask HN / Show HN threads where the topic appears only in the body —
-    which for demand validation are the most valuable results on the site.
+    Also deliberate: `restrictSearchableAttributes=title` is NOT set, which is
+    upstream's choice and is left as it was. Our own relevance test is TITLE-ONLY
+    (`matches_a_content_word`), so a story whose topic appears only in its body
+    still takes a slot of the overfetched page and is then dropped client-side.
     """
     flat = _flatten_query(query)
     params = {
@@ -124,7 +122,7 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 # SINGLE query token, and Algolia's matching is looser than our token test (typo
 # tolerance, prefixes), so a full page of hits comes back whatever the topic.
 #
-# Live QA, 2026-11-12, a parents-of-young-readers question, three times:
+# Live QA, 2026-11-12, a parents-of-young-readers question, five times:
 #   1. Hacker News returned 51 of a run's 100 sources, among them a vet
 #      directory and a story about a politician. Dropping hits whose lexical
 #      relevance is exactly 0.0 (no query word in the title or text) removed those.
@@ -145,7 +143,20 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 #      A vet directory and an org-mode notes app went through on "parent" or
 #      "reading" said once in a paragraph. One word in a paragraph is how a story
 #      mentions something, not what it is about, and a long query has a dozen
-#      content words to be found by accident.
+#      content words to be found by accident. The rule of the day let a story with
+#      nothing of the question in its title pass on two DISTINCT content words in
+#      its text.
+#   5. Re-check 6, under that two-word body rule: 7 of 20 stories passed on their
+#      text alone and 5 of those 7 were off topic (an org-mode notes app, an
+#      offline-password-cracking write-up, a browser-extension recommender, an iOS
+#      analytics dashboard, a birthday-party kit). Each said "read" and then any
+#      other ordinary word of a long query ("book", "conflict", "level", "program",
+#      "subscription", "teach"). "read" is in nearly every text, so "read and one
+#      more word" is not a topic test. Re-check 5 had been the same with a Postgres
+#      tool, a code-review tool and an adult vocabulary app, and the fix then (word
+#      families, so "read" and "reading" are one word) closed that one pair and left
+#      every other pair open. Each patch narrowed the door and none closed it, so
+#      the decision is to close it: the title decides, alone.
 #
 # So the words of a query fall into three kinds, and only the last decides:
 #
@@ -157,42 +168,40 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 #   WEAK    a word that names something but is too common to decide a topic by
 #           itself: "code", "review", "price", "comparison", "rate", "data"
 #           (`_WEAK_TOKENS`). One of them is not evidence; two DIFFERENT ones in
-#           the same hit are ("code review", "price comparison").
-#   CONTENT every other word. One in the title is enough (see below for the text).
+#           the same title are ("code review", "price comparison").
+#   CONTENT every other word. One in the title is enough.
 #
 # A hit is on topic when its TITLE shares one CONTENT word with the query or two
-# distinct WEAK words, or, with nothing of the kind in the title, when its STORY
-# TEXT shares two DISTINCT CONTENT words with the query. A title is what the
-# story is called; a body is where a story can mention anything. So the body
-# earns its place only with a second, different word, and two weak words in a body
-# do not count at all. "Different" means a different word FAMILY (`_family`): the
-# inflections of one word ("read", "reads", "reader", "readers", "reading") are one
-# word, on BOTH sides, so "tool" matches "tools", "APIs" matches "api", and a text
-# that says "read" and "reading" has said one word, not two. Live QA (re-check 5,
-# after the rule above) let in a Postgres tool, an Apple developer-account story, a
-# code-review tool and an adult vocabulary app on exactly that pair, because the
-# stem then took only a plural "s" off and the researcher's query held both "read"
-# and "reading".
+# distinct WEAK words. THE STORY TEXT IS NOT READ: a title is what the story is
+# called, and a body is where a story can mention anything. "Different" means a
+# different word FAMILY (`_family`): the inflections of one word ("read", "reads",
+# "reader", "readers", "reading") are one word, on BOTH sides, so "tool" matches
+# "tools", "APIs" matches "api", and "price" and "pricing" are not a pair. The
+# title is read through `tokenize`, the same function the relevance score uses, so
+# a word that counts there counts here.
 #
-# WHAT THE BODY RULE COSTS, stated so nobody re-derives it. A query with ONE
-# content word ("tutoring price cost") can never qualify a hit by its body: there
-# is no second distinct word to find, so it matches by title alone, and an Ask HN
-# thread that names the topic only in its text is missed. That is the narrow
-# case; a researcher's query nearly always holds several content words. Two words
-# of a long query can still turn up in an off-topic text by accident, so the rule
-# narrows that door and does not close it.
+# WHAT TITLE-ONLY COSTS, stated so nobody re-derives it. An Ask HN or Show HN whose
+# terse title does not name the topic and whose text does is now missed. For demand
+# validation that is the most valuable kind of thread on the site, but a hit found
+# only by its text cannot be told apart from the five off-topic stories of check 5
+# above. One missed thread costs a signal; an off-topic story kept costs the
+# founder's trust in the whole lane, which is already searched last for a
+# non-developer buyer.
 #
-# The two words must be two different WORDS in the text, not one word and its
-# synonym: the vendored `tokenize` expands "js" into "javascript" (and "ml" into
-# "machine" and "learning"), which would make one mention count twice, so the body
-# is read with `_plain_words`, which expands nothing. A title still reads through
-# `tokenize`, because a title match needs one word and the expansion only helps it.
+# WHAT IT DOES NOT FIX, said once so nobody expects more: one generic word of a
+# long query in a TITLE still passes. "Career at home..." (home), "Tailscale-rs:
+# Official Rust library..." (library) and "H.R.8250 Parents Decide Act" (parent)
+# passed in re-check 6. A lexical test cannot tell the word that names a story's
+# subject from the founder's own word matched by luck; only a semantic one
+# (similarity of the title to the founder's question) can, and that is not built.
+# What bounds it today is the per-search lane limit (3 for a non-developer buyer,
+# the rest reported as left out) and the 0.25 audience weight. The entry is in
+# `.planning/codebase/CONCERNS.md`.
 #
-# The TITLE rule is deliberately unchanged: one content word still qualifies
-# ("Starlink Reluctant to Operate in Taiwan" for a question about reluctant
-# readers). A title is one line and the word either names the story's subject or
-# is the founder's own word matched by luck; telling the two apart takes more than
-# a count of words, and a title has no second paragraph to look in.
+# The TITLE rule: one content word qualifies ("Starlink Reluctant to Operate in
+# Taiwan" for a question about reluctant readers). A title is one line and the word
+# either names the story's subject or is the founder's own word matched by luck;
+# telling the two apart takes more than a count of words.
 #
 # THE TRADE-OFF, stated so nobody re-derives it: a story that shares only two
 # weak words with a query can still be off topic. The pair rule counts only the
@@ -213,9 +222,11 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 # test falls back to its WEAK words, ANY ONE of them ("price comparison tool"
 # keeps "Show HN: price comparison for flights", by the single word and not by a
 # pair), and to any query word when it has no weak word either, rather than
-# turning the whole lane into an empty result. That fallback reads the title and
-# the body alike: it exists so a lane does not go empty, and a body-only rule here
-# would empty it.
+# turning the whole lane into an empty result. That fallback reads the TITLE only,
+# like the rule above, and on purpose: one weak word in a body is the weakest
+# evidence this lane could accept and the exact case that let five off-topic
+# stories in, while a lane with nothing titled for the query is a finding
+# ("nothing on Hacker News is named for this"), not a failure.
 _FILLER_TOKENS = frozenset(
     (
         # Countries, regions, nationalities: the market the founder named.
@@ -380,32 +391,20 @@ def _kind(token: str) -> str:
     return _CONTENT
 
 
-def _plain_words(text: str) -> set[str]:
-    """PURE. The word families (`_family`) of the words `text` contains, and
-    nothing the vendored `tokenize` adds: its synonym expansion ("js" for
-    "javascript", "machine" and "learning" for "ml") would let one mention count
-    as two different words.
-    """
-    return {
-        _family(word) for word in cjk.segment(text) if word not in STOPWORDS and len(word) > 1
-    }
-
-
-def matches_a_content_word(prepared: PreparedQuery, title: str, body: str = "") -> bool:
+def matches_a_content_word(prepared: PreparedQuery, title: str) -> bool:
     """PURE. Is the story on topic for the query? THE one place that decides
-    whether a Hacker News hit is.
+    whether a Hacker News hit is, and it reads the TITLE only.
 
-    On topic means: its TITLE shares one CONTENT word with the query or two
-    distinct WEAK words, or its STORY TEXT (`body`) shares two distinct CONTENT
-    words with it (the history and the reasons are in the comment above
-    `_FILLER_TOKENS`). The title is tokenised with the same `tokenize` the
-    relevance score uses, so a word that counts there counts here, and compared
-    on `_family`, like the query's words, so "read" and "reading" are one word
-    in the title and in the body alike; the body is counted on `_plain_words`. With no CONTENT word in
-    the query the test is "any WEAK word" in the title or the body, and with no
-    WEAK word either "any query word"; with no query word at all (stopwords
-    only) every hit stays, as `token_overlap_relevance` already treats such a
-    query as neutral.
+    On topic means: the title shares one CONTENT word with the query or two
+    distinct WEAK words. The story's text is deliberately not an input (the
+    history and the reasons are in the comment above `_FILLER_TOKENS`). The title
+    is tokenised with the same
+    `tokenize` the relevance score uses, so a word that counts there counts here,
+    and compared on `_family`, like the query's words, so "read" and "reading" are
+    one word. With no CONTENT word in the query the test is "any WEAK word" in the
+    title, and with no WEAK word either "any query word"; with no query word at
+    all (stopwords only) every hit stays, as `token_overlap_relevance` already
+    treats such a query as neutral.
     """
     query_tokens = prepared.q_tokens
     if not query_tokens:
@@ -420,13 +419,8 @@ def matches_a_content_word(prepared: PreparedQuery, title: str, body: str = "") 
         elif kind == _WEAK:
             weak.add(_family(token))
     if content:
-        if content & in_title or len(weak & in_title) >= 2:
-            return True
-        # Nothing of the kind in the title: the body must say two different
-        # content words. A query with a single content word cannot, by design.
-        return len(content & _plain_words(body)) >= 2
-    in_hit = in_title | {_family(token) for token in tokenize(body)}
-    return bool((weak or {_family(token) for token in query_tokens}) & in_hit)
+        return bool(content & in_title) or len(weak & in_title) >= 2
+    return bool((weak or {_family(token) for token in query_tokens}) & in_title)
 
 
 def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:
@@ -462,14 +456,14 @@ def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:
         body = _strip_html(str(hit.get("story_text") or ""))
         created = str(hit.get("created_at") or "")[:10] or None
 
-        # A HIT THAT MATCHES NO REAL WORD OF THE QUERY IS NOT ON TOPIC, and one
-        # that matches a single word of its body only is not either. See
-        # `matches_a_content_word`, the one place this is decided, and the
-        # history in the comment above `_FILLER_TOKENS`. Dropped HERE, where the
-        # looseness is introduced, and not for every lane: a web-search snippet
-        # can match a query without repeating its words. An empty result is still
-        # a finding (nothing on HN matches), not an error.
-        if not matches_a_content_word(prepared, title, body):
+        # A HIT WHOSE TITLE HAS NO REAL WORD OF THE QUERY IS NOT ON TOPIC, whatever
+        # its text says. See `matches_a_content_word`, the one place this is
+        # decided, and the history in the comment above `_FILLER_TOKENS`. Dropped
+        # HERE, where the looseness is introduced, and not for every lane: a
+        # web-search snippet can match a query without repeating its words. An
+        # empty result is still a finding (nothing on HN is titled for it), not an
+        # error.
+        if not matches_a_content_word(prepared, title):
             continue
         relevance = token_overlap_relevance(prepared, f"{title} {body}")
 

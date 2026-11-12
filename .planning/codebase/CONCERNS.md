@@ -26,7 +26,7 @@ in the last section.
 | 8 | No index on `Message.chatId`, `Chat.userId`, `Chat.projectId`; whole-project transcript load every turn | every chat read, every turn | Performance |
 | 9 | Redis connects at module load with no `error` listener | `/api/chat` availability | Fragile |
 | 10 | Auth library version skew (`better-auth` 1.6.2 on `@better-auth/core` 1.5.6) | auth correctness | Dependencies |
-| 11 | Research quality without SearXNG; default lanes lean on Hacker News | answer quality | Scaling |
+| 11 | Research quality without SearXNG; default lanes lean on Hacker News, whose relevance test is lexical | answer quality | Scaling |
 | 12 | Default balance of 50 cents has no top-up path | product stops for a real user | Missing |
 | 13 | Gate calibrated on phase 1 only; missing prompts degrade to empty text; one extraction pass per turn | verdict quality | Fragile |
 | 14 | Migrations skip outside Vercel; no from-zero replay in CI | schema drift | Fragile |
@@ -313,6 +313,18 @@ those rechecked.
   `apps/research/app/sources/reddit_gate.py` refuses elsewhere; decide that deliberately.
 - Defaults are `hackernews,web-keyless`; `arctic-shift` (Reddit archive, needs subreddits chosen) and `github` (needs
   `GITHUB_TOKEN`) are off, so a consumer-facing idea gets a developer-forum view unless the operator enables them.
+- **Hacker News relevance is lexical, and for a buyer who is not a developer it still lets off-topic stories through.**
+  `apps/research/app/sources/hackernews.py::matches_a_content_word` keeps a story when its TITLE shares one content word
+  of the researcher's query (or two distinct weak words); the story text is not read (live re-checks 5 and 6 showed every
+  text rule, even "two distinct words", admitting off-topic stories on "read" plus any other word). One generic word of a
+  long query in a title is still enough: "36yo: Career at home vs. Simple life abroad?" (home), "Tailscale-rs: Official Rust
+  library for embedding Tailscale" (library) and "H.R.8250 Parents Decide Act" (parent) passed a parents-of-readers question
+  live. Replayed under the title-only rule, re-check 6's 20 stories become 13, and 8 of those 13 are still off topic (the 7
+  dropped were 5 off topic and 2 adjacent). What bounds it today: the per-search lane limit (3 for
+  a buyer who is not a developer, the rest reported as "left out", `apps/chat/lib/signals/audience.ts::NON_TECHNICAL_LANE_LIMITS`)
+  and the 0.25 Hacker News audience weight (`audience.ts`), which orders the lane behind Reddit and the web. The real fix is
+  semantic relevance (embedding similarity between the title and the founder's question, with a threshold). Not built; a
+  word-list or stemming rule cannot tell a story's subject from a word the founder shares by luck.
 - The SearXNG overlay (`docker-compose.searxng.yml`) pins no version (`searxng/searxng:latest`), is AGPL, and ships a
   placeholder `SEARXNG_SECRET` default for loopback use.
 - One process, synchronous endpoints in a thread pool, a per-process `ARCTIC_SHIFT_LIMITER` (1 request a second, burst 2): more

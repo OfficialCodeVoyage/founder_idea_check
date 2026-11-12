@@ -329,12 +329,13 @@ class TestHackerNews:
         }
         return [item.title for item in hackernews.parse_hits(payload, query, 50)]
 
-    def test_one_content_word_in_the_story_text_alone_does_not_qualify_a_hit(self):
-        # REGRESSION (live QA, re-check 5): 10 of 22 Hacker News sources for a
-        # parents-of-reluctant-readers question had nothing of it in the title and
-        # passed on words found in the story's text, among them a vet directory and
-        # an org-mode notes app that said "parent" or "reading" once in a paragraph.
-        # One word in a paragraph is a mention, not a topic.
+    def test_the_story_text_never_qualifies_a_hit_one_word_or_many(self):
+        # REGRESSION (live QA, re-checks 5 and 6): Hacker News sources for a
+        # parents-of-reluctant-readers question that had nothing of it in the title
+        # passed on words found in the story's text: first a vet directory and an
+        # org-mode notes app that said "parent" or "reading" once in a paragraph,
+        # then, under a two-distinct-words rule, 5 of 7 off-topic stories that said
+        # "read" and any other word of the query. The text is not read at all now.
         query = "parents of reluctant readers early literacy"
         one_word_in_the_body = (
             "Show HN: Independent Vet - find locally owned vets",
@@ -342,30 +343,37 @@ class TestHackerNews:
         )
         assert self._kept_stories(query, [one_word_in_the_body]) == []
 
-        # The same word twice, or a word and its plural, is still ONE word.
+        # The same word twice, or a word and its plural, is still one word.
         same_word_again = (
             "Show HN: a notes app",
             "<p>A reader, then another reader. Readers everywhere.</p>",
         )
         assert self._kept_stories(query, [same_word_again]) == []
 
-    def test_two_distinct_content_words_in_the_story_text_qualify_a_hit(self):
-        # An Ask HN or Show HN whose title is terse and whose text names the
-        # topic is the most valuable thing on the site for demand validation: it
-        # stays when the text says two different content words of the query.
+    def test_two_distinct_content_words_in_the_story_text_no_longer_qualify_a_hit(self):
+        # The rule this replaced kept an Ask HN or Show HN with a terse title whose
+        # text said two different content words of the query. Live QA (re-check 6)
+        # kept an org-mode notes app, a password-cracking write-up and a browser
+        # extension that way, each on "read" plus one ordinary word. The cost, stated
+        # in the comment above `_FILLER_TOKENS`: a genuine thread named only in its
+        # text is missed. The stories below are the cases the rule used to keep.
         query = "parents of reluctant readers early literacy"
         stories = [
             (
                 "Bedtime stories for my daughter",
                 "<p>She is a reluctant reader and we were losing our evenings.</p>",
-            )
+            ),
+            (
+                "Bloom - an org-mode compatible Android app for managing notes",
+                "<p>I read my notes on the train. A parent of two, I keep a reading list.</p>",
+            ),
         ]
-        assert self._kept_stories(query, stories) == [stories[0][0]]
+        assert self._kept_stories(query, stories) == []
 
     def test_one_content_word_in_the_title_qualifies_a_hit_whatever_the_story_text_says(self):
-        # The title rule is unchanged: one content word in the title is enough, with
-        # no text at all, with off-topic text, and for an AI product for children
-        # whose title carries the founder's own words.
+        # One content word in the title is enough, with no text at all, with
+        # off-topic text, and for an AI product for children whose title carries the
+        # founder's own words.
         picture_books = "AI picture books for kids"
         for text in (None, "", "<p>A kitchen timer.</p>"):
             kept = self._kept_stories("AI picture books for kids reading", [(picture_books, text)])
@@ -376,25 +384,20 @@ class TestHackerNews:
         title = "Starlink Reluctant to Operate in Taiwan"
         assert self._kept_stories("reluctant readers", [(title, "")]) == [title]
 
-    def test_the_story_text_rule_counts_words_not_their_synonyms_or_weak_pairs(self):
-        # `tokenize` expands "js" into "javascript": one mention must not count as
-        # two words in a body (it still matches a title, which needs only one).
+    def test_the_story_text_decides_nothing_for_any_shape_of_query(self):
+        # A synonym in the text ("JS" for "javascript"), two weak words in the text
+        # ("code review") and a query with one content word ("tutoring price cost")
+        # all leave a story with a terse title out; the title still decides.
         assert (
             self._kept_stories("javascript bundler", [("Show HN: Foo", "<p>Made in JS.</p>")]) == []
         )
         assert self._kept_stories("javascript bundler", [("Show HN: JS tooling", "")]) != []
-
-        # Two weak words qualify a TITLE (the pair rule); in a body they do not.
         assert (
             self._kept_stories(
                 "code review automation", [("Show HN: Foo", "<p>Code review for teams.</p>")]
             )
             == []
         )
-
-        # A query with ONE content word cannot qualify a hit by its text: no second
-        # distinct word exists to find. The cost the comment above `_FILLER_TOKENS`
-        # states; the title still decides for such a query.
         assert (
             self._kept_stories(
                 "tutoring price cost", [("Show HN: Foo", "<p>Tutoring is expensive.</p>")]
@@ -403,11 +406,18 @@ class TestHackerNews:
         )
         assert self._kept_stories("tutoring price cost", [("Tutoring marketplace", "")]) != []
 
-    def test_a_query_with_no_content_word_still_reads_the_story_text(self):
-        # The fallback exists so a lane does not turn into an empty result, and a
-        # text-only rule there would empty it: any ONE weak word, in title or text.
-        stories = [("Flights", "<p>A price comparison engine.</p>")]
-        assert self._kept_stories("price comparison tool", stories) == [stories[0][0]]
+    def test_a_query_with_no_content_word_reads_the_title_only(self):
+        # The fallback (any ONE weak word, then any query word) exists so a lane
+        # does not turn into an empty result, and it reads the title only: one weak
+        # word in a body is the weakest evidence the lane could accept. An empty
+        # lane is a finding, not an error.
+        story = ("Flights", "<p>A price comparison engine.</p>")
+        assert self._kept_stories("price comparison tool", [story]) == []
+        titled = ("price comparison for flights", "")
+        assert self._kept_stories("price comparison tool", [titled]) == [titled[0]]
+        # With no weak word either ("AI tools"), any query word of the title qualifies.
+        assert self._kept_stories("AI tools", [("A tool for flights", "")]) != []
+        assert self._kept_stories("AI tools", [("Flights", "<p>An AI tool.</p>")]) == []
 
     def test_a_word_matches_its_plural_on_both_sides(self):
         assert self._kept_titles("migrations", ["Zero-downtime migration tooling"]) != []
@@ -416,39 +426,29 @@ class TestHackerNews:
         # word ("migration" is not "migrating").
         assert self._kept_titles("migrations", ["Migrating a monolith"]) == []
 
-    def test_the_inflections_of_one_word_count_as_one_word_in_the_story_text(self):
-        # REGRESSION (live QA, re-check 5, after the two-word text rule): the stem took
-        # only a plural "s" off, so "read" and "reading" were TWO distinct content
-        # words, and a Postgres tool, an Apple developer-account story, a code-review
-        # tool and an adult vocabulary app passed on that pair alone (the researcher's
-        # query held both words, and any story about code "reading" a PR has both).
-        query = "reading books"
+    def test_the_inflections_of_one_word_are_one_word_and_the_text_is_not_read(self):
+        # REGRESSION (live QA, re-check 5): the stem took only a plural "s" off, so
+        # "read" and "reading" were TWO distinct content words, and a Postgres tool,
+        # an Apple developer-account story, a code-review tool and an adult
+        # vocabulary app passed on that pair in their text (the researcher's query
+        # held both words, and any story about code "reading" a PR has both). They
+        # stay out for every query, and so does any other pair found in a text.
         read_and_reading = (
             "Show HN: PgDog - scale Postgres",
             "<p>I read the docs while reading the pull request. A long read.</p>",
         )
-        assert self._kept_stories(query, [read_and_reading]) == []
-
-        # The same holds the other way round: the QUERY's "read" and "reading" are one
-        # word, so a text that says both of them has still said one.
-        assert self._kept_stories("read reading", [read_and_reading]) == []
-        assert self._kept_stories("reader reading", [read_and_reading]) == []
-
-        # Two different words still qualify, whatever their forms.
+        for query in ("reading books", "read reading", "reader reading"):
+            assert self._kept_stories(query, [read_and_reading]) == [], query
         reading_and_books = (
             "Bedtime with my daughter",
             "<p>We started reading together. She picks out her own books now.</p>",
         )
-        assert self._kept_stories(query, [reading_and_books]) == [reading_and_books[0]]
-        readers_and_booking = (
-            "Bedtime with my daughter",
-            "<p>The readers she likes come from the library. Booked every week.</p>",
-        )
-        assert self._kept_stories(query, [readers_and_booking]) == [readers_and_booking[0]]
+        assert self._kept_stories("reading books", [reading_and_books]) == []
 
         # The title rule needs one word, in any of its forms.
         assert self._kept_titles("readers", ["Reading apps for kids"]) != []
         assert self._kept_titles("reading", ["Why my kid reads less"]) != []
+        assert self._kept_titles("reading books", ["Bedtime with my daughter's books"]) != []
 
     def test_the_weak_pair_counts_families_too(self):
         # "price" and "pricing" are one weak word, so they are not a pair.

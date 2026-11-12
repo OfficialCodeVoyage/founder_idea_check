@@ -140,20 +140,30 @@ lane in which every subreddit it was given answered cleanly with no posts.
 
 Hacker News is searched with Algolia's `optionalWords`, so a page of stories
 comes back whatever the topic, and the lane keeps a story only when it is on
-topic for the query (`app/sources/hackernews.py::matches_a_content_word`). The
-**title** decides first: one content word of the query in it is enough, or two
-different weak ones ("code" and "review"). A story with neither in the title
-stays only when its **text** (the Show HN or Ask HN body) says two different
-content words of the query; one word in a paragraph is a mention, not a topic
-(a live run let in a vet directory and a notes app that way). "Different" means a
-different word family: "read", "reader" and "reading" are one word (a plural comes
-off, and so do "-ing", "-ed" and "-er" when four letters or more are left, so "ring"
-stays whole), which is why a Postgres tool or a code-review tool that merely "reads"
-and is "reading" something no longer passes as two words. Stopwords, numbers and years, countries, file types, research filler
+topic for the query (`app/sources/hackernews.py::matches_a_content_word`). Only the
+**title** decides: one content word of the query in it is enough, or two
+different weak ones ("code" and "review"). The story's text (the Show HN or Ask HN
+body) is **not read**. Two live runs let off-topic stories in on their text, even
+under a rule that wanted two different words in it ("read" plus any other word of a
+long query: a notes app, a password-cracking write-up, a browser extension), so the
+rule is title-only. The cost: an Ask HN or Show HN thread whose title does not name
+the topic and whose text does is missed. "Different" means a different word family:
+"read", "reader" and "reading" are one word (a plural comes off, and so do "-ing",
+"-ed" and "-er" when four letters or more are left, so "ring" stays whole).
+Stopwords, numbers and years, countries, file types, research filler
 (report, survey, official, qualitative), time and age words and broad tech words
-(AI, app, tool) are never content words. So a query with a single content word
-matches by title alone, and a query with none falls back to any weak word, then
-any word, in title or text, rather than returning nothing.
+(AI, app, tool) are never content words. A query with no content word falls back to
+any weak word, then any word, **in the title**, rather than returning nothing; a lane
+with nothing titled for the query is an empty finding, not a failure.
+
+**Known limit: Hacker News relevance is lexical.** One generic word of a long query in
+a title still passes ("Career at home vs. Simple life abroad?" for "home", "Tailscale-rs:
+Official Rust library" for "library", a legislation story for "parent"), so for a buyer
+who is not a developer some off-topic stories remain. Today that is bounded by the
+per-search lane limit below (3 for such a buyer, the rest reported as left out) and
+the 0.25 audience weight. The real fix is semantic relevance (embedding similarity
+between the title and the founder's question); it is not built.
+`.planning/codebase/CONCERNS.md` (rank 11) carries the entry.
 
 The permission gate (`app/sources/base.py::assert_permitted`) still supports a
 source that is barred in hosted mode or needs a credential beyond the operator

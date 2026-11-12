@@ -94,6 +94,43 @@ if (env.REDIS_URL) {
 
 let globalStreamContext: ResumableStreamContext | null = null;
 
+/**
+ * Resumable streams are an optional extra: without Redis a reply still streams,
+ * is saved and is charged, so a missing context used to change nothing a log
+ * could show (live QA, re-check 5: with Redis out, the only sign was the absent
+ * "Returning resumable stream" line). Say so, but not on every request: once per
+ * reason, then at most once a minute. A reason is a kind of fallback, not a
+ * request, so a busy server logs a few lines an hour rather than one per reply.
+ */
+const RESUMABLE_OFF_NOTICE_INTERVAL_MS = 60_000;
+const resumableOffNoticeAt = new Map<string, number>();
+
+function noticeResumableStreamsOff(
+  reason: "not-configured" | "redis-failed",
+  error?: unknown
+): void {
+  const now = Date.now();
+  const last = resumableOffNoticeAt.get(reason);
+  if (last !== undefined && now - last < RESUMABLE_OFF_NOTICE_INTERVAL_MS) {
+    return;
+  }
+  resumableOffNoticeAt.set(reason, now);
+
+  const log = createModuleLogger("api:chat:resumable");
+  const consequence =
+    "a reloaded page cannot resume a reply in progress; replies are still saved and charged";
+  if (reason === "not-configured") {
+    log.warn(
+      `resumable streams are off: Redis is not configured (REDIS_URL is unset), so ${consequence}`
+    );
+    return;
+  }
+  log.warn(
+    { error: error instanceof Error ? error.message : String(error) },
+    `resumable streams are off for this reply: Redis is not reachable, so ${consequence}`
+  );
+}
+
 export function getStreamContext(): ResumableStreamContext | null {
   if (globalStreamContext) {
     return globalStreamContext;
@@ -101,6 +138,7 @@ export function getStreamContext(): ResumableStreamContext | null {
 
   // Resumable streams require Redis - return null if not configured
   if (!(redisPublisher && redisSubscriber)) {
+    noticeResumableStreamsOff("not-configured");
     return null;
   }
 
@@ -1011,6 +1049,7 @@ async function executeChatRequest({
         { error, streamId },
         "resumable stream failed before it took the chat stream; serving it plain"
       );
+      noticeResumableStreamsOff("redis-failed", error);
     }
   }
 

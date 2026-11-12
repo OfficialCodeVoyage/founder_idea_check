@@ -1,9 +1,7 @@
-import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { SimulationPanel } from "@/components/simulation/simulation-panel";
 import { SimulationProfileForm } from "@/components/simulation/simulation-profile-form";
-import { auth } from "@/lib/auth";
 import { getProjectFacts } from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
 import {
@@ -13,6 +11,7 @@ import {
 } from "@/lib/db/simulation-queries";
 import { describeSeedGap } from "@/lib/personas/simulation-gaps";
 import { toSimulationPersonas } from "@/lib/personas/simulation-input";
+import { getRequestSession } from "@/lib/request-session";
 
 /**
  * The project simulation screen: run a pitch past the seeded personas, and read
@@ -81,7 +80,7 @@ async function ProjectSimulationContent({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getRequestSession();
   if (!session?.user) {
     redirect("/");
   }

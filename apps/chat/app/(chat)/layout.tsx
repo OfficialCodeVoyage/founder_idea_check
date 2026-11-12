@@ -1,4 +1,4 @@
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { Suspense } from "react";
 import { getChatModels } from "@/app/actions/get-chat-models";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -8,13 +8,13 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import type { AppModelId } from "@/lib/ai/app-model-id";
 import { config } from "@/lib/config";
 import { isPlaywrightTestEnvironment } from "@/lib/constants";
+import { getRequestSession } from "@/lib/request-session";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { ChatModelsProvider } from "@/providers/chat-models-provider";
 import { DefaultModelProvider } from "@/providers/default-model-provider";
 import { SessionProvider, SessionSeed } from "@/providers/session-provider";
 import { TRPCReactProvider } from "@/trpc/react";
 import { getQueryClient, HydrateClient, trpc } from "@/trpc/server";
-import { auth } from "../../lib/auth";
 import { ChatProviders } from "./chat-providers";
 import { ChatRouteHost } from "./chat-route-host";
 
@@ -45,14 +45,13 @@ export default async function ChatLayout({
 }
 
 async function ChatLayoutDynamic({ children }: { children: React.ReactNode }) {
-  const [cookieStore, headersRes, chatModels] = await Promise.all([
+  const [cookieStore, chatModels] = await Promise.all([
     cookies(),
-    headers(),
     getChatModels(),
   ]);
   const session = isPlaywrightTestEnvironment
     ? null
-    : await auth.api.getSession({ headers: headersRes });
+    : await getRequestSession();
 
   const cookieModel = cookieStore.get("chat-model")?.value;
   const isAnonymous = !session?.user;
@@ -86,10 +85,26 @@ async function ChatLayoutDynamic({ children }: { children: React.ReactNode }) {
   if (session?.user?.id) {
     const queryClient = getQueryClient();
     // "Lazy prefetch": don't await; pending queries are dehydrated + streamed.
-    queryClient.prefetchQuery(trpc.settings.getModelPreferences.queryOptions());
     queryClient.prefetchQuery(trpc.project.list.queryOptions());
     queryClient.prefetchQuery(
       trpc.chat.getAllChats.queryOptions({ projectId: null })
+    );
+    // Model preferences are awaited, not lazy. A second HydrationBoundary
+    // carries the same query (`app/(chat)/settings/models/page.tsx::
+    // ModelsSettingsContent`), and React Query's HydrationBoundary applies
+    // data for a query already in the cache only in an effect after commit.
+    // When this boundary streamed the query pending, the page's resolved copy
+    // could not reach the first render, so `ModelsTable` showed data or its
+    // loading skeleton depending on whether the streamed promise had settled
+    // in that pass. The server and the browser settled it at different
+    // moments, and hydration failed. Resolved here, both boundaries carry the
+    // same data with the same `dataUpdatedAt`: this one hydrates during
+    // render on both sides, and the page's is skipped as not newer. It also
+    // gives `ChatModelsProvider` the user's model filter on first paint. The
+    // cost is one indexed read before the layout renders (in dev also the
+    // artificial delay of `trpc/init.ts::timingMiddleware`).
+    await queryClient.prefetchQuery(
+      trpc.settings.getModelPreferences.queryOptions()
     );
   }
 

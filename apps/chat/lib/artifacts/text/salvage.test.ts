@@ -3,6 +3,7 @@ import { validateToolPart } from "@/lib/utils/message-part-validators";
 import {
   DEAD_INPUT_STREAM_MARKER,
   describeInputStream,
+  hasInputStreamEnded,
   partialDocumentBody,
   partialDocumentTitle,
   salvageTextDocumentInput,
@@ -242,6 +243,74 @@ describe("describeInputStream", () => {
     });
     expect(verdict).not.toHaveProperty("headline");
     expect(verdict).not.toHaveProperty("salvage");
+  });
+});
+
+describe("hasInputStreamEnded", () => {
+  const STREAM_ID = "stream-1";
+
+  it("calls the last message alive while the chat is submitting or streaming", () => {
+    for (const chatStatus of ["submitted", "streaming"] as const) {
+      expect(
+        hasInputStreamEnded({
+          isLastMessage: true,
+          chatStatus,
+          activeStreamId: STREAM_ID,
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("does not call a message dead in the beat before a reload reattaches its stream", () => {
+    expect(
+      hasInputStreamEnded({
+        isLastMessage: true,
+        chatStatus: "ready",
+        activeStreamId: STREAM_ID,
+      })
+    ).toBe(false);
+  });
+
+  it("calls the last message dead once the chat has errored, whatever id it still carries", () => {
+    // The server's timer aborted the stream: no finish chunk ever cleared the
+    // id the client got at start, and the chat banner said "Something went
+    // wrong" while the row kept spinning.
+    expect(
+      hasInputStreamEnded({
+        isLastMessage: true,
+        chatStatus: "error",
+        activeStreamId: STREAM_ID,
+      })
+    ).toBe(true);
+  });
+
+  it("calls a ready message with no stream to wait on dead", () => {
+    expect(
+      hasInputStreamEnded({
+        isLastMessage: true,
+        chatStatus: "ready",
+        activeStreamId: null,
+      })
+    ).toBe(true);
+  });
+
+  it("keeps an earlier message dead while a continuation streams, even with a stale id", () => {
+    // Pressing "Continue" appends a new message and the chat runs again; the
+    // dead card above it must not turn back into a spinner.
+    for (const chatStatus of [
+      "submitted",
+      "streaming",
+      "ready",
+      "error",
+    ] as const) {
+      expect(
+        hasInputStreamEnded({
+          isLastMessage: false,
+          chatStatus,
+          activeStreamId: STREAM_ID,
+        })
+      ).toBe(true);
+    }
   });
 });
 

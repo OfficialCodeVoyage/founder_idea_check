@@ -30,6 +30,7 @@
  * the persisted message cannot disagree about whether a stream died.
  */
 
+import type { ChatStatus } from "ai";
 import {
   type ArtifactKind,
   artifactKinds,
@@ -409,13 +410,57 @@ function continueRequest(
 }
 
 /**
+ * WHETHER NO MORE INPUT CAN ARRIVE FOR A TOOL PART IN THIS CHAT, FROM THE
+ * RENDERER'S SIDE. It is the renderer's `streamEnded`.
+ *
+ * Four facts, none sufficient alone:
+ *
+ *  - Only the LAST message can be receiving a stream, so any earlier message
+ *    has ended whatever the chat is doing. A chat-wide `submitted`/`streaming`
+ *    is usually a continuation streaming in a NEW message; it says nothing
+ *    about the dead one above it, and a stale `activeStreamId` on that dead
+ *    message must not bring its spinner back.
+ *  - `submitted`/`streaming` on the last message means it is arriving.
+ *  - `error` on the last message means the request carrying it failed or was
+ *    cut (a timeout, a dropped connection). The `finish` chunk that would have
+ *    cleared `activeStreamId` never came, so the client's copy keeps the id it
+ *    got at `start` and `activeStreamId` alone calls the part alive forever —
+ *    a "Creating…" spinner beside a "Something went wrong" banner, until a
+ *    reload.
+ *  - Otherwise the chat is `ready`, which is also how it looks for a beat on
+ *    load while a resumable stream is being reattached. Only a message that is
+ *    still waiting on a stream (`activeStreamId` set) may be called alive
+ *    then; a null id is also what every message looks like in a read-only view,
+ *    which is why it cannot decide on its own either.
+ */
+export function hasInputStreamEnded({
+  isLastMessage,
+  chatStatus,
+  activeStreamId,
+}: {
+  isLastMessage: boolean;
+  chatStatus: ChatStatus;
+  activeStreamId: string | null | undefined;
+}): boolean {
+  if (!isLastMessage) {
+    return true;
+  }
+  if (chatStatus === "submitted" || chatStatus === "streaming") {
+    return false;
+  }
+  if (chatStatus === "error") {
+    return true;
+  }
+  return !activeStreamId;
+}
+
+/**
  * THE DETECTION HALF.
  *
  * `streamEnded` is the caller's fact, not this module's, because the two
  * callers know it differently: the route knows it because it is inside
- * `onFinish`, and the renderer knows it because the chat status has left
- * `streaming`/`submitted` AND the message carries no `activeStreamId`. Both
- * feed the same judgement so the live chat and a reloaded page agree.
+ * `onFinish`, and the renderer asks `hasInputStreamEnded`. Both feed the same
+ * judgement so the live chat and a reloaded page agree.
  *
  * `output-error` carrying the marker is recognised as the same failure so that
  * a page reloaded after the server marked the part renders the salvage card

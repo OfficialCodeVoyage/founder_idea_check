@@ -8,6 +8,7 @@ import { useArtifact } from "@/hooks/use-artifact";
 import type { ChatMessage } from "@/lib/ai/types";
 import {
   describeInputStream,
+  hasInputStreamEnded,
   type InputStreamVerdict,
   partialDocumentBody,
   partialDocumentTitle,
@@ -44,6 +45,24 @@ interface DocumentToolComponentProps {
 type DeadStream = Extract<InputStreamVerdict, { died: true }>;
 
 /**
+ * The panel fields for the copy rebuilt from the message itself: the
+ * "[PARTIAL]" title and the bannered body, as `text` because the banner is
+ * markdown. Shared by the button and by the settle effect below so the two
+ * can never show different copies of the same partial.
+ */
+function unsavedCopyFields(
+  salvage: Extract<DeadStream["salvage"], { salvaged: true }>
+) {
+  return {
+    documentId: "init",
+    title: partialDocumentTitle(salvage.title),
+    content: partialDocumentBody(salvage),
+    kind: "text" as const,
+    status: "idle" as const,
+  };
+}
+
+/**
  * THE FAILURE CARD FOR A DOCUMENT THAT NEVER FINISHED ARRIVING.
  *
  * On 2026-08-21 a `createTextDocument` call froze at `input-streaming` holding
@@ -71,24 +90,42 @@ function DeadDocumentStream({
   const storeApi = useChatStoreApi<ChatMessage>();
   const { salvage, store } = verdict;
 
+  // A STREAM THAT DIES WHILE THIS TAB WATCHES LEAVES THE PANEL SPINNING.
+  //
+  // The tool row auto-opened the panel and kept it at `status: "streaming"`
+  // with the raw, unlabelled input. This card now owns the part, and the
+  // part's own effect stops touching the panel once the part is dead, so
+  // nothing else would ever stop that spinner or label the partial text. Only
+  // a panel that is still streaming THIS message is settled: one the founder
+  // has since pointed elsewhere is left alone, and a part that arrived already
+  // dead (a reload) never owned the panel at all.
+  useEffect(() => {
+    setArtifact((prev) => {
+      if (prev.messageId !== messageId || prev.status !== "streaming") {
+        return prev;
+      }
+      return salvage.salvaged
+        ? { ...prev, ...unsavedCopyFields(salvage) }
+        : { ...prev, status: "idle", isVisible: false };
+    });
+  }, [messageId, salvage, setArtifact]);
+
   const openPartial = () => {
     if (!salvage.salvaged) {
       return;
     }
-    // Marked partial in the panel header as well as in the body: a founder
-    // who opens this and reads to the end must not be able to mistake it for
-    // a finished document at any point on the way.
-    const title = partialDocumentTitle(salvage.title);
-    const content = partialDocumentBody(salvage);
     if (store.state === "saved") {
       // The Document row the server wrote, under its own id and kind; the
       // panel loads its stored content (and any later edits) by that id.
+      // Marked partial in the panel header as well as in the body: a founder
+      // who opens this and reads to the end must not be able to mistake it for
+      // a finished document at any point on the way.
       setArtifact((prev) => ({
         ...prev,
         documentId: store.documentId,
         kind: store.kind,
-        title,
-        content,
+        title: partialDocumentTitle(salvage.title),
+        content: partialDocumentBody(salvage),
         messageId,
         status: "idle",
         isVisible: true,
@@ -96,15 +133,11 @@ function DeadDocumentStream({
       return;
     }
     // Nothing was saved (or the server's answer has not arrived yet), so this
-    // is a copy rebuilt from the message itself. The bannered body is
-    // markdown, hence `text`; the card's label and detail say it is unsaved.
+    // is a copy rebuilt from the message itself; the card's label and detail
+    // say it is unsaved.
     setArtifact((prev) => ({
       ...prev,
-      documentId: "init",
-      title,
-      content,
-      kind: "text",
-      status: "idle",
+      ...unsavedCopyFields(salvage),
       isVisible: true,
     }));
   };
@@ -178,28 +211,18 @@ function PureDocumentTool({
   const inputTitle = tool.input?.title ?? "";
   const inputContent = tool.input?.content ?? "";
 
-  // TWO INDEPENDENT SIGNALS, BOTH REQUIRED, BECAUSE EITHER ALONE LIES.
-  //
-  // `status` is "ready" for a beat while a resumable stream is being
-  // reattached on load, so status alone would flash "this died" over a
-  // document that is about to keep arriving. `activeStreamId` is null on a
-  // message whose stream is genuinely over, but it is also null on every
-  // message in a read-only or shared view. Requiring both means a part is
-  // called dead only when nothing is running AND this message is not waiting
-  // on anything.
-  //
-  // "Nothing is running" is about THIS message. Only the last message can be
-  // receiving a stream, so a chat-wide `submitted`/`streaming` says nothing
-  // about an earlier one. Without this, pressing "Continue" on a dead card
-  // turned it back into the "Creating…" row and let the effect below
-  // overwrite the panel's partial-labelled copy with the raw input, which
-  // nothing restored.
+  // WHETHER THIS PART'S STREAM IS OVER IS `hasInputStreamEnded`'s CALL (its
+  // comment says why chat status and `activeStreamId` each lie alone, why only
+  // the last message can be receiving a stream, and why an `error` status ends
+  // it). Two incidents are written into that rule: pressing "Continue" on a
+  // dead card turned it back into the "Creating…" row, and a stream the server
+  // aborted left the row spinning beside "Something went wrong" until reload.
   const isLastMessage = useLastMessageId() === messageId;
-  const chatIsRunning = status === "streaming" || status === "submitted";
-  const streamEnded = !(
-    (isLastMessage && chatIsRunning) ||
-    metadata.activeStreamId
-  );
+  const streamEnded = hasInputStreamEnded({
+    isLastMessage,
+    chatStatus: status,
+    activeStreamId: metadata.activeStreamId,
+  });
 
   const verdict = describeInputStream({
     state: tool.state,
@@ -212,7 +235,8 @@ function PureDocumentTool({
   useEffect(() => {
     // A DEAD STREAM MUST NOT LEAVE THE PANEL SPINNING. `status: "streaming"`
     // is what made the artifact panel indistinguishable from one still filling
-    // up; the card below owns this part's presentation once the stream is over.
+    // up; the card below owns this part's presentation once the stream is
+    // over, and settles a panel this part left streaming.
     if (verdict.died) {
       return;
     }

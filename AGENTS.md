@@ -1,12 +1,14 @@
-# ChatJS Agent Instructions
+# Founder Idea Check — agent instructions
 
 ## Repository
 
 - Use Bun for packages and scripts.
 - The monorepo contains applications in `apps/` and shared packages in
   `packages/`.
-- Run `bun lint`, `bun test:types`, and the relevant tests before handing off
-  code changes. Do not run a production build merely to type-check.
+- Run `bun run verify` (lint + type-check + ruff) and the relevant tests before
+  handing off code changes. Do not run a production build merely to type-check.
+- `bun run test:types` deletes `apps/chat/.next/dev/types`: never run it while a
+  dev server is running. `bun run verify` is safe beside one.
 
 ## Agent guidance
 

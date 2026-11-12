@@ -19,8 +19,9 @@ _Last updated: 2026-11-12 (`chore/agent-setup-261112`)_
 - Diagnose what freezes a tool-input stream mid-document (today it is loud and recoverable, not explained).
 
 ## Decisions in flight
-- 2026-11-12 — Release as Apache-2.0 open source; public history is a clean replay of our commits on
-  the upstream fork point — keeps upstream attribution intact and private material out.
+- 2026-11-12 — Release as Apache-2.0 open source. The public history starts with one commit holding the
+  ChatJS code at the fork point, credited to ChatJS in its message, followed by a clean replay of our
+  commits — keeps private material out; `NOTICE` and `LICENSE` carry the attribution.
 - 2026-11-12 — The two keyless Reddit scraper lanes are removed; the Arctic Shift public-API lane stays
   — the scrapers route around an access control (see `.claude/rules/research-sources.md`).
 

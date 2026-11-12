@@ -19,3 +19,4 @@ Nygard: Status / Context / Decision ("We will…") / Consequences. One page.
 
 | # | Title | Status |
 |---|---|---|
+| [0001](0001-stack-as-found.md) | Keep the ChatJS stack and add a separate Python research sidecar | Accepted |

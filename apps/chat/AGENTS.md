@@ -13,8 +13,11 @@ These instructions apply to this application directory.
 
 ## Commands
 
-- Type-check with `bun test:types`; do not use a production build as a type
-  check.
+- Type-check with `bun run verify` from the repository root; it is safe beside a
+  running `next dev`. `bun test:types` deletes `.next/dev/types`, so never run
+  it beside a dev server. Do not use a production build as a type check.
+- Run unit tests with `bun run test:unit`. A bare `bun test` here runs Bun's
+  own test runner, not vitest.
 - Run `bun lint` after TypeScript, React, JSON, or CSS changes.
 - For authenticated browser testing, visit `/api/dev-login` on the discovered
   local app URL before testing.
@@ -23,8 +26,13 @@ These instructions apply to this application directory.
 
 1. Change `lib/db/schema.ts`.
 2. Run `bun db:generate`.
-3. Review the generated migration.
-4. Run `bun db:migrate` only when applying the migration is in scope.
+3. Review the generated migration. drizzle-kit can record a CHECK constraint
+   and emit no SQL for it, so write CHECK constraints by hand
+   (`lib/db/migrations/0051_absent_part_checks.sql`).
+4. Never run `bun db:migrate` against the local dev database: it was built with
+   `db:push`, and the migrator runs every pending file in one transaction that
+   aborts on the first already-applied change. Apply a migration there with
+   `psql`, after replaying it on a throwaway database. See `DATA-LAYER.md`.
 
 ## Environment and configuration
 

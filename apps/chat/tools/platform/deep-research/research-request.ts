@@ -9,23 +9,34 @@ import { getTextContentFromModelMessage } from "@/lib/utils";
  *
  *     Deep research failed with error: Invalid prompt: messages must not be empty
  *
- * `{}` is not the anomaly — the tool's `inputSchema` IS `z.object({})`, because
- * its subject is the conversation, handed in as `contextForLLM` by
- * tools/platform/tools.ts. The anomaly is that the conversation was empty, which
- * nothing checked. `clarifyWithUser` built a one-element prompt from it,
- * `truncateMessages` had nothing to keep, and the AI SDK's own validator threw
- * three layers down. That message names a `messages` array the founder has never
- * heard of and offers them nothing to do.
+ * Neither `{}` nor an empty conversation was the cause, and this check would not
+ * have caught that run. `{}` is not an anomaly — the tool's `inputSchema` IS
+ * `z.object({})`, because its subject is the conversation, handed in as
+ * `contextForLLM` by tools/platform/tools.ts, and the runs that later succeeded
+ * stored `{}` too. The founder's message was also there, in the stored parts.
+ * What emptied the prompt was a ZERO TOKEN BUDGET: `getModelContextWindow`
+ * passed on the gateway's placeholder `context_window: 0`, `truncateMessages`
+ * had no room for even one message and returned `[]`, and the AI SDK's own
+ * validator threw three layers down. Fixed in 2cb9c253 at both ends (an
+ * unreported window falls back to a floor; `truncateMessages` never returns an
+ * empty list for a non-empty one), guarded in lib/ai/token-utils.test.ts. The
+ * model then called the tool a second time after the failure, which is why the
+ * transcript shows two research blocks: two calls, not one rendered twice.
  *
- * Two properties of the replacement matter more than its wording.
+ * What this file guards is the remaining way to send nothing: a conversation
+ * that carries no text at all. No known path builds one today; it is here so the
+ * next such bug fails in words, not in the SDK's `messages` array the founder has
+ * never heard of.
+ *
+ * Two properties of the refusal matter more than its wording.
  *
  * 1. IT SAYS NOTHING WAS SEARCHED. A research failure that reads as a research
  *    result is how "no evidence of demand" gets written off the back of a
  *    plumbing bug, and the *Verifying Demand* gate then BLOCKS a founder on it.
- * 2. IT NAMES THE CALL, NOT THE FOUNDER. The model's actual recovery in the
+ * 2. IT NAMES THE CALL, NOT THE FOUNDER. The model's recovery in the 2026-08-21
  *    transcript was to apologise and ask the founder for "a tiny bit of scope"
  *    — sending them off answering clarifying questions that could not have
- *    helped, because the tool had never received their brief in the first place.
+ *    helped, because nothing they could say would have changed the budget.
  */
 
 export type ResearchRequestCheck =

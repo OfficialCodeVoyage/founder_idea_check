@@ -85,10 +85,11 @@ export const deepResearch = ({
         };
       }
 
-      // NEVER RUN WITH AN EMPTY CONVERSATION. This is where `tool_input = {}`
-      // became "Invalid prompt: messages must not be empty" — an AI-SDK
-      // validator firing three layers down, inside `clarifyWithUser`. See
-      // research-request.ts for why the replacement wording is shaped as it is.
+      // NEVER RUN WITH AN EMPTY CONVERSATION. "Invalid prompt: messages must not
+      // be empty" is an AI-SDK validator firing three layers down, inside
+      // `clarifyWithUser`; the 2026-08-21 run that showed it was a zero token
+      // budget, not an empty conversation. See research-request.ts for that
+      // history and for why the refusal wording is shaped as it is.
       const request = checkResearchRequest(messages);
       if (!request.ok) {
         log.error(

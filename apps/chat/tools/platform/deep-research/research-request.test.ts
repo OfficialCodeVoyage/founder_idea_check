@@ -9,9 +9,11 @@ import { checkResearchRequest } from "./research-request";
  * three layers down, and there is nothing a founder can do with it.
  *
  * The tool's `inputSchema` really is `z.object({})`: its subject is the
- * conversation, passed in as `contextForLLM`. So "empty input" means an empty
- * conversation, and it has to be caught HERE, at the call site, before
- * `clarifyWithUser` hands an empty message array to `generateText`.
+ * conversation, passed in as `contextForLLM`. `{}` is therefore normal, and the
+ * 2026-08-21 failure itself was a zero token budget (see research-request.ts).
+ * What is checked HERE is the other way to send nothing, a conversation with no
+ * text, caught at the call site before `clarifyWithUser` hands an empty prompt
+ * to `generateText`.
  */
 
 function user(text: string): ModelMessage {

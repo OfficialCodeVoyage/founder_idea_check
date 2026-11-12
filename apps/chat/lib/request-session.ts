@@ -4,8 +4,7 @@ import { auth } from "@/lib/auth";
 
 /**
  * The signed-in session for the current request, for code that runs while a
- * Server Component renders (layouts, pages, and the tRPC context that
- * `prefetchQuery` builds during render).
+ * Server Component renders (layouts and pages).
  *
  * `await connection()` comes first on purpose. With `cacheComponents` and
  * `partialPrefetching` (`next.config.ts`), `cookies()` and `headers()` resolve
@@ -19,8 +18,12 @@ import { auth } from "@/lib/auth";
  *
  * `connection()` rather than `io()`: the session decides redirects and who
  * the page is for, so it must wait for a real request and never be part of a
- * prefetch. In route handlers and server actions `connection()` resolves at
- * once, so this is safe wherever the tRPC context is built.
+ * prefetch.
+ *
+ * Not used by `trpc/init.ts::createTRPCContext`: putting `connection()` there
+ * made the dev server reload `/` about 25 times in a row on the first load
+ * after sign-in (checked by hand on Next 16.4.5), and the context was never
+ * where the clock error was reported.
  */
 export async function getRequestSession() {
   await connection();

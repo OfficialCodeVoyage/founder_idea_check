@@ -234,23 +234,36 @@ class TestHackerNews:
         }
         return [item.title for item in hackernews.parse_hits(payload, query, 50)]
 
-    def test_a_hit_that_shares_two_distinct_weak_words_is_on_topic(self):
+    def test_a_query_with_no_content_word_matches_on_any_one_of_its_weak_words(self):
         # REGRESSION (code review of the filter above). "code", "review", "price",
         # "comparison" and "rate" are on the generic lists, so a hit that matched
         # only those was dropped, with no stemming either: "tool" did not match
         # "tools". On-topic stories for developer queries came back empty.
+        #
+        # THE FALLBACK RULE, not the pair rule: these queries have no content word
+        # ("tools" is a broad word), so any ONE of their weak words qualifies a hit.
         cases = [
             ("code review tools", "Show HN: A code review tool for pull requests"),
             ("code review tools", "Ask HN: How do you do code review in a small team?"),
             ("price comparison tool", "Show HN: price comparison for flights"),
-            ("rate limiting api gateway", "Show HN: rate limiter for APIs"),
         ]
         for query, title in cases:
             kept = self._kept_titles(query, [title])
             assert len(kept) == 1, (query, title)
 
-        # With a content word in the query, two distinct weak words still carry a
-        # hit that has none of it, and one weak word does not.
+        # A hit with none of the weak words is still off topic.
+        assert self._kept_titles("code review tools", ["A story about gardening"]) == []
+
+    def test_a_content_word_qualifies_a_hit_on_its_own_beside_weak_words(self):
+        # THE CONTENT RULE: "api" decides, and "APIs" matches it on its plural stem,
+        # although the hit has only one of the query's weak words ("rate").
+        kept = self._kept_titles("rate limiting api gateway", ["Show HN: rate limiter for APIs"])
+        assert len(kept) == 1
+
+    def test_two_distinct_weak_words_qualify_a_hit_that_lacks_the_content_word(self):
+        # THE PAIR RULE, the only case that exercises it: the query has a content
+        # word ("automation") that the hit lacks, and two weak words ("code",
+        # "review") that it has. With one weak word, the hit is dropped.
         kept = self._kept_titles(
             "code review automation",
             [
@@ -259,6 +272,51 @@ class TestHackerNews:
             ],
         )
         assert kept == ["How do you do code review in a small team?"]
+
+        # The trade-off the comment above `_FILLER_TOKENS` states: the pair needs two
+        # weak words in the QUERY. "tutoring price cost" lets an airline-fares story
+        # through on price + cost; "tutoring price" has no second weak word to pair.
+        assert self._kept_titles("tutoring price cost", ["Airline fares price and cost"]) != []
+        assert self._kept_titles("tutoring price", ["Airline fares price and cost"]) == []
+
+    def test_time_and_local_never_complete_a_pair(self):
+        # REGRESSION (code review). "time" and "local" had been moved from the NEVER
+        # words to the weak ones, which reopened a case already closed in QA run 2:
+        # price + time let "Netflix Raising Prices for Second Time in Less Than Two
+        # Years" through for a screen-time query.
+        assert (
+            self._kept_titles(
+                "kids screen time apps price",
+                ["Netflix Raising Prices for Second Time in Less Than Two Years"],
+            )
+            == []
+        )
+        assert (
+            self._kept_titles("local plumbing price", ["Local news: the price of eggs rises"]) == []
+        )
+
+    def test_research_framing_words_never_qualify_a_hit(self):
+        # REGRESSION (live QA, re-check 4): 12 government "officials" stories and 15
+        # AI-tool stories were 27 of 49 Hacker News sources for a parents-of-early-
+        # readers buyer, because the researcher's long queries carry framing words
+        # ("official", "qualitative", "recent") that counted as content words.
+        query = (
+            "parents of early readers official qualitative quantitative evidence "
+            "findings recent current latest overview sources"
+        )
+        off_topic = [
+            "Officials say the new tariff is official",
+            "A qualitative analysis of Rust compile times",
+            "Latest overview of current sources of lithium",
+            "Quantitative easing, recent findings",
+        ]
+        on_topic = ["How do parents help early readers who hate reading?"]
+        assert self._kept_titles(query, off_topic + on_topic) == on_topic
+
+        # Words that are often the topic itself stay content words, and so does
+        # "source" alone ("open source").
+        assert self._kept_titles("early literacy interventions", ["Interventions that work"]) != []
+        assert self._kept_titles("open source licensing", ["Open source is eating the world"]) != []
 
     def test_a_word_matches_its_plural_on_both_sides(self):
         assert self._kept_titles("migrations", ["Zero-downtime migration tooling"]) != []

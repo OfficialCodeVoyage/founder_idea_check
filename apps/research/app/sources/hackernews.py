@@ -156,18 +156,25 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 # plural "s"), on BOTH sides, so "tool" matches "tools" and "APIs" matches "api".
 #
 # THE TRADE-OFF, stated so nobody re-derives it: a story that shares only two
-# weak words with a query can still be off topic (a story about airline fares
-# that says "price" and "cost", for a query about the price of tutoring). Counting
-# weak words in pairs buys back "Show HN: price comparison for flights" for the
-# query "price comparison tool", which a one-word rule dropped, and costs a few
-# such coincidences. The research filler and the age words stay NEVER on purpose:
+# weak words with a query can still be off topic. The pair rule counts only the
+# weak words the QUERY has, so it needs a query with two of them AND a content
+# word: for "tutoring price cost", "Airline fares price and cost" passes on
+# price + cost although it says nothing of tutoring (for "tutoring price" it
+# cannot, there is no second weak word to pair). What the pair buys back is "How do
+# you do code review in a small team?" for the query "code review automation",
+# which a content-word-only rule dropped, and it costs a few such coincidences.
+# The research filler, the age words and "time" and "local" stay NEVER on purpose:
 # they are what let "Netflix Raising Prices for Second Time in Less Than Two
-# Years" (price + years) and "...survey report says" through in QA run 2.
+# Years" (price + years, and price + time) and "...survey report says" through in
+# QA run 2. As weak words, "time" and "local" would complete a pair with "price"
+# for any query that carries both ("kids screen time apps price").
 #
-# IF THE QUERY HAS NO CONTENT WORD at all ("market size report 2024", "AI tools"),
-# nothing could ever pass, so the test falls back to its WEAK words when it has
-# any ("market"), and to any query word when it has none, rather than turning
-# the whole lane into an empty result.
+# A SEPARATE RULE covers a query with NO CONTENT WORD at all ("price comparison
+# tool", "market size report 2024", "AI tools"): nothing could ever pass, so the
+# test falls back to its WEAK words, ANY ONE of them ("price comparison tool"
+# keeps "Show HN: price comparison for flights", by the single word and not by a
+# pair), and to any query word when it has no weak word either, rather than
+# turning the whole lane into an empty result.
 _FILLER_TOKENS = frozenset(
     (
         # Countries, regions, nationalities: the market the founder named.
@@ -177,7 +184,7 @@ _FILLER_TOKENS = frozenset(
         "zealand", "india", "indian", "china", "chinese", "europe", "european",
         "asia", "asian", "africa", "global", "worldwide", "international",
         "national", "nationwide", "country", "countries", "world", "region",
-        "regional",
+        "regional", "local",
         # File types and web scaffolding from a search-engine query.
         "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "csv", "html",
         "htm", "txt", "www", "http", "https", "com", "org", "net", "edu", "gov",
@@ -192,11 +199,18 @@ _FILLER_TOKENS = frozenset(
         "growth", "average", "percent", "percentage", "number", "numbers",
         "level", "levels", "million", "billion", "thousand", "annual",
         "quarterly", "yearly", "monthly", "complaint", "complaints",
+        # The KIND of source a researcher asks for ("official qualitative
+        # evidence ..."), not what it is about. Live QA (re-check 4) let 12
+        # government "officials" stories in on "official". "recent", "current"
+        # and "latest" are already NEVER through `LOW_SIGNAL_QUERY_TOKENS`. Words
+        # that are often the topic itself ("interventions", "trust", "barriers",
+        # "needs") are NOT here; "source" alone is not either ("open source").
+        "official", "officials", "qualitative", "quantitative", "sources",
         # Time and age words: "5-7 year old" matches any story that says "years".
         # Month names are here because a date in a query ("March 2026") is a
         # date and not a topic ("PFAS contamination in the U.S. (March 5, 2026)").
         "year", "years", "month", "months", "week", "weeks", "day", "days",
-        "today", "old", "age", "ages", "aged", "january", "february", "march",
+        "time", "today", "old", "age", "ages", "aged", "january", "february", "march",
         "april", "may", "june", "july", "august", "september", "october",
         "november", "december",
         # Who, in general.
@@ -229,7 +243,7 @@ _WEAK_TOKENS = frozenset(
         "animations", "prediction", "predictions", "probability",
         "probabilities", "chance", "chances", "odds", "price", "prices",
         "pricing", "cost", "costs", "data", "dataset", "datasets", "market",
-        "markets", "industry", "industries", "time", "local",
+        "markets", "industry", "industries",
     )
 )  # fmt: skip
 

@@ -1147,49 +1147,33 @@ async function finalizeMessageAndCredits({
 }): Promise<void> {
   const log = createModuleLogger("api:chat:finalize");
 
+  // TWO STEPS, TWO GUARDS, AND THE CHARGE DOES NOT DEPEND ON THE WRITE. The
+  // model calls have already happened and been paid for by the time this runs;
+  // whether the assistant message then reaches the database has no bearing on
+  // what the turn cost. Both steps used to share one `try`, so a failed
+  // `updateMessage` (or a dead-tool rescue that threw) jumped straight past the
+  // deduction and the turn was free. The deduction is still made exactly once:
+  // the persistence step never settles or deducts, and the charge step runs
+  // once whatever the persistence step did.
   try {
-    const streamed = messages.at(-1);
-
-    if (!streamed) {
-      throw new Error("No assistant message found!");
-    }
-
-    // BEFORE ANYTHING IS PERSISTED. The stream is over, so any tool call still
-    // sitting in `input-streaming` is dead rather than pending, and this is the
-    // last moment at which that difference can be recorded. Persisting the
-    // message first and rescuing afterwards would recreate the exact row that
-    // sat silently in the database for a whole session.
-    const assistantMessage = await rescueDeadToolInputStreams({
-      assistantMessage: streamed,
+    await persistFinishedAssistantMessage({
+      messages,
       userId,
+      isAnonymous,
       chatId,
+      selectedModelId,
+      parallelGroupId,
+      parallelIndex,
+      isPrimaryParallel,
     });
+  } catch (error) {
+    log.error(
+      { error, chatId },
+      "Failed to save the assistant message; the turn is still charged"
+    );
+  }
 
-    if (!isAnonymous) {
-      await updateMessage({
-        id: assistantMessage.id,
-        chatId,
-        message: {
-          ...assistantMessage,
-          metadata: {
-            ...assistantMessage.metadata,
-            parallelGroupId:
-              parallelGroupId ??
-              assistantMessage.metadata.parallelGroupId ??
-              null,
-            parallelIndex:
-              parallelIndex ?? assistantMessage.metadata.parallelIndex ?? null,
-            isPrimaryParallel:
-              isPrimaryParallel ??
-              assistantMessage.metadata.isPrimaryParallel ??
-              null,
-            selectedModel: selectedModelId,
-            activeStreamId: null,
-          },
-        },
-      });
-    }
-
+  try {
     // Settle the accumulator (all LLM calls + external API costs)
     const { cents: totalCost, unpriced } = await costAccumulator.settle();
     const entries = costAccumulator.getEntries();
@@ -1217,7 +1201,73 @@ async function finalizeMessageAndCredits({
 
     // Note: Anonymous credits are pre-deducted before streaming starts (cookies can't be set after response begins)
   } catch (error) {
-    log.error({ error }, "Failed to save chat or finalize credits");
+    log.error({ error, chatId }, "Failed to finalize credits for the turn");
+  }
+}
+
+/**
+ * Rescues dead tool inputs and writes the finished assistant message. Throws
+ * on failure; `finalizeMessageAndCredits` catches it so the charge still runs.
+ */
+async function persistFinishedAssistantMessage({
+  messages,
+  userId,
+  isAnonymous,
+  chatId,
+  selectedModelId,
+  parallelGroupId,
+  parallelIndex,
+  isPrimaryParallel,
+}: {
+  messages: ChatMessage[];
+  userId: string | null;
+  isAnonymous: boolean;
+  chatId: string;
+  selectedModelId: AppModelId;
+  parallelGroupId: string | null;
+  parallelIndex: number | null;
+  isPrimaryParallel: boolean | null;
+}): Promise<void> {
+  const streamed = messages.at(-1);
+
+  if (!streamed) {
+    throw new Error("No assistant message found!");
+  }
+
+  // BEFORE ANYTHING IS PERSISTED. The stream is over, so any tool call still
+  // sitting in `input-streaming` is dead rather than pending, and this is the
+  // last moment at which that difference can be recorded. Persisting the
+  // message first and rescuing afterwards would recreate the exact row that
+  // sat silently in the database for a whole session.
+  const assistantMessage = await rescueDeadToolInputStreams({
+    assistantMessage: streamed,
+    userId,
+    chatId,
+  });
+
+  if (!isAnonymous) {
+    await updateMessage({
+      id: assistantMessage.id,
+      chatId,
+      message: {
+        ...assistantMessage,
+        metadata: {
+          ...assistantMessage.metadata,
+          parallelGroupId:
+            parallelGroupId ??
+            assistantMessage.metadata.parallelGroupId ??
+            null,
+          parallelIndex:
+            parallelIndex ?? assistantMessage.metadata.parallelIndex ?? null,
+          isPrimaryParallel:
+            isPrimaryParallel ??
+            assistantMessage.metadata.isPrimaryParallel ??
+            null,
+          selectedModel: selectedModelId,
+          activeStreamId: null,
+        },
+      },
+    });
   }
 }
 

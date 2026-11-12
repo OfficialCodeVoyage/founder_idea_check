@@ -962,10 +962,38 @@ class TestArcticShiftLaneResilience:
             self._fetch(["empty", "bad"])
         assert "rejected the query" in caught.value.detail
 
-        # The same when nothing failed but the cap left subreddits out: two
-        # subreddits answered with no posts, a third was never asked. That is a
-        # lane that did not finish, reported the one way the wire has for it (a
-        # failure that lists every subreddit), not "found nothing".
+        # The same when a problem made the cap apply: the first subreddit rejected
+        # the query, the second answered with no posts, a third was never asked.
+        # That is a lane that did not finish, reported the one way the wire has
+        # for it (a failure that lists every subreddit), not "found nothing".
+        asked: list[str] = []
+
+        def fake_rejected_then_empty(url, **_kw):
+            asked.append(url)
+            if "subreddit=a" in url:
+                raise _http_error(SourceUnavailable, 400, "rejected the query (HTTP 400)")
+            return {"data": []}
+
+        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_rejected_then_empty)
+        with pytest.raises(SourceUnavailable) as capped:
+            self._fetch(["a", "b", "c"])
+        assert len(asked) == arctic_shift._MAX_SUBREDDITS_PER_CALL
+        detail = capped.value.detail
+        assert detail.startswith("Arctic Shift rejected the query and searched only the best-fitting")
+        assert "not a finding" in detail
+        assert "r/b: answered, 0 matching posts" in detail
+        assert (
+            "r/c: not asked (at most 2 subreddits are asked per search once one has found "
+            "posts or failed)" in detail
+        )
+
+    def test_every_subreddit_clean_and_empty_is_a_finding_and_all_are_asked(self, monkeypatch):
+        # REGRESSION (code review). With the cap of two subreddits applied even when
+        # both answered cleanly with nothing, the lane raised "not searched in full"
+        # for an archive that had answered fine, so an empty Reddit lane could never
+        # be a finding (every audience row names three or four subreddits). While no
+        # subreddit has found posts or failed, the rest are asked too (same spacing),
+        # and an empty result then means the whole lane found nothing.
         asked: list[str] = []
 
         def fake_empty(url, **_kw):
@@ -973,14 +1001,54 @@ class TestArcticShiftLaneResilience:
             return {"data": []}
 
         monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_empty)
-        with pytest.raises(SourceUnavailable) as capped:
-            self._fetch(["a", "b", "c"])
+        clock = _Clock()
+        assert self._fetch(["a", "b", "c", "d"], clock=clock) == []
+        assert len(asked) == 4
+        for name in "abcd":
+            assert any(f"subreddit={name}" in url for url in asked)
+        # The politeness spacing holds for every request after the first.
+        assert clock.slept == [arctic_shift._SUBREDDIT_SPACING_SECONDS] * 3
+
+    def test_the_cap_applies_once_a_subreddit_found_posts(self, monkeypatch):
+        asked: list[str] = []
+
+        def fake_hits_then_empty(url, **_kw):
+            asked.append(url)
+            return {"data": [_arctic_row()]} if "subreddit=b" in url else {"data": []}
+
+        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_hits_then_empty)
+        items = self._fetch(["a", "b", "c", "d"])
+        assert len(items) == 1
         assert len(asked) == arctic_shift._MAX_SUBREDDITS_PER_CALL
-        detail = capped.value.detail
-        assert detail.startswith("Arctic Shift searched only the best-fitting subreddits")
-        assert "not a finding" in detail
-        assert "r/a: answered, 0 matching posts" in detail
-        assert "r/c: not asked (at most 2 subreddits are asked per search)" in detail
+
+    def test_a_pause_started_while_walking_past_the_cap_still_stops_the_lane(self, monkeypatch):
+        # The cool-down is re-checked before each of the subreddits asked beyond
+        # the cap too: another search started a pause while this one waited out the
+        # spacing before its third subreddit.
+        asked: list[str] = []
+        race_clock = _Clock()
+        racing = arctic_shift._Cooldown()
+
+        def get_json_empty(url, timeout=None):
+            asked.append(url)
+            return {"data": []}
+
+        def sleep_then_pause_on_the_third(seconds):
+            race_clock.sleep(seconds)
+            if len(asked) == 2:
+                racing.start(race_clock(), 20.0, "rate-limited")
+
+        monkeypatch.setattr(arctic_shift, "get_json", get_json_empty)
+        with pytest.raises(SourceRateLimited) as paused:
+            arctic_shift.ArcticShiftSource().fetch(
+                self._query(["a", "b", "c"]),
+                clock=race_clock,
+                sleep=sleep_then_pause_on_the_third,
+                limiter=_FreeLimiter(),
+                cooldown=racing,
+            )
+        assert len(asked) == 2
+        assert "r/c: not asked (another search just paused this lane" in paused.value.detail
 
     def test_a_lane_that_times_out_says_so_in_plain_words_and_stops_after_the_first(
         self, monkeypatch

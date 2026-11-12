@@ -204,7 +204,9 @@ headers. Those are the only terms found.
 
 **What the adapter does against that.** At most one request per second sustained
 (burst of two, `ARCTIC_SHIFT_LIMITER` in `app/http.py`, retries included) and two
-seconds between subreddits; at most two subreddits per call; at most one retry,
+seconds between subreddits; at most two subreddits per call once one has found
+posts or any problem has been seen (while every subreddit asked answered cleanly
+with no posts, the rest are asked too, two seconds apart); at most one retry,
 only for an overload reported in a 200 body (after the wait the archive asks for,
 five seconds or less); no retry for a 429, for a 422 whose body says "Timeout" or
 for any other 4xx; after a 429 the whole lane asks the archive nothing until the

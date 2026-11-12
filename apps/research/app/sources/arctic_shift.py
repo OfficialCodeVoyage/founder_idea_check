@@ -110,13 +110,21 @@ _DEFAULT_RETRY_WAIT_SECONDS = 2.0
 # each asked FOUR subreddits, so a run sent the archive up to 8 keyword searches
 # at a time.
 #
-#: At most this many subreddits are asked per call. The app lists them best-fit
-#: first, so the ones left out are the least relevant. A timeout and a 429 are
-#: never repeated and each ends the call, so while the archive is failing two
-#: queries per step make at most four requests a step (one per subreddit), down
-#: from eight. The one repeat that exists is the single retry of an overload the
-#: archive reported inside a 200 body (`_get_with_retry`), and a retry that fails
-#: ends the call too.
+#: At most this many subreddits are asked per call ONCE A SUBREDDIT HAS FOUND
+#: POSTS OR ANY PROBLEM HAS BEEN SEEN. The app lists them best-fit first, so the
+#: ones left out are the least relevant. A timeout and a 429 are never repeated
+#: and each ends the call, so while the archive is failing two queries per step
+#: make at most four requests a step (one per subreddit), down from eight. The
+#: one repeat that exists is the single retry of an overload the archive
+#: reported inside a 200 body (`_get_with_retry`), and a retry that fails ends
+#: the call too.
+#:
+#: The cap does NOT apply while every subreddit asked so far answered cleanly
+#: and had nothing: the archive is then not overloaded, and stopping would turn
+#: "the archive answered, and there is nothing" into a failure (a lane that
+#: "was not searched in full") for the researcher and the founder. The rest are
+#: asked, with the same spacing and the same pause check, so an empty result
+#: really means the whole lane found nothing and is returned as `[]`.
 _MAX_SUBREDDITS_PER_CALL = 2
 #: A pause between one subreddit's request and the next, on top of the
 #: 1 request/second limiter in `app/http.py`.
@@ -716,11 +724,22 @@ class ArcticShiftSource:
         deadline = clock() + _LANE_WALL_TIME_SECONDS
         stop_reason: str | None = None
 
-        # Only the first `_MAX_SUBREDDITS_PER_CALL` are asked; the rest are said so.
+        # The first `_MAX_SUBREDDITS_PER_CALL` are always asked. Past that the rest
+        # are asked only while every subreddit so far answered cleanly with no posts
+        # (no `collected`, no `problems`): then nothing says the archive is
+        # struggling, and an empty answer from two of four subreddits is not yet an
+        # answer for the lane. A hit or any problem is the moment to stop and say so.
         asked = 0
         for subreddit in subreddits:
-            if stop_reason is None and asked >= _MAX_SUBREDDITS_PER_CALL:
-                stop_reason = f"at most {_MAX_SUBREDDITS_PER_CALL} subreddits are asked per search"
+            if (
+                stop_reason is None
+                and asked >= _MAX_SUBREDDITS_PER_CALL
+                and (collected or problems)
+            ):
+                stop_reason = (
+                    f"at most {_MAX_SUBREDDITS_PER_CALL} subreddits are asked per search "
+                    "once one has found posts or failed"
+                )
                 # Left out, not searched and found empty: see the end of this method.
                 problems.add("capped")
             if stop_reason is not None:
@@ -807,12 +826,17 @@ class ArcticShiftSource:
 
         if not collected and problems:
             # NEVER an empty list here. Nothing came back AND part of the lane
-            # was not searched (a subreddit failed, was paused, ran out of time, or
-            # was left out by `_MAX_SUBREDDITS_PER_CALL`), so "found nothing" would
-            # be a claim about subreddits nobody looked at. The report carries it
-            # the one way the wire has for a lane that did not finish: a failure
-            # whose `detail` lists every subreddit's outcome (`LaneOutcome`
-            # `refused` in apps/chat/tools/platform/deep-research/lane-report.ts).
+            # was not searched (a subreddit failed, was paused or ran out of time,
+            # and any subreddit after it was left out by `_MAX_SUBREDDITS_PER_CALL`),
+            # so "found nothing" would be a claim about subreddits nobody looked
+            # at. The report carries it the one way the wire has for a lane that
+            # did not finish: a failure whose `detail` lists every subreddit's
+            # outcome (`LaneOutcome` `refused` in
+            # apps/chat/tools/platform/deep-research/lane-report.ts).
+            #
+            # With no problem the empty list below IS the finding: every subreddit
+            # the app named was asked, answered, and had nothing (the cap does not
+            # stop a lane that has seen neither a hit nor a problem).
             raise _lane_failure(keywords, problems, outcomes)
 
         for index, item in enumerate(collected, start=1):
@@ -857,9 +881,10 @@ def _lane_failure(keywords: str, problems: set[str], outcomes: list[str]) -> Sou
     matters (run the sidecar from another network), and waiting cannot fix it, so
     it outranks a rate limit seen alongside it. `rate-limited` when every problem
     was a rate limit or the lane's own time limit (asking later can help);
-    `unavailable` otherwise, which includes `capped` on its own: the best-fitting
-    subreddits answered with no posts and the others were never asked, which is a
-    lane that did not finish, not a failure of the archive.
+    `unavailable` otherwise (a rejected query, an error body, a failed request,
+    or a timeout). `capped` never stands alone here: the cap only applies once a
+    subreddit found posts (then nothing is raised) or a problem was seen, so it
+    sits beside the problem that made the cap apply.
     """
     words = [_PROBLEM_WORDS[key] for key in _PROBLEM_WORDS if key in problems]
     detail = (

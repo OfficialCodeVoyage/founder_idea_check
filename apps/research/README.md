@@ -100,7 +100,11 @@ request was made, so `title` is kept for being the README's own example, not
 because it is proven better.) The archive's own timeouts and load-shedding are
 the dominant failure, so the lane is polite and bounded:
 - one request per second, a pause of two seconds between subreddits, and at most
-  two subreddits per call (the best-fitting two; the app lists them best first);
+  two subreddits per call (the best-fitting two; the app lists them best first)
+  once one of them has found posts or any problem has been seen. While every
+  subreddit asked so far answered cleanly with no posts, the rest are asked too
+  (same pause, cool-down checked before each): the cap spares an overloaded
+  archive, and one that answers fine is not overloaded;
 - a 429 is not retried: it starts a cool-down of the lane (the pause the archive
   named, thirty seconds when it names none, at most sixty) during which no search
   asks the archive at all, and the rest of that call's subreddits are not asked;
@@ -124,10 +128,10 @@ start of the response body are written to the sidecar's log (`research.arctic_sh
 and never returned, because the report is shown to the founder verbatim. When the
 lane returns nothing because it was rate-limited, timed out, rejected the query or
 ran out of time, it says so in those words instead of reporting an empty result.
-The same holds when the two best-fitting subreddits answered with no posts and
-others were left out by the two-subreddit cap: that is a lane that was not
-searched in full, so it is reported as a failure naming each subreddit, and
-"found nothing" is kept for a lane that asked everything it was given.
+The same holds when a problem made the two-subreddit cap apply and subreddits were
+left out: that is a lane that was not searched in full, so it is reported as a
+failure naming each subreddit. "Found nothing" (an empty result) is kept for a
+lane in which every subreddit it was given answered cleanly with no posts.
 
 The permission gate (`app/sources/base.py::assert_permitted`) still supports a
 source that is barred in hosted mode or needs a credential beyond the operator

@@ -1814,7 +1814,7 @@ function normalizeChatMessage(value: unknown): ChatMessage | null {
     return null;
   }
 
-  return {
+  const normalized: ChatMessage = {
     ...(value as ChatMessage),
     metadata: {
       ...(metadata as ChatMessage["metadata"]),
@@ -1824,7 +1824,26 @@ function normalizeChatMessage(value: unknown): ChatMessage | null {
       selectedModel: metadata.selectedModel,
     },
   };
+  // THE MARK IS SAVED WITH THE MESSAGE, so it is checked before it can be. The
+  // spread above copies whatever metadata the client sent; a non-string or
+  // oversized `targetCriterionId` would otherwise be persisted and replayed to
+  // the bubble. Dropped rather than refused: losing the mark costs a hint,
+  // refusing the turn would cost the founder their message. Whether the id
+  // names a criterion of the current phase is decided later, in
+  // `lib/phases/runtime.ts::buildPhaseSystemBlock`.
+  if (
+    "targetCriterionId" in metadata &&
+    !(
+      typeof metadata.targetCriterionId === "string" &&
+      TARGET_CRITERION_ID_SHAPE.test(metadata.targetCriterionId)
+    )
+  ) {
+    Reflect.deleteProperty(normalized.metadata, "targetCriterionId");
+  }
+  return normalized;
 }
+
+const TARGET_CRITERION_ID_SHAPE = /^[a-z0-9-]{1,64}$/;
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;

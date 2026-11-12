@@ -6,7 +6,7 @@ The reference for people who already have the app running. If you are starting f
 ## Prerequisites
 
 - Bun 1.3.14 or newer. The repo pins `packageManager: bun@1.3.14`; npm and pnpm refuse to install it.
-- Node.js 20.9 or newer (Next.js runs on it).
+- Node.js 22 or newer (Next.js runs on 20.9, but the file-storage library, files-sdk, needs 22).
 - Docker with Compose v2.
 - bash: the scripts are written for it, so on Windows use WSL 2.
 - Python 3.11 and [uv](https://docs.astral.sh/uv/), only if you run the research service outside Docker. It must be

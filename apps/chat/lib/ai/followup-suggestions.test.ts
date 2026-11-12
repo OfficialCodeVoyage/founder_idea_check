@@ -1,6 +1,25 @@
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { followupContext } from "./followup-suggestions";
+import {
+  followupContext,
+  shouldSuggestFollowups,
+} from "./followup-suggestions";
+
+// GUARD: an aborted turn (Stop, or the deadline) whose earlier step had
+// completed still got follow-up suggestions, a paid call.
+describe("shouldSuggestFollowups", () => {
+  it("skips an aborted turn and keeps a normal one", () => {
+    expect(shouldSuggestFollowups({ enabled: true, turnAborted: true })).toBe(
+      false
+    );
+    expect(shouldSuggestFollowups({ enabled: true, turnAborted: false })).toBe(
+      true
+    );
+    expect(shouldSuggestFollowups({ enabled: false, turnAborted: false })).toBe(
+      false
+    );
+  });
+});
 
 /**
  * GUARD for the 400 "No tool call found for function call output": the

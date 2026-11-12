@@ -196,7 +196,8 @@ N+1's system prompt.
    or a broken provider connection cuts off, so a stopped, deadline-cut or disconnected turn still charges what it
    spent.
 7. The result is merged into the UI message stream with metadata; follow-up suggestions stream afterwards when
-   `config.ai.tools.followupSuggestions.enabled` (`apps/chat/lib/ai/followup-suggestions.ts`).
+   `config.ai.tools.followupSuggestions.enabled` and the turn was not aborted (`shouldSuggestFollowups` in
+   `apps/chat/lib/ai/followup-suggestions.ts`).
 8. `onFinish` of `createUIMessageStream` runs once, when the drained branch reaches the end of the stream (or earlier,
    from the SDK's finish transform `cancel`, when the stream errors partway), and runs `finalizeMessageAndCredits`:
    `rescueDeadToolInputStreams` (salvages a frozen `createTextDocument` input as a labelled partial document,

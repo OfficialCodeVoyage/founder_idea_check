@@ -44,6 +44,25 @@ export function followupContext(
   return turns.slice(-FOLLOWUP_CONTEXT_MESSAGES);
 }
 
+/**
+ * PURE. Whether a turn gets follow-up suggestions, a paid model call.
+ *
+ * Not after an aborted turn (the stop button or the route's deadline). Once a
+ * step has completed, `streamText`'s `response` still resolves after the
+ * abort, so the route went on to ask for suggestions about a turn the founder
+ * had stopped, and billed them (verified with a mock model on ai@6.0.219: a
+ * stop during a tool, `response` resolved with the signal aborted).
+ */
+export function shouldSuggestFollowups({
+  enabled,
+  turnAborted,
+}: {
+  enabled: boolean;
+  turnAborted: boolean;
+}): boolean {
+  return enabled && !turnAborted;
+}
+
 export async function generateFollowupSuggestions(
   modelMessages: ModelMessage[]
 ) {

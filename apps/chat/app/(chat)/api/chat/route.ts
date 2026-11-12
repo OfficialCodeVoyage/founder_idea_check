@@ -23,6 +23,7 @@ import { determineExplicitlyRequestedTools } from "@/lib/ai/determine-explicitly
 import { ChatSDKError } from "@/lib/ai/errors";
 import {
   generateFollowupSuggestions,
+  shouldSuggestFollowups,
   streamFollowupSuggestions,
 } from "@/lib/ai/followup-suggestions";
 import { systemPrompt } from "@/lib/ai/prompts";
@@ -582,8 +583,14 @@ async function createChatStream({
         const response = await result.response;
         const responseMessages = response.messages;
 
-        // Generate and stream follow-up suggestions
-        if (config.ai.tools.followupSuggestions.enabled) {
+        // Generate and stream follow-up suggestions, except after an aborted
+        // turn (`shouldSuggestFollowups`).
+        if (
+          shouldSuggestFollowups({
+            enabled: config.ai.tools.followupSuggestions.enabled,
+            turnAborted: abortController.signal.aborted,
+          })
+        ) {
           const followupSuggestionsResult = generateFollowupSuggestions([
             ...contextForLLM,
             ...responseMessages,

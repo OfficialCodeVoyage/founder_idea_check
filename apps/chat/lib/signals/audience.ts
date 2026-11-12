@@ -3,20 +3,17 @@ import type { DemandSignal, ProviderDescriptor, SignalSourceId } from "./types";
 /**
  * WHICH SOURCE MATTERS FOR *THIS* BUYER — and the one place that decides it.
  *
- * On 2026-08-21 a founder validating a bedtime-routine app bought
- * by parents of 3-8 year olds read a research report citing Hacker News and
- * asked:
+ * Take a founder whose buyer is parents of 3-8 year olds, validating a
+ * bedtime-routine app. A research report for that founder that leads with
+ * Hacker News is answering in the wrong room: those parents talk on Reddit and
+ * across the general web, and Hacker News is a developer forum.
  *
- *   "the founder wanted consumer forums ranked first, and
- *    google — why is Hacker News ranked first."
- *
- * Nothing prioritised Hacker News. It was the last lane still answering: the
- * SearXNG url was unset and every Reddit lane was gated off. Both of those are
- * now fixed — and fixing them exposed the real gap, which is that there was
- * never any notion of an AUDIENCE at all. `ALL_PROVIDERS` is a flat list,
+ * Nothing set that ordering on purpose. `ALL_PROVIDERS` is a flat list,
  * `selectEnabledProviders` preserves its order, and `harvestSignals`
  * concatenates in that order, so Hacker News led every report for every project
- * because it is written first in a registry. That is an accident, not a
+ * because it is written first in a registry — and led most visibly when the
+ * other lanes were switched off, leaving it the only lane still answering.
+ * There was never any notion of an AUDIENCE at all. That is an accident, not a
  * ranking, and it survived because nobody had to defend it.
  *
  * WHY THE DECISION IS HERE AND NOT IN THE SIDECAR. The spec asks for the
@@ -56,8 +53,8 @@ import type { DemandSignal, ProviderDescriptor, SignalSourceId } from "./types";
  * The only distinction that changes the ordering: does the buyer's own working
  * day involve building software?
  *
- * Deliberately two arms and not a taxonomy of verticals. The founder's question
- * was about Hacker News, and Hacker News is a developer forum — a finer-grained
+ * Deliberately two arms and not a taxonomy of verticals. The question is about
+ * Hacker News, and Hacker News is a developer forum — a finer-grained
  * segment model would invent confidence about markets nobody here has measured.
  * The subreddit table below is where vertical detail belongs, because there a
  * wrong entry produces a visible, named refusal instead of a silent reordering.
@@ -176,10 +173,9 @@ function matched(text: string, markers: readonly RegExp[]): string[] {
  * THE AUTHORITATIVE SOURCE IS `targetUserFact` — the phase-1 project fact "a
  * specific buyer or user segment is named — a role and a context", stored on
  * `ProjectFact` and read by `getProjectFacts`. The live store holds exactly the
- * sentences this function has to cope with: "a reluctant 5-7-year-old reader
- * whose parent currently expects home reading", "an in-house bookkeeper or
- * controller at an independent restaurant group", "Independent dog walkers in
- * Berlin".
+ * sentences this function has to cope with: "a reluctant 5-7-year-old whose
+ * parent enforces the bedtime routine", "an in-house bookkeeper or controller
+ * at an independent restaurant group", "Independent dog walkers in Berlin".
  *
  * IT IS `null` IN THE DEEP-RESEARCH PATH TODAY, and that is a plumbing gap
  * rather than an oversight: `route.ts` knows the projectId, but
@@ -259,12 +255,12 @@ export type SourceRanking = {
 };
 
 /**
- * FOR A BUYER WHO IS NOT A DEVELOPER. The founder's own ask, in weights:
- * Reddit, then general web, then — a long way down — Hacker News.
+ * FOR A BUYER WHO IS NOT A DEVELOPER, in weights: Reddit, then general web,
+ * then — a long way down — Hacker News.
  *
  * Hacker News at 0.25 means an HN thread needs four times the lexical relevance
  * of a Reddit thread to outrank it. That is the honest strength of the claim:
- * parents of 3-8 year olds do not post about bedtime reading on Hacker News, so
+ * parents of 3-8 year olds do not post about bedtime routines on Hacker News, so
  * an HN result on that topic is usually a founder discussing the market rather
  * than a buyer describing the problem — which is precisely the "credit
  * enthusiasm as evidence" failure the *Verifying Demand* phase exists to catch.
@@ -346,8 +342,9 @@ export const NEUTRAL_RANKING: SourceRanking = {
  * adapter's own refusal, which names the parameter — a visible gap the founder
  * can close, rather than r/all wearing a segment's name.
  *
- * The first row is the founder's project and the spec names its four subreddits
- * verbatim. The rest are drawn from segments the live fact store already holds.
+ * The first row is the worked example in this file's header, parents of young
+ * children, and the spec names its four subreddits verbatim. The rest are drawn
+ * from segments the live fact store already holds.
  *
  * EVERY NAME BELOW WAS PROBED against the live Arctic Shift API on 2026-08-22
  * and returned real threads, casing included — r/Mommit and r/ExperiencedDevs
@@ -362,7 +359,7 @@ const COMMUNITY_TABLE: readonly {
   readonly subreddits: readonly string[];
 }[] = [
   {
-    // Parents of young children — the bedtime-app founder's buyer.
+    // Parents of young children — the worked example in this file's header.
     audience: "non-technical",
     match:
       /\b(parents?|mums?|moms?|dads?|kids|children|toddlers?|preschool\w*|kindergarten|nursery|bedtime)\b/i,

@@ -47,9 +47,9 @@ export async function runDeepResearchPipeline(
     /*
       WHO THE BUYER IS, DECIDED ONCE, HERE.
 
-      The founder asked "why is Hacker News ranked first"
-      about a product for parents of 3-8 year olds. Nothing prioritised Hacker
-      News — it just happens to be first in `ALL_PROVIDERS`, and no part of this
+      For a product aimed at, say, parents of 3-8 year olds, a report that leads
+      with Hacker News is answering in the wrong room. Nothing prioritised it —
+      it just happens to be first in `ALL_PROVIDERS`, and no part of this
       pipeline had any notion that a source can be the wrong room for a buyer.
       `readAudience` is that notion, and this is the only place it is read, so
       every search step in a run ranks its sources the same way.

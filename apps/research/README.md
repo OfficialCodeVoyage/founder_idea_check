@@ -94,13 +94,12 @@ toggle; no registered source uses either today.
 ## Ranking sources against the founder's buyer
 
 **The sidecar does not decide this, and the decision is deliberate rather than
-inherited.** On 2026-08-21 a founder validating personalised children's
-bedtime-routine apps for parents of 3-8 year olds asked *"why is Hacker News ranked first,
-when consumer forums and web search should
-lead?"* Nothing prioritised Hacker News; it was the last
-lane still answering. Once `RESEARCH_SEARXNG_URL` and `arctic-shift` were
-switched on, the real gap showed: every project got the same lanes in the same
-order, and that order was the order they happen to be written in a registry.
+inherited.** Take a founder whose buyer is parents of 3-8 year olds, validating
+a bedtime-routine app. A report for them that leads with Hacker News answers in
+the wrong room: Hacker News is a developer forum. Nothing prioritised it on
+purpose: every project got the same lanes in the same order, and that order was
+the order they happen to be written in a registry, which put Hacker News first
+(and made it the only lane left whenever the others were switched off).
 
 The ranking now lives in **`apps/chat/lib/signals/audience.ts`**, on the app
 side, and the reasoning for that placement is in the file. The short version is
@@ -144,7 +143,7 @@ as "we searched and found little" when no search happened. The app never sent
 `options`, so the lane could be enabled, reachable and correct and still refuse
 every single request. `sourceOptionsFor` now chooses the subreddits from the
 same segment decision as the weights — r/Parenting, r/daddit, r/Mommit,
-r/kindergarten for the bedtime-app founder — because choosing subreddits for a
+r/kindergarten for a parent buyer — because choosing subreddits for a
 project *is* the segment question.
 
 With no segment, no subreddits are sent and this lane answers with its own
@@ -159,7 +158,7 @@ tells the founder that naming their buyer is what unlocks the Reddit lane.
 | `RESEARCH_HOSTED` | `true` | Fail-closed. Unset means hosted, which bars any source that is barred in hosted mode (none is today). |
 | `RESEARCH_ENABLED_SOURCES` | `hackernews,web-keyless` | Comma-separated ids. Unknown ids are reported at `/v1/health`, not ignored. **Read by the app too** — `parseOperatorEnabledSources` in `apps/chat/lib/signals/providers.ts` parses it the same way, because the app also declines to ask for a source the operator did not enable. |
 | `GITHUB_TOKEN` | — | Required by the `github` source. |
-| `RESEARCH_SEARXNG_URL` | — | **Set it for usable web search.** First rung of the keyless ladder, and on a residential connection the only rung that answers: DuckDuckGo serves the sidecar a challenge page, so with this unset `web-keyless` reports `blocked` and Hacker News becomes the only working source — which is how a consumer-parenting idea got researched against Hacker News. SearXNG is AGPL-3.0, so the default compose stack does not run it: start the opt-in overlay with `docker compose -f docker-compose.yml -f docker-compose.searxng.yml up -d searxng` and set this to `http://127.0.0.1:8888`, or point it at an instance you already run. Stays a URL because the sidecar runs on the host in dev, where a compose service name would not resolve. |
+| `RESEARCH_SEARXNG_URL` | — | **Set it for usable web search.** First rung of the keyless ladder, and on a residential connection the only rung that answers: DuckDuckGo serves the sidecar a challenge page, so with this unset `web-keyless` reports `blocked` and Hacker News becomes the only working source, which is a poor room for a consumer idea. SearXNG is AGPL-3.0, so the default compose stack does not run it: start the opt-in overlay with `docker compose -f docker-compose.yml -f docker-compose.searxng.yml up -d searxng` and set this to `http://127.0.0.1:8888`, or point it at an instance you already run. Stays a URL because the sidecar runs on the host in dev, where a compose service name would not resolve. |
 | `OPENAI_API_KEY` | — | **Required by the simulation lane, in THIS process's own environment.** The Next.js app having it is irrelevant — `/v1/simulate` calls the model from here. Without it every agent fails at call time and the run returns zero reactions. Cost one failed run to discover, which is why it is now first in this table. In dev, start the sidecar through `bunx dotenv-cli -e <repo>/.env.local -- …` so it inherits the repo-root key. |
 | `RESEARCH_SIM_MODEL` | `gpt-5.6-luna` | CAMEL model type for the simulation. Moved off `gpt-4o-mini` on 2026-08-21: TAU-Bench measures agentic tool use in multi-turn conversation, which is exactly what an OASIS agent does, and 4o-mini scores 26.7% against luna's 70.7% for about +0.1¢ per run. Checked against `GET {base}/models/{id}` before a run starts: a typo is refused as `unknown-simulation-model` instead of failing per-agent at call time. CAMEL itself accepts any string, so this check is the only thing standing between a misspelling and a silent empty run. |
 | `RESEARCH_SIM_REASONING_EFFORT` | derived from the model | Sent as `model_config_dict={"reasoning_effort": …}`. **Leave it unset.** Unset means "derive it": `none` for the `gpt-5.6-*` family, omitted for everything else. That split is not cosmetic — every OASIS action is a function tool call, CAMEL posts to `chat/completions`, and that family refuses tools there at any effort above `none`, while `gpt-4o-mini` refuses the key itself. Setting it to the **empty string** is different from leaving it unset: empty means "never send this", and it overrides the derived default. |

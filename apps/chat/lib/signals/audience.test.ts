@@ -27,9 +27,9 @@ function signal(
   };
 }
 
-/** The founder's actual project, in the words the fact store actually holds. */
+/** A consumer buyer, in the words a `target_user` fact would hold. */
 const PARENT_TARGET_USER =
-  "The research scope is a reluctant 5-7-year-old reader whose parent currently expects home reading.";
+  "The research scope is a reluctant 5-7-year-old whose parent currently enforces the bedtime routine.";
 
 describe("readAudience", () => {
   it("reads a non-technical buyer out of the target_user fact", () => {

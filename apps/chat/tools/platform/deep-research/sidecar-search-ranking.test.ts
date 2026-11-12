@@ -2,14 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { StreamWriter } from "@/lib/ai/types";
 
 /**
- * THE FOUNDER'S QUESTION, AS A TEST.
+ * WHY A CONSUMER BUYER'S REPORT MUST NOT LEAD WITH HACKER NEWS, AS A TEST.
  *
- *   "the founder wanted consumer forums ranked first, and
- *    google — why is Hacker News ranked first."
- *
- * Two things had to be true for that report to come back citing Hacker News,
- * and both are asserted here against the WIRED tool rather than against the
- * pure ranking functions (lib/signals/audience.test.ts covers those):
+ * Two things had to be true for a report for, say, parents of young children to
+ * come back citing Hacker News first, and both are asserted here against the
+ * WIRED tool rather than against the pure ranking functions
+ * (lib/signals/audience.test.ts covers those):
  *
  * 1. The Arctic Shift lane was enabled, correct and reachable, and refused
  *    EVERY request, because `sidecarWebSearch` never sent `options` and that
@@ -18,7 +16,7 @@ import type { StreamWriter } from "@/lib/ai/types";
  *    is written first in `ALL_PROVIDERS`.
  *
  * This file runs with a self-host deployment that has the Reddit archive
- * switched on, which is this machine's actual configuration.
+ * switched on.
  */
 
 vi.mock("@/lib/config", () => ({
@@ -124,7 +122,7 @@ function lanesFrom(written: Written[]): LaneReport[] {
 
 async function runTool(
   tool: ReturnType<typeof sidecarWebSearch>,
-  query = "bedtime reading struggle"
+  query = "bedtime routine struggle"
 ) {
   const execute = tool.execute as unknown as (
     input: unknown,

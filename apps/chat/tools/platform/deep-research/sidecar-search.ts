@@ -234,9 +234,9 @@ Avoid:
       /*
         WHO THE BUYER IS DECIDES WHAT LEADS THE REPORT.
 
-        On 2026-08-21 a founder validating a bedtime-routine app for parents
-        asked "why is Hacker News ranked first." Nothing
-        did: `ALL_PROVIDERS` lists Hacker News first, `selectEnabledProviders`
+        For example, a founder whose buyer is parents of young children should
+        not get a report that leads with Hacker News. Nothing prevented it:
+        `ALL_PROVIDERS` lists Hacker News first, `selectEnabledProviders`
         preserves that order and `harvestSignals` concatenates in it, so a
         registry's writing order was the ranking for every project alike.
 

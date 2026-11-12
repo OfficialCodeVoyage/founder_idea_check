@@ -102,8 +102,27 @@ export type PhaseGateState = {
   obstacle: GateObstacle | null;
 };
 
-/** Longest gap sentence that reaches the model. */
+/**
+ * Longest gap sentence, reason or question that reaches the MODEL.
+ *
+ * A PROMPT BUDGET, SO IT IS APPLIED WHERE THE PROMPT IS RENDERED (`forPrompt`),
+ * not in the projection. This used to be the projection's own cap, and because
+ * the projection also feeds the rail's popover and the verdict card, a founder
+ * read the gate's reason and next question cut off mid-word at 300 characters
+ * ("four evide", "how you will reach them, h"). The model's text is unchanged
+ * by the move: it still receives exactly the first 300 characters.
+ */
 const MAX_GAP_LENGTH = 300;
+/**
+ * Longest sentence the PROJECTION carries to the client. Not a design limit:
+ * gap sentences, reasons and questions are model-written and unbounded in the
+ * schema, so this keeps a runaway reply from riding the polled `getState`
+ * payload. Past it the text is cut at a word boundary with an ellipsis, so what
+ * a reader sees is visibly an excerpt and never a sentence that merely stops.
+ */
+const MAX_PROJECTED_LENGTH = 2000;
+/** Punctuation and space left dangling once a sentence is cut at a word. */
+const TRAILING_BREAK = /[\s,;:—-]+$/;
 /**
  * Most gaps that reach the MODEL. `missing[0]` is the one that matters there.
  *
@@ -119,8 +138,26 @@ const MAX_GAP_LENGTH = 300;
 const MAX_GAPS = 6;
 const DECISIONS: readonly string[] = ["PASS", "WARN", "BLOCK"];
 
+/** Cuts `text` to at most `max` characters at a word boundary, marked with "…". */
+function clipAtWord(text: string, max: number): string {
+  if (text.length <= max) {
+    return text;
+  }
+  const room = text.slice(0, max - 1);
+  const lastSpace = room.lastIndexOf(" ");
+  // A space only counts when it leaves most of the budget in use; one word that
+  // is itself longer than the budget is cut where it stands rather than lost.
+  const kept = lastSpace > max / 2 ? room.slice(0, lastSpace) : room;
+  return `${kept.replace(TRAILING_BREAK, "")}…`;
+}
+
 function sanitizeGap(text: string): string {
-  return text.replace(/\s+/g, " ").trim().slice(0, MAX_GAP_LENGTH);
+  return clipAtWord(text.replace(/\s+/g, " ").trim(), MAX_PROJECTED_LENGTH);
+}
+
+/** What the model receives of a projected sentence: its first 300 characters. */
+function forPrompt(text: string): string {
+  return text.slice(0, MAX_GAP_LENGTH);
 }
 
 function sanitizeSentence(text: string | null): string | null {
@@ -258,7 +295,10 @@ function gapLines(missing: string[]): string[] {
   // arbitrary slice.
   const shown = missing.slice(0, MAX_GAPS);
   const rest = missing.length - shown.length;
-  const lines = ["What is still missing:", ...shown.map((g) => `- ${g}`)];
+  const lines = [
+    "What is still missing:",
+    ...shown.map((g) => `- ${forPrompt(g)}`),
+  ];
   if (rest > 0) {
     // Never silently. A prompt that lists six of nine gaps and says so cannot
     // tell the founder the phase is nearly closed.
@@ -277,7 +317,7 @@ function askLine(nextQuestion: string | null): string {
   // was nothing but the previous turn's question re-asked at a founder who had
   // just answered it. The question still may not be weakened or swapped for an
   // easier one — that is the gate's leverage — but it must not be asked twice.
-  return `Unless the founder's latest message already answers it, ask exactly this, rephrased into your own voice if it reads awkwardly but not weakened and not swapped for an easier one:\n"${nextQuestion}"\nThen stop and wait for the answer. If their latest message DOES answer it, acknowledge that specifically, say what it establishes, and ask the next thing this phase actually needs.`;
+  return `Unless the founder's latest message already answers it, ask exactly this, rephrased into your own voice if it reads awkwardly but not weakened and not swapped for an easier one:\n"${forPrompt(nextQuestion)}"\nThen stop and wait for the answer. If their latest message DOES answer it, acknowledge that specifically, say what it establishes, and ask the next thing this phase actually needs.`;
 }
 
 /**
@@ -310,7 +350,7 @@ function blockedDirective(
     VERDICT_VINTAGE,
   ];
   if (state.reason) {
-    lines.push("", `Gate reason: ${state.reason}`);
+    lines.push("", `Gate reason: ${forPrompt(state.reason)}`);
   }
   const gaps = gapLines(state.missing);
   if (gaps.length > 0) {
@@ -343,7 +383,7 @@ function warnedDirective(
     VERDICT_VINTAGE,
   ];
   if (state.reason) {
-    lines.push("", `Gate reason: ${state.reason}`);
+    lines.push("", `Gate reason: ${forPrompt(state.reason)}`);
   }
   const gaps = gapLines(state.missing);
   if (gaps.length > 0) {
@@ -363,7 +403,7 @@ function passedDirective(input: PhaseDirectiveInput): string[] {
   const { phase, state, nextPhase, workflowComplete } = input;
   const lines = [`${DIRECTIVE_HEADING} — ${phaseLabel(phase)} has PASSED.`];
   if (state?.reason) {
-    lines.push("", `Gate reason: ${state.reason}`);
+    lines.push("", `Gate reason: ${forPrompt(state.reason)}`);
   }
   if (workflowComplete || !nextPhase) {
     lines.push(

@@ -130,9 +130,14 @@ export function PhaseRail({
               <span className="block truncate">{rail.detail}</span>
             </button>
           </PopoverTrigger>
+          {/*
+            The reason and the next question arrive whole (the 300-character
+            cut is now the prompt's alone), so a long one scrolls inside the
+            room Radix reports rather than running off the screen.
+          */}
           <PopoverContent
             align="start"
-            className="w-[min(24rem,calc(100vw-2rem))] text-xs"
+            className="max-h-(--radix-popover-content-available-height) w-[min(24rem,calc(100vw-2rem))] overflow-y-auto text-xs"
           >
             <p className="font-medium">{rail.detail}</p>
             {reason && reason !== rail.detail ? (

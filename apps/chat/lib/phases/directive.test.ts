@@ -109,13 +109,24 @@ describe("toPhaseGateState", () => {
     expect(toPhaseGateState(row({ verdict: null }))?.missing).toEqual([]);
   });
 
-  it("collapses whitespace and caps the length of each gap", () => {
+  it("collapses whitespace, keeps a long gap whole for the client, and caps only what reaches the model", () => {
     const long = `a${"b".repeat(500)}`;
     const s = toPhaseGateState(
       row({ verdict: verdict({ missing: ["  two\n\nlines  ", long] }) })
     );
     expect(s?.missing[0]).toBe("two lines");
-    expect(s?.missing[1].length).toBe(300);
+    // The rail's popover and the verdict card read this list, so it is not cut
+    // at the prompt's 300-character budget (which used to leave "four evide").
+    expect(s?.missing[1]).toBe(long);
+    // The model still receives exactly the first 300 characters, no more.
+    const text = directive(s);
+    expect(text).toContain(`- ${long.slice(0, 300)}`);
+    expect(text).not.toContain(long.slice(0, 301));
+    // Past the client's own bound a sentence is cut at a word and marked.
+    const huge = "word ".repeat(600).trim();
+    const reason = toPhaseGateState(row({ reason: huge }))?.reason ?? "";
+    expect(reason.length).toBeLessThanOrEqual(2000);
+    expect(reason.endsWith("word…")).toBe(true);
   });
 
   it("keeps EVERY gap, because the card renders this list in full", () => {

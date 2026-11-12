@@ -20,7 +20,7 @@ whenever a test file differs from `<base>`.
 | `packages/thread` | `bun test` (`bun:test`) | none; `test/` folder | `bun run test:unit` |
 | `packages/cli` | `bun test` (`bun:test`) | none; `src/**/*.test.ts` | `bun run test:unit` (runs `template:sync` first) |
 | `.agents/skills/worktree-ports/scripts` | `bun test` | none | run by the root `test:unit` script |
-| `apps/research` | pytest `>=8.3,<9.0` with `httpx` for `TestClient` | `[tool.pytest.ini_options]` in `apps/research/pyproject.toml` (`testpaths = ["tests"]`, `addopts = "-q"`) | `.venv/bin/python -m pytest` |
+| `apps/research` | pytest `>=8.3,<10.0` with `httpx` for `TestClient` | `[tool.pytest.ini_options]` in `apps/research/pyproject.toml` (`testpaths = ["tests"]`, `addopts = "-q"`) | `.venv/bin/python -m pytest` |
 | `.claude/hooks/*.sh` | plain bash | none | `bash .claude/hooks/hooks.test.sh` (by hand) |
 | `packages/registry` | none | no test script | n/a |
 

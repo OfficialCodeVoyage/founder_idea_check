@@ -13,14 +13,16 @@ Two reasons, and neither is "we like Python".
    seventeen source adapters carrying years of accumulated knowledge about
    endpoints that fight back. Reimplementing them in TypeScript would mean
    owning an anti-bot maintenance treadmill forever, for no gain.
-2. **OASIS is Python and pins `>=3.10,<3.12`.** Step 8 could not live in the
+2. **OASIS is Python** (`>=3.10,<3.15` as of camel-oasis 0.2.6). Step 8 could not live in the
    Next.js app whatever we wanted.
 
 ## Python version
 
-**3.11, and the constraint is OASIS.** `camel-ai/oasis` @ `40bf1705` declares
-`python = ">=3.10.0,<3.12"` in its own `pyproject.toml` (line 25). 3.11 is the
-newest version inside that window. The reasoning is repeated in
+**3.11, the tested version.** It was pinned for OASIS: `camel-ai/oasis` @ `40bf1705`
+(camel-oasis 0.2.5) declared `python = ">=3.10.0,<3.12"` in its own `pyproject.toml`
+(line 25). camel-oasis 0.2.6 and camel-ai 0.2.90 now declare `>=3.10,<3.15` (PyPI
+metadata, read 2026-11-13), so OASIS no longer forces `<3.12`; the sidecar stays on
+3.11 as tested, and loosening it is a separate change. The reasoning is repeated in
 `pyproject.toml` and in the `Dockerfile`, because this is the decision most
 likely to be "cleaned up" by someone who did not know why it was there.
 

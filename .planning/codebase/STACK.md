@@ -14,7 +14,7 @@ Versions below are the ones resolved in `bun.lock` for the TypeScript side, and 
 - TypeScript 6.0.2 (exact pin, `apps/chat/package.json`) - the Next.js app `apps/chat` and `packages/thread`.
   Compiler settings in `apps/chat/tsconfig.json`: `strict`, `module: Preserve`, `noEmit`, path alias `@/*` to the app root.
 - Python 3.11 only (`requires-python = ">=3.11,<3.12"` in `apps/research/pyproject.toml`) - the research sidecar
-  `apps/research`. The upper bound is OASIS's own bound; see Pins below.
+  `apps/research`. The upper bound is kept as tested (OASIS 0.2.6 itself allows `<3.15`); see Pins below.
 
 **Secondary:**
 - SQL - hand-reviewed Drizzle migrations in `apps/chat/lib/db/migrations/` (files `0000` to `0053`, ordered by
@@ -29,7 +29,7 @@ Versions below are the ones resolved in `bun.lock` for the TypeScript side, and 
   installs; the Next.js server itself runs under Node (`next start`, `apps/chat/package.json`).
 - Python 3.11 in a venv at `apps/research/.venv` (the README suggests `uv venv --python 3.11`; CI uses `python -m venv`,
   `.github/workflows/ci.yml`). Container base image `python:3.11-slim` (`apps/research/Dockerfile`).
-- Postgres 17 with pgvector (`pgvector/pgvector:pg17`, `docker-compose.yml`) and Valkey 8.1.11 (`valkey/valkey:8.1.11-alpine3.24`,
+- Postgres 17 with pgvector (`pgvector/pgvector:pg17`, `docker-compose.yml`) and Valkey 9.1.3 (`valkey/valkey:9.1.3-alpine3.24`,
   `docker-compose.yml`) as local services.
 
 **Package Manager:**
@@ -66,17 +66,17 @@ member: it has no `package.json`, and Python is driven by its own `pyproject.tom
 **Core (`apps/research/pyproject.toml`):**
 - FastAPI `>=0.115,<1.0`, uvicorn[standard] `>=0.32,<1.0`, pydantic `>=2.9,<3.0`. These are the only runtime dependencies of the
   signal half; every source adapter uses stdlib `urllib` (`apps/research/app/http.py`).
-- Optional extra `simulation`: `camel-oasis==0.2.5` and `mcp<2` (pulls camel-ai, torch, sentence-transformers, igraph).
+- Optional extra `simulation`: `camel-oasis==0.2.6` and `mcp<2` (pulls camel-ai 0.2.90, torch, sentence-transformers, igraph).
 
 **Testing:**
 - vitest 4.1.4 for `apps/chat` (`apps/chat/vitest.config.ts`, `bun run test:unit` runs `vitest run`); `bun test` for `packages/thread` and `packages/cli`.
 - Playwright 1.59.1 e2e (`apps/chat/playwright.config.ts`), local only; its `webServer` runs `bun run dev:local`.
 - evalite 1.0.0-beta.8 for the gate calibration eval (`apps/chat/evalite.config.ts`, `bun run eval:gate`), stored in SQLite
   through `better-sqlite3` 12.
-- pytest `>=8.3,<9.0` with httpx `>=0.27,<1.0` (`apps/research/pyproject.toml`; `testpaths = ["tests"]`, no network, no key).
+- pytest `>=8.3,<10.0` with httpx `>=0.27,<1.0` (`apps/research/pyproject.toml`; `testpaths = ["tests"]`, no network, no key).
 
 **Build/Dev:**
-- turbo 2.9.5 (exact pin, root `package.json`); dotenv-cli `^8.0.0` loads the repo-root env file for scripts.
+- turbo 2.9.5 (exact pin, root `package.json`); dotenv-cli `^11.1.0` loads the repo-root env file for scripts.
 - Biome 2.4.10 through ultracite 7.4.3 (`apps/chat/biome.jsonc` extends `ultracite/core`, `ultracite/react`, `ultracite/next`;
   `packages/thread` calls `bunx @biomejs/biome@2.4.10`). `lint` is `ultracite check`, `format` is `ultracite fix`.
 - ruff `>=0.7,<1.0` for Python: line length 100, target `py311`, rules `E,F,I,UP,B,SIM,RUF`, `E501` ignored
@@ -95,7 +95,7 @@ member: it has no `package.json`, and Python is driven by its own `pyproject.tom
   `maxResearcherSteps` is set explicitly in `apps/chat/chat.config.ts`.
 - `drizzle-orm` 0.45.2 + `pgvector` column type - facts, embeddings and the gate ledger (`apps/chat/lib/db/schema.ts`).
 - `better-auth` 1.6.2 - sessions and OAuth (`apps/chat/lib/auth.ts`).
-- `fastapi` + `camel-oasis` 0.2.5 - the sidecar surface and persona simulation (`apps/research/app/main.py`,
+- `fastapi` + `camel-oasis` 0.2.6 - the sidecar surface and persona simulation (`apps/research/app/main.py`,
   `apps/research/app/simulation/oasis_runner.py`).
 
 **Infrastructure:**
@@ -113,11 +113,13 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
 
 ## Pins and why
 
-- **Python `>=3.11,<3.12`** (`apps/research/pyproject.toml`, `apps/research/Dockerfile`, CI `python-version`): `camel-ai/oasis` declares
-  `python = ">=3.10.0,<3.12"` and exact-pins its dependency tree, so 3.11 is the newest usable version. Dependabot ignores
+- **Python `>=3.11,<3.12`** (`apps/research/pyproject.toml`, `apps/research/Dockerfile`, CI `python-version`): `camel-ai/oasis` 0.2.5 declared
+  `python = ">=3.10.0,<3.12"`; camel-oasis 0.2.6 and camel-ai 0.2.90 declare `>=3.10,<3.15`, so OASIS no longer forces the bound.
+  It stays at 3.11 as the tested version (loosening is a separate change; the exact-pinned dependency tree would need re-resolving). Dependabot ignores
   Python minor/major bumps for the Docker image (`.github/dependabot.yml`).
-- **`mcp<2`** in the `simulation` extra: camel-ai imports `from mcp.server import FastMCP`, a name mcp 2 removed, so an unpinned
-  install succeeds and then fails at `import oasis`. Dependabot ignores `mcp >= 2` (`.github/dependabot.yml`).
+- **`mcp<2`** in the `simulation` extra: camel-ai imports `from mcp.server import FastMCP`, a name mcp 2 removed, so with camel-oasis
+  0.2.5 an unpinned install succeeded and then failed at `import oasis`. camel-oasis 0.2.6 itself requires `mcp==1.29.0`, so the pin is
+  now a guard against a later OASIS release. Dependabot ignores `mcp >= 2` (`.github/dependabot.yml`).
 - **`ultracite 7.4.3` and `@biomejs/biome 2.4.10`** are exact pins; an unpinned `bunx ultracite` pulls a newer major (`CLAUDE.md`).
 - **`@better-auth/core` 1.5.6** is forced by the root `overrides` in `package.json`. The recorded reason (`//overrides` in the same file:
   other `@better-auth/*` packages peer on core 1.5.6) no longer matches the lock: `bun.lock` resolves `better-auth` and
@@ -129,7 +131,7 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
   does not install it and no simulation image is published (`THIRD_PARTY-research.md`).
 - **Exact pins without a recorded reason:** `next` 16.3.0, `react` and `react-dom` 19.2.3, `typescript` 6.0.2, the `@ai-sdk/*` family,
   `lucide-react`, `@xyflow/react`, `resumable-stream`, `files-sdk` (`apps/chat/package.json`). Do not loosen them without a dependency task.
-- **Valkey tag is exact** (`valkey/valkey:8.1.11-alpine3.24`): it replaced `redis:7-alpine`, whose moving tag resolved to a
+- **Valkey tag is exact** (`valkey/valkey:9.1.3-alpine3.24`): it replaced `redis:7-alpine`, whose moving tag resolved to a
   source-available Redis (`docker-compose.yml`). `searxng/searxng:latest` in `docker-compose.searxng.yml` is the one moving tag, opt-in.
 
 ## Configuration

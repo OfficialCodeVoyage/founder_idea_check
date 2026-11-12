@@ -23,7 +23,7 @@ in with its path.
 |---|---|---|---|
 | [mvanhorn/last30days-skill](https://github.com/mvanhorn/last30days-skill) | MIT, Copyright (c) 2026 Matt Van Horn | Source adapters, ranking pipeline and text utilities in `apps/research/app/` | `9243a32d823c7c8659e44b92f2dedcf1b7397137` (2026-08-18) |
 | [langchain-ai/open_deep_research](https://github.com/langchain-ai/open_deep_research) | MIT, Copyright (c) 2025 LangChain | The deep-research tool in `apps/chat/tools/platform/deep-research/`: prompts near-verbatim, architecture and config names. It arrived with ChatJS. | `c0a160b57a9b5ecd4b8217c3811a14d8eff97f72` (2025-07-25), the last upstream change to `prompts.py` before ChatJS added its port on 2025-08-01 |
-| [camel-ai/oasis](https://github.com/camel-ai/oasis) | Apache-2.0 | Optional dependency for the persona simulation. No code copied. | `camel-oasis==0.2.5`; sources read at `40bf170501e4757c993e3f55ff0208f435bb215d` (2026-08-19) |
+| [camel-ai/oasis](https://github.com/camel-ai/oasis) | Apache-2.0 | Optional dependency for the persona simulation. No code copied. | `camel-oasis==0.2.6`; sources read at `40bf170501e4757c993e3f55ff0208f435bb215d` (2026-08-19) |
 | igraph ([python-igraph](https://github.com/igraph/python-igraph)) | GPL-2.0-or-later | Pulled in by OASIS, through the optional `simulation` extra only | `igraph==0.11.6` = tag `0.11.6`, `12ab69f1c3477e03f5b3c13c5a671439c58ff73e` (2024-07-08) |
 | [miurla/morphic](https://github.com/miurla/morphic) | Apache-2.0 | Design only: one descriptor module per source behind one index. No code copied. | `d4aba02a14a5cb2c6ed0e7ef917123a681b05f14` (2026-08-20) |
 | [ArthurHeitmann/arctic_shift](https://github.com/ArthurHeitmann/arctic_shift) | No licence on its source | Its public API is called; none of its source is copied | API contract read from `api/README.md` on 2026-08-09; terms re-read at `7752f2d2c4e450a0c333e165a70d270e75b6cfa4` (2026-10-11) on 2026-11-12 |
@@ -139,13 +139,13 @@ notice in `LICENSES/` and `NOTICE` is what covers them.
 
 **No OASIS code is copied.** `apps/research/app/simulation/oasis_runner.py` calls
 only the names `oasis/__init__.py` exports, and OASIS is installed by the optional
-`simulation` extra (`camel-oasis==0.2.5`, Apache-2.0). Facts the code relies on,
+`simulation` extra (`camel-oasis==0.2.6`, Apache-2.0; its wheel metadata says `License-Expression: Apache-2.0`). Facts the code relies on,
 read directly from the OASIS sources at `40bf1705` on 2026-08-19 (the paths in the
 second column are in that repository):
 
 | Fact | Where | Consequence here |
 |---|---|---|
-| `python = ">=3.10.0,<3.12"` | `pyproject.toml:25` | The sidecar pins Python 3.11, in `pyproject.toml`, the `Dockerfile` and the README. |
+| `python = ">=3.10.0,<3.12"` at `40bf1705` (camel-oasis 0.2.5); camel-oasis 0.2.6 and camel-ai 0.2.90 declare `requires-python` `>=3.10,<3.15` (PyPI metadata, read 2026-11-13) | `pyproject.toml:25` | OASIS no longer forces `<3.12`. The sidecar stays on Python 3.11 as the tested version, in `pyproject.toml`, the `Dockerfile` and the README; loosening it is a separate change. |
 | The default graph backend is igraph, in memory; neo4j needs an explicit `backend="neo4j"` plus a `Neo4jConfig`, and neither documented generator passes one | `oasis/social_agent/agent_graph.py:178-190` | No graph database in the image or in `docker-compose.yml`. |
 | `import oasis` eagerly imports torch, sentence-transformers and scikit-learn, and probes CUDA at import | `oasis/social_platform/recsys.py:26-29`, `:46` | Simulation is an optional extra, imported lazily, with `oasis-not-installed` as a named condition. |
 | `import oasis` creates `./log/` relative to the working directory | `env.py:30-32`, `platform.py:37-39`, `agent.py:44-45` | The `Dockerfile`'s `WORKDIR` is owned by the runtime user. |
@@ -158,8 +158,8 @@ second column are in that repository):
 ## igraph (GPL-2.0-or-later)
 
 **Where it enters.** Only through the optional `simulation` extra in
-`apps/research/pyproject.toml`. `camel-oasis==0.2.5` requires `igraph==0.11.6`
-(PyPI metadata of `camel-oasis` 0.2.5, read 2026-11-12). The default dependencies
+`apps/research/pyproject.toml`. `camel-oasis==0.2.6` requires `igraph==0.11.6`
+(PyPI metadata of `camel-oasis` 0.2.6, read 2026-11-13). The default dependencies
 (`fastapi`, `uvicorn`, `pydantic`) do not list it, and the default Docker image does
 not install it.
 

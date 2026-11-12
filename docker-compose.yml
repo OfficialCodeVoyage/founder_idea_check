@@ -4,7 +4,7 @@
 # WHAT THIS FILE OWNS
 #
 #   postgres  ic-pg     pgvector/pgvector:pg17           host :5433  <- apps/chat data
-#   redis     ic-redis  valkey/valkey:8.1.11-alpine3.24  host :6380  <- apps/chat cache
+#   redis     ic-redis  valkey/valkey:9.1.3-alpine3.24   host :6380  <- apps/chat cache
 #   research  (built)   apps/research                    host :8099  <- signals sidecar
 #
 # NOT in this file, on purpose: SearXNG (AGPL-3.0). It is an opt-in overlay,
@@ -46,13 +46,21 @@
 # and the volume.
 #
 # ONE-TIME CLEAN-UP if you ran the old stack. A `redisdata` volume written by
-# Redis 7.4 holds a `dump.rdb` in RDB format 12, which Valkey 8.1 cannot load
-# ("Can't handle RDB format version 12"; its source rejects any foreign RDB from
-# version 12 up whatever `rdb-version-check` says), so `ic-redis` exits at start
-# and restarts in a loop. This Redis only carries resumable-stream buffers and
-# rate-limit counters, nothing worth keeping, so drop the volume once:
+# Redis 7.4 holds a `dump.rdb` in RDB format 12, which Valkey refuses by default,
+# 9.1 included ("Can't handle RDB format version 12"), so `ic-redis` exits at
+# start and restarts in a loop. This Redis only carries resumable-stream buffers
+# and rate-limit counters, nothing worth keeping, so drop the volume once:
 #
 #     docker compose down && docker volume rm ideacheck_redisdata
+#
+# (To keep it instead, load it once with `valkey-server --rdb-version-check
+# relaxed` in a throwaway `docker run --rm -v ideacheck_redisdata:/data` of the
+# pinned image and `SAVE`. Do not add that flag to the service.) A volume written
+# by Valkey 8.x loads in 9.1 normally.
+#
+# Rolling the image back is the reverse problem: a dump written by Valkey 9.1 is
+# RDB format 80, which 8.x cannot read, so remove `ideacheck_redisdata` first
+# (it only holds resumable-stream state).
 #
 # SEARXNG IS OPT-IN. SearXNG is AGPL-3.0 (its source files say AGPL-3.0-or-later).
 # This repository copies none of its code: the overlay only names its published

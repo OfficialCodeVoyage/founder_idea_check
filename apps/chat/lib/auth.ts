@@ -111,8 +111,10 @@ export const auth = betterAuth({
   })(),
   plugins: [
     lastLoginMethod(),
-    nextCookies(),
     ...(config.desktopApp.enabled ? [electronAuthPlugin] : []),
+    // better-auth's Next.js integration requires nextCookies() to be the last
+    // plugin so it sees the Set-Cookie headers every other plugin produced.
+    nextCookies(),
   ],
 });
 

@@ -38,9 +38,6 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       {
-        hostname: "avatar.vercel.sh",
-      },
-      {
         protocol: "https",
         hostname: "*.googleusercontent.com",
         pathname: "**",

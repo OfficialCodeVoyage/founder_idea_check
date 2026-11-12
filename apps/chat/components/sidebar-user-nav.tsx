@@ -79,7 +79,10 @@ export function SidebarUserNav() {
 
   const displayName = user.name || user.email || "User";
   const userInitials = displayName.slice(0, 2).toUpperCase();
-  const avatarImageSrc = user.image || `https://avatar.vercel.sh/${user.email}`;
+  // Only the provider's own picture; with none, AvatarFallback shows the
+  // initials. Never build an avatar URL from the email: that sends the
+  // address to a third-party host on every render.
+  const avatarImageSrc = user.image || undefined;
 
   return (
     <SidebarMenu>

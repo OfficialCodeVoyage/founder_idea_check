@@ -156,6 +156,54 @@ const NON_TECHNICAL_MARKERS: readonly RegExp[] = [
   /\b(young|reluctant|early|beginning|struggling|avid|book) readers?\b/i,
 ];
 
+/**
+ * A FOUNDER DESCRIBING THEMSELVES IS NOT THE BUYER THEY NAMED.
+ *
+ * "I'm a software engineer building a bedtime app for parents of toddlers"
+ * carries a technical marker ("engineer") and a non-technical one ("parents"),
+ * and reading both as the buyer cancelled the buyer: `conflicting-signals`, the
+ * neutral ranking, no subreddits, and a Reddit lane that refused every search
+ * for exactly the consumer buyer it exists for. The founder's own job says who
+ * is typing, and the buyer is whoever they went on to name.
+ *
+ * A self-description is a first-person introduction ("I'm a", "I am a", "I was
+ * a", "we're a", "as a") followed by at most three filler words and then a
+ * marker: "I'm a software engineer", "as a former ML engineer", "we're a small
+ * team of engineers". The filler cannot run through a word that opens the next
+ * clause (`CLAUSE_OPENERS`), so "I'm a founder building for developers" does not
+ * read "developers" as the founder's own job. An article is required, because
+ * "I'm building tools for developers" is the buyer, not a self-description.
+ *
+ * Only the markers inside these phrases are set aside, and only while the rest of
+ * the text names a buyer: see `readAudience` for the fallback when it does not.
+ */
+const SELF_INTRO = String.raw`\b(?:i['’]m|i am|i was|i used to be|i['’]ve been|we['’]re|we are|as)\s+(?:an?|the)\s+`;
+const CLAUSE_OPENERS =
+  "(?:for|to|building|making|creating|designing|launching|selling|who|that|which|with|and|but|at|in|on|from|because|so)";
+const SELF_FILLER = String.raw`(?:(?!${CLAUSE_OPENERS}\b)[\w'’./+#-]+\s+){0,3}?`;
+
+/**
+ * One pattern per marker, built from the markers themselves so the two lists
+ * cannot drift apart: a role added to `TECHNICAL_MARKERS` is a self-description
+ * too, with no second list to forget.
+ */
+const SELF_DESCRIPTIONS: readonly RegExp[] = [
+  ...TECHNICAL_MARKERS,
+  ...NON_TECHNICAL_MARKERS,
+].map(
+  (marker) =>
+    new RegExp(`${SELF_INTRO}${SELF_FILLER}(?:${marker.source})`, "gi")
+);
+
+/** PURE. The text with every self-description removed, whitespace collapsed. */
+function withoutSelfDescriptions(text: string): string {
+  let rest = text;
+  for (const pattern of SELF_DESCRIPTIONS) {
+    rest = rest.replace(pattern, " ");
+  }
+  return rest.replace(/\s+/g, " ").trim();
+}
+
 function matched(text: string, markers: readonly RegExp[]): string[] {
   const hits: string[] = [];
   for (const marker of markers) {
@@ -192,6 +240,17 @@ function matched(text: string, markers: readonly RegExp[]): string[] {
  * UNKNOWN, not "technical". The bias is deliberate and one-way — when in doubt
  * we must not return the developer ordering, because returning it by accident
  * is the entire bug.
+ *
+ * WHAT THE FOUNDER SAYS ABOUT THEMSELVES DOES NOT COUNT AGAINST THE BUYER. The
+ * markers are first looked for with the founder's self-descriptions removed
+ * (`withoutSelfDescriptions`): "I'm a software engineer building a bedtime app
+ * for parents of toddlers" names parents, and "engineer" is who is typing. Only
+ * when nothing else in the text names a buyer are the self-descriptions read
+ * after all, because a founder who says "I'm a dog walker" and nothing more
+ * about who they are building for is, until told otherwise, their own buyer —
+ * which is what this function answered before, so that case does not change.
+ * A buyer description that itself names both audiences ("for parents and for
+ * developers") is not a self-description and still reads as conflicting.
  */
 export function readAudience(input: {
   targetUserFact: string | null;
@@ -208,8 +267,18 @@ export function readAudience(input: {
     return { known: false, reason: "no-segment-stated" };
   }
 
-  const technical = matched(source, TECHNICAL_MARKERS);
-  const nonTechnical = matched(source, NON_TECHNICAL_MARKERS);
+  // The buyer's words, apart from who is describing them. `segment` is the text
+  // the decision was made on, so the subreddit table is matched against the
+  // buyer and not against the founder's job.
+  let text = withoutSelfDescriptions(source);
+  if (
+    matched(text, TECHNICAL_MARKERS).length === 0 &&
+    matched(text, NON_TECHNICAL_MARKERS).length === 0
+  ) {
+    text = source;
+  }
+  const technical = matched(text, TECHNICAL_MARKERS);
+  const nonTechnical = matched(text, NON_TECHNICAL_MARKERS);
 
   if (technical.length > 0 && nonTechnical.length > 0) {
     return { known: false, reason: "conflicting-signals" };
@@ -218,7 +287,7 @@ export function readAudience(input: {
     return {
       known: true,
       audience: "technical",
-      segment: source,
+      segment: text,
       evidence: technical.join(", "),
     };
   }
@@ -226,7 +295,7 @@ export function readAudience(input: {
     return {
       known: true,
       audience: "non-technical",
-      segment: source,
+      segment: text,
       evidence: nonTechnical.join(", "),
     };
   }

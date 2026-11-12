@@ -113,6 +113,77 @@ describe("readAudience", () => {
     }
   });
 
+  it("does not let the founder's own job cancel the consumer buyer they named", () => {
+    // REGRESSION. "engineer" (technical) and "parents" (non-technical) used to
+    // read as conflicting signals, so the Reddit lane refused every search for
+    // exactly the buyer it was built for.
+    for (const text of [
+      "I'm a software engineer building a bedtime app for parents of toddlers",
+      "As a senior backend developer I want to build a bedtime-routine app for parents of toddlers.",
+      "We’re a small team of engineers making a bedtime app for parents",
+    ]) {
+      const view = readAudience({
+        targetUserFact: null,
+        conversation: [{ role: "user", text }],
+      });
+      expect(view.known && view.audience).toBe("non-technical");
+      expect(sourceOptionsFor(rankSourcesFor(view))?.["arctic-shift"]).toEqual({
+        subreddits: ["Parenting", "daddit", "Mommit", "kindergarten"],
+      });
+    }
+  });
+
+  it("does not let a non-technical job cancel a technical buyer either", () => {
+    const view = readAudience({
+      targetUserFact: null,
+      conversation: [
+        {
+          role: "user",
+          text: "I'm a nurse building a code-review tool for platform engineers.",
+        },
+      ],
+    });
+    expect(view.known && view.audience).toBe("technical");
+  });
+
+  it("does not read a buyer as the founder's job just because a verb sits between", () => {
+    // "founder building for developers": the developers are the buyer, and the
+    // founder's own job is not a marker, so nothing here is set aside.
+    const view = readAudience({
+      targetUserFact: null,
+      conversation: [
+        { role: "user", text: "I'm a founder building for developers." },
+      ],
+    });
+    expect(view.known && view.audience).toBe("technical");
+  });
+
+  it("still reads a founder's own job when they name no other buyer", () => {
+    const view = readAudience({
+      targetUserFact: null,
+      conversation: [
+        { role: "user", text: "I'm a dog walker and I want a scheduling app." },
+      ],
+    });
+    expect(view.known && view.audience).toBe("non-technical");
+  });
+
+  it("still flags a buyer description that itself names both audiences", () => {
+    const view = readAudience({
+      targetUserFact: null,
+      conversation: [
+        {
+          role: "user",
+          text: "I'm a software engineer building an app for parents and for developers too.",
+        },
+      ],
+    });
+    expect(view.known).toBe(false);
+    if (!view.known) {
+      expect(view.reason).toBe("conflicting-signals");
+    }
+  });
+
   it("does not let common words flip a technical buyer", () => {
     // Device drivers, screen readers, CS students, a child process and "pets
     // vs cattle" are infrastructure talk, not a second audience.

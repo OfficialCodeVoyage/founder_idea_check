@@ -1,5 +1,8 @@
-"use server";
-
+// Server-only, deliberately NOT "use server": as a server action,
+// setAnonymousSession would let any caller write an anonymous session with
+// whatever remainingCredits it chose. The only caller is the /api/chat route
+// handler; the browser reads the cookie through lib/anonymous-session-client.ts.
+import "server-only";
 import { cookies } from "next/headers";
 import type { AnonymousSession } from "@/lib/types/anonymous";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";

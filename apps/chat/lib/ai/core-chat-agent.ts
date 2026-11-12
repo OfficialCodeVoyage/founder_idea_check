@@ -108,9 +108,12 @@ export async function createCoreChatAgent({
     convertDataPart: (_part): undefined => undefined,
   });
 
-  // Replace file URLs with binary data
-  const contextForLLM =
-    await replaceFilePartUrlByBinaryDataInMessages(modelMessages);
+  // Replace file URLs with binary data. Only this user's own stored files are
+  // inlined; an anonymous turn (userId null) inlines none.
+  const contextForLLM = await replaceFilePartUrlByBinaryDataInMessages(
+    modelMessages,
+    userId
+  );
 
   // Get MCP tools if connectors are configured
   const { tools: mcpTools, cleanup: mcpCleanup } = await getMcpTools({

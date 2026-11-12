@@ -11,9 +11,23 @@ vi.mock("@/lib/url", () => ({
   getBaseUrl: () => "https://chat.example",
 }));
 
-vi.mock("@/lib/file-storage", () => ({ downloadFile }));
+const OWNER = "user-1";
 
-import { replaceFilePartUrlByBinaryDataInMessages } from "./download-assets";
+vi.mock("@/lib/file-storage", () => ({
+  downloadFile,
+  isFileOwnedBy: (_key: string, userId: string) => userId === OWNER,
+}));
+
+import {
+  type DownloadImplementation,
+  replaceFilePartUrlByBinaryDataInMessages as replaceForOwner,
+} from "./download-assets";
+
+// Every case below runs as the owner of the managed key it references.
+const replaceFilePartUrlByBinaryDataInMessages = (
+  messages: ModelMessage[],
+  downloadImplementation?: DownloadImplementation
+) => replaceForOwner(messages, OWNER, downloadImplementation);
 
 describe("replaceFilePartUrlByBinaryDataInMessages", () => {
   afterEach(() => {

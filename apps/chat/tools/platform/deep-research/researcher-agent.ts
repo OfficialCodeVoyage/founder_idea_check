@@ -309,9 +309,12 @@ async function compressResearch(
   // THE CAP IS NOT RAISED (it is the time budget: `compression_model_max_tokens`
   // is what fits the 30 s compression allowance), but a note that stops at it is
   // not a finished note. Live QA (2026-11-12) saw one compression call end at
-  // exactly 4,000 output tokens with nothing said anywhere. It is logged, and the
+  // exactly 4,000 output tokens with nothing said anywhere. It is logged, the
   // notes carry a last line saying they are incomplete, because the report writer
-  // reads them as the researcher's whole findings.
+  // reads them as the researcher's whole findings, AND it is recorded as a cut
+  // for this topic: the report's "Research cut short" section is filled "from the
+  // list and nothing more", so a cut that is only in the notes' last line is a cut
+  // the report is told nothing of.
   if (response.finishReason === "length") {
     log.warn(
       {
@@ -321,11 +324,19 @@ async function compressResearch(
       },
       "condensed research notes hit the output cap"
     );
+    recordCut(options.clock, COMPRESSION_CUT_OFF_REASON, {}, topic);
     return `${response.text}\n\n${COMPRESSION_CUT_OFF_NOTE}`;
   }
 
   return response.text;
 }
+
+/**
+ * The cut the report is told about when a researcher's compressed notes ended at
+ * the output cap. Not about time: the notes exist, and their end is missing.
+ */
+const COMPRESSION_CUT_OFF_REASON =
+  "a researcher's condensed notes were cut off at the output limit, so findings and sources from the end of that researcher's work are missing";
 
 /** The last line of compressed notes that were cut off at the output cap. */
 const COMPRESSION_CUT_OFF_NOTE =

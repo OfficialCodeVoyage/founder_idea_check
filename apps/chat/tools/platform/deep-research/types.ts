@@ -29,7 +29,7 @@ export interface AgentOptions {
   audience: AudienceView;
   /**
    * The run's deadlines, derived from the chat route's budget, and the record
-   * of what was cut short for time. One object for the whole run: the search
+   * of what was cut short (mostly for time). One object for the whole run: the search
    * tool, the researchers and the supervisor all stop against the same clock,
    * and the report reads the cuts they recorded. See research-clock.ts.
    */

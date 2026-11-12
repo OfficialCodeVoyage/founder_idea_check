@@ -184,9 +184,10 @@ function clipTopic(topic: string): string {
  * prompt and nothing else, so when a run was cut short nobody could say which of
  * the cuts had fired or how far into the request it was. The reasons are the
  * strings the callers in the researcher, the supervisor and the search tool
- * pass. Most are about time; one (a researcher's first reply cut off at its
- * output limit) is not, and is recorded here all the same because the report has
- * to say that a topic went unresearched.
+ * pass. Most are about time; two are not (a researcher's first reply cut off at
+ * its output limit, and a researcher's condensed notes cut off at theirs), and are
+ * recorded here all the same because the report has to say that a topic went
+ * unresearched or that its notes are incomplete.
  */
 export function recordCut(
   clock: ResearchClock,
@@ -220,7 +221,9 @@ export function recordCut(
       secondsIntoRequest: toSeconds(clock.now() - requestStartedAt),
       searchStopDueAtSeconds: toSeconds(clock.searchStopAt - requestStartedAt),
     },
-    "deep research was cut short for time"
+    // NOT "for time": the `reason` field says why, and two of the reasons are not
+    // about time (a first reply or a condensed note cut at its output limit).
+    "deep research was cut short"
   );
 }
 

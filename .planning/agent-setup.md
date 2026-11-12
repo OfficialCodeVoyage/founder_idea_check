@@ -19,8 +19,8 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
 | `docs/` | upstream docs app removed; many root notes | ARCHITECTURE.md, ADR/README + 0001, INCIDENTS.md (template). Root notes fold into `docs/` during the release clean-up. |
 | `CONTEXT.md` | none | 25-term glossary. |
 | `RECONSTRUCTION.md`, `.planning/codebase/` | none | Deferred to the end of the release clean-up so they map the code that ships; stamped after the history rewrite. |
-| `.codex/`, `.cursor/` hooks | run `scripts/ai-post-codegen.sh` (whole-repo format + `test:types`) | Left for the CI and community clean-up lane to review. |
-| CI | 9 upstream workflows, 2 for removed apps, no Python job | Replaced by one `ci.yml` with a single `ci-success` check in the clean-up lane. |
+| `.codex/`, `.cursor/` hooks | run `scripts/ai-post-codegen.sh` (whole-repo format + `test:types`) | `ai-post-codegen.sh` now runs `bun run verify` (no whole-repo format, no `test:types`). |
+| CI | 9 upstream workflows, 2 for removed apps, no Python job | Replaced by one `.github/workflows/ci.yml` with a single `ci-success` check (`chore/ci-community-261112`). Not yet run on GitHub. |
 | Memory | none | `MEMORY.md` + `reference_docs_index.md` (machine-local). |
 
 ## Stack research
@@ -55,7 +55,7 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
 - `@better-auth/core` is forced to 1.5.6 while `better-auth` resolves 1.6.2; the recorded reason (the Electron
   app) no longer applies.
 - `turbo.json` `globalEnv` misses `RESEARCH_ENABLED_SOURCES`, `LITELLM_*`, `VERCEL_SANDBOX_RUNTIME_*`.
-- `.cursor/mcp.json` runs `next-devtools-mcp@latest` unpinned.
+- `.cursor/mcp.json` ran `next-devtools-mcp@latest` unpinned. Fixed: pinned to 0.4.0.
 
 ## Guide §16 progress
 
@@ -78,10 +78,10 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
 
 | Item | State | Plan |
 |---|---|---|
-| CI with one required `ci-success` check | missing | release clean-up (CI lane) |
-| Python in CI (ruff + pytest) | missing | same |
-| Dependabot with cooldown, secret scanning | missing | same; settings applied at go-live |
-| Branch ruleset JSON | missing | same; applied at go-live |
+| CI with one required `ci-success` check | written (`ci.yml`), not yet run on GitHub | confirm green on the first PR |
+| Python in CI (ruff + pytest) | written (`python` job in `ci.yml`) | same |
+| Dependabot with cooldown, secret scanning | `dependabot.yml` written; secret scanning not set | scanning and push protection are GitHub settings, applied at go-live |
+| Branch ruleset JSON | written (`.github/rulesets/main.json`) | applied on GitHub at go-live, after the first green run |
 | Module-boundary tool | missing | ask the owner after the release (new dependency) |
 | Census tests | missing | add one per incident as incidents are written |
 | Test-integrity guard in CI | missing | CI lane |

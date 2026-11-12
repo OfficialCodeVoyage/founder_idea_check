@@ -25,6 +25,8 @@ paths:
 - **Python 3.11 only** (OASIS); `mcp<2` is load-bearing. Use `apps/research/.venv`, never system Python/pytest/ruff.
 - **Vendored files are not modernised or reformatted** (`app/text/cjk.py`, `app/text/relevance.py`,
   `app/pipeline/{dedupe,entity_extract}.py`, see `pyproject.toml` per-file-ignores). `ruff format` is not enforced.
-- **`bun run dev` drops `RESEARCH_ENABLED_SOURCES`** (turbo strict env, not in `turbo.json` `globalEnv`); use
-  `bun run dev:local`.
+- **`RESEARCH_ENABLED_SOURCES` must stay in `turbo.json` `globalEnv`:** `bun run dev` runs through turbo's strict env
+  mode and drops any variable not listed there. Guard: `apps/chat/lib/env-schema.test.ts` (census of `serverEnvSchema`
+  against `globalEnv`). The sidecar's own variables (`RESEARCH_SEARXNG_URL`, `RESEARCH_SIM_*`) are read by the Python
+  process, not by turbo tasks.
 - Source or policy change → update `apps/research/README.md` and `THIRD_PARTY-research.md` in the same commit.

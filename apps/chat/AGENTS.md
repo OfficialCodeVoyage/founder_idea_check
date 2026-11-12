@@ -7,8 +7,11 @@ These instructions apply to this application directory.
 - Use Next.js App Router, React, the Vercel AI SDK, Tailwind CSS 4, and shadcn/ui.
 - Keep shadcn primitives in `components/ui`; its config is `components.json`.
 - Chat requests enter through `app/(chat)/api/chat/route.ts`.
-- Keep Drizzle schema in `lib/db/schema.ts` and database operations in
-  `lib/db/queries.ts`.
+- Keep Drizzle schema in `lib/db/schema.ts` and database operations in `lib/db/`:
+  `queries.ts` for chats, projects and documents, and a sibling file per area
+  (`phase-queries.ts`, `task-queries.ts`, `simulation-queries.ts`,
+  `mcp-queries.ts`, `credits.ts`). Add to the matching file, or start a new
+  sibling when none fits.
 - Register every tRPC router in `trpc/routers/_app.ts`.
 
 ## Commands

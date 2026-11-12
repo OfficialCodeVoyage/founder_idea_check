@@ -11,7 +11,8 @@ description: Implement tRPC routers, TanStack Query hooks, mutations, and cache 
   them in `apps/chat/trpc/routers/_app.ts`.
 - Use `protectedProcedure` for authenticated operations.
 - Validate inputs with Zod and verify ownership before mutations.
-- Keep database access in `apps/chat/lib/db/queries.ts`.
+- Keep database access in `apps/chat/lib/db/`: `queries.ts` for chats, projects and documents, and the sibling
+  `*-queries.ts` and `credits.ts` files for their areas.
 
 ## React queries
 

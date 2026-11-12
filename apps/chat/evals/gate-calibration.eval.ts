@@ -24,8 +24,9 @@ import { type GateFixture, PHASE_ONE_FIXTURES } from "./fixtures/gate-phase-01";
  *    drifts in order to measure a judge that drifts — the plan's own stated
  *    risk, imported voluntarily. Exact enum equality has no grader at all.
  *  - evalite is already a dependency, already wired to `.env.local` through
- *    evals/setup.ts, and already excluded from `test:unit` (which runs with all
- *    AI keys unset, deliberately).
+ *    evals/setup.ts, and already excluded from `test:unit` (its `*.eval.ts` files do not
+ *    match vitest's default test-file pattern). The unit tests need no AI key;
+ *    the keys-unset run is the manual `env -u` command in README-DEV.md.
  *  - Its sqlite history is the drift record Step 4 actually needs: the same
  *    fixtures re-run after a prompt or model change, compared to last time.
  * Revisit if we ever need to grade the assistant's PROSE (its refusal copy) —

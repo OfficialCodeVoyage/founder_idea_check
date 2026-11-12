@@ -1009,9 +1009,15 @@ export const PromptInputSubmit = ({
 		Icon = <XIcon className="size-4" />;
 	}
 
+	// While a reply is on its way the button stops it (the composer's onClick
+	// calls its stop handler for both statuses), so it is named for what it does;
+	// "Submit" on a square icon hid it from a screen reader and from
+	// getByRole("button", { name: /stop/i }). A caller's own aria-label wins.
+	const isReplyOnItsWay = status === "submitted" || status === "streaming";
+
 	return (
 		<InputGroupButton
-			aria-label="Submit"
+			aria-label={isReplyOnItsWay ? "Stop generating" : "Submit"}
 			className={cn(className)}
 			size={size}
 			type="submit"

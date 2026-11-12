@@ -488,14 +488,69 @@ export function splitHeadline(
     : { kind: "instead-of-list", text: reason };
 }
 
+/**
+ * The criterion id behind each gap, or null when the two lists cannot be
+ * trusted to line up.
+ *
+ * `decideGate` builds `missing` and `obstacle.criterionIds` from the same
+ * evaluations in the same order, so equal lengths and unique ids is the whole
+ * proof that gap N belongs to criterion N. Anything else (an older verdict with
+ * no ids, an arm that is about the gate rather than the work) is reported as
+ * "not aligned" rather than guessed at. One check, shared by every reader of
+ * the pairing, so the keys and the per-criterion text cannot disagree.
+ */
+function alignedCriterionIds(
+  gaps: readonly string[],
+  obstacle: GateObstacle | null | undefined
+): readonly string[] | null {
+  const ids = obstacle?.criterionIds ?? [];
+  const aligned =
+    ids.length === gaps.length && new Set(ids).size === ids.length;
+  return aligned ? ids : null;
+}
+
 function keysForGaps(
   gaps: readonly string[],
   obstacle: GateObstacle | null | undefined
 ): string[] {
-  const ids = obstacle?.criterionIds ?? [];
-  const aligned =
-    ids.length === gaps.length && new Set(ids).size === ids.length;
-  return gaps.map((_gap, index) => (aligned ? ids[index] : `#${index}`));
+  const ids = alignedCriterionIds(gaps, obstacle);
+  return gaps.map((_gap, index) => (ids ? ids[index] : `#${index}`));
+}
+
+/**
+ * PURE. The gap sentence per criterion id, for printing each gap on its own
+ * checklist row instead of in a separate list.
+ *
+ * NULL when `missing` and `obstacle.criterionIds` are not aligned (the same
+ * check as `keysForGaps`). The caller must then fall back to the flat gap list,
+ * because a row that guessed its gap from a position would pin one criterion's
+ * finding on another, and a row with no gap would hide it: Incident 3 is the
+ * whole open set always being shown.
+ */
+export function gapsByCriterion(
+  missing: readonly string[],
+  obstacle: GateObstacle | null | undefined
+): ReadonlyMap<string, string> | null {
+  const ids = alignedCriterionIds(missing, obstacle);
+  if (!ids) {
+    return null;
+  }
+  return new Map(ids.map((id, index) => [id, missing[index]]));
+}
+
+/**
+ * PURE. "frequency-and-intensity" becomes "Frequency and intensity".
+ *
+ * A criterion has an id and a long description but no title of its own, and the
+ * kebab-case id is what the card used to print as the row's name. This is the
+ * display form; it is never used as a key or sent anywhere as an identifier.
+ */
+export function humanizeCriterionId(id: string): string {
+  const words = id
+    .split("-")
+    .filter((word) => word.length > 0)
+    .join(" ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** PURE. The verdict card, from the state the router already returns. */
@@ -915,6 +970,149 @@ export function describeCriterionChecklist(input: {
     summary: summarize(rows, metCount),
     metCount,
     openCount: rows.length - metCount,
+  };
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE CHECKLIST AS SOMETHING TO ACT ON: groups and a status strip.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * The card used to print every criterion in definition order with a status
+ * word, and a founder looking at "BLOCKED, 1 could not be assessed, 4 more
+ * open" still could not tell which criteria pass, or which of the open ones
+ * they could do anything about from where they sit.
+ *
+ * THE GROUPS ARE KEYED ON THE DEFINITION, NEVER ON THE JUDGE'S LABEL. Whether a
+ * criterion can be answered in this conversation is a property of the criterion
+ * (`closure`), and Incident 3 is exactly what happens when a display depends on
+ * the label instead: one criterion flipping between "unmet" and "not-evaluable"
+ * would move it from one group to another on a transcript that had not changed.
+ * So an offline-only criterion is under "needs evidence" whether the judge said
+ * unmet, partial, not-evaluable or nothing at all (Incident 2: such a criterion
+ * is never something to answer on the spot).
+ */
+export type GroupedChecklistRow = ChecklistRow & {
+  /**
+   * An advisory criterion: not meeting it can downgrade a verdict to WARN but
+   * never blocks the phase. Said on the row, because "open" next to a BLOCKED
+   * badge reads as "this is why you are blocked".
+   */
+  doesNotBlock: boolean;
+};
+
+export type ChecklistGroups = {
+  /** In-conversation and not met: the founder can say this now. */
+  answerNow: readonly GroupedChecklistRow[];
+  /** Offline-only and not met: needs fieldwork, whatever the label says. */
+  needsEvidence: readonly GroupedChecklistRow[];
+  /** Met, in either closure. */
+  met: readonly GroupedChecklistRow[];
+};
+
+/**
+ * PURE. Definition order inside every group, `criteria` being the definition.
+ *
+ * A row whose id the definition no longer carries keeps its own closure and
+ * sorts last, rather than being dropped: an open criterion must never vanish
+ * from the card because the lists disagree.
+ */
+export function groupChecklistRows(
+  rows: readonly ChecklistRow[],
+  criteria: readonly { id: string; closure: CriterionClosure }[]
+): ChecklistGroups {
+  const definition = new Map(
+    criteria.map((c, index) => [c.id, { index, closure: c.closure }])
+  );
+  const ordered = rows
+    .map((row) => {
+      const known = definition.get(row.id);
+      return {
+        row,
+        at: known?.index ?? Number.MAX_SAFE_INTEGER,
+        closure: known?.closure ?? row.closure,
+      };
+    })
+    .sort((a, b) => a.at - b.at);
+
+  const answerNow: GroupedChecklistRow[] = [];
+  const needsEvidence: GroupedChecklistRow[] = [];
+  const met: GroupedChecklistRow[] = [];
+  for (const { row, closure } of ordered) {
+    const grouped: GroupedChecklistRow = {
+      ...row,
+      closure,
+      doesNotBlock: row.severity === "advisory",
+    };
+    if (row.state === "met") {
+      met.push(grouped);
+    } else if (closure === "offline-only") {
+      needsEvidence.push(grouped);
+    } else {
+      answerNow.push(grouped);
+    }
+  }
+  return { answerNow, needsEvidence, met };
+}
+
+export type StatusStripSegment = { id: string; state: ChecklistState };
+
+/**
+ * ONE SEGMENT PER CRITERION, IN DEFINITION ORDER, NEVER SORTED.
+ *
+ * Sorting by state would make a segment jump position whenever the judge
+ * changed a label, which is Incident 3 drawn as a bar. A fixed position is what
+ * lets a founder see which criterion just turned green.
+ *
+ * UNAVAILABLE WHEN THE CHECKLIST IS. `failClosedVerdict` produces
+ * `perCriterion: []`, which means nothing was judged; a strip for it would read
+ * "0 of 8 met" and accuse the founder of a result the gate never produced. This
+ * takes the whole `CriterionChecklist` rather than bare rows so that rule is
+ * structural: the unavailable arm has no rows to draw.
+ */
+export type StatusStrip =
+  | { available: false }
+  | {
+      available: true;
+      segments: readonly StatusStripSegment[];
+      metCount: number;
+      total: number;
+      /** The visible count: "3 of 8 met". */
+      label: string;
+      /** The count with every state named, for a screen reader. */
+      spoken: string;
+    };
+
+/** The order the spoken clauses come in after "N of M met". */
+const SPOKEN_ORDER: readonly Exclude<ChecklistState, "met">[] = [
+  "partial",
+  "unmet",
+  "not-evaluable",
+  "unscored",
+];
+
+/** PURE. The strip, or an honest refusal to draw one. */
+export function describeStatusStrip(
+  checklist: CriterionChecklist
+): StatusStrip {
+  if (!checklist.available) {
+    return { available: false };
+  }
+  const { rows, metCount } = checklist;
+  const label = `${metCount} of ${rows.length} met`;
+  const clauses = SPOKEN_ORDER.map((state) => ({
+    state,
+    count: rows.filter((r) => r.state === state).length,
+  }))
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${entry.count} ${CHECKLIST_LABEL[entry.state]}`);
+  return {
+    available: true,
+    segments: rows.map((r) => ({ id: r.id, state: r.state })),
+    metCount,
+    total: rows.length,
+    label,
+    spoken: [label, ...clauses].join(", "),
   };
 }
 

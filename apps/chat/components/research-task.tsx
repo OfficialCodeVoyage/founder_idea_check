@@ -82,7 +82,7 @@ export const ResearchTask = ({
               it must not look like a search that ran and found nothing. */}
           {update.type === "web" && update.status === "skipped" && (
             <p className="text-muted-foreground text-xs">
-              Not run: the search time for this research run had run out.
+              Not run: no request was made for this step.
             </p>
           )}
           {/* Search Loading State */}

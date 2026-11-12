@@ -179,6 +179,41 @@ function stepAbortSignal(
 }
 
 /**
+ * THE TERMINAL ROW FOR A STEP THAT NEVER RAN.
+ *
+ * Every step opens a `running` web update on its `updateId` before it knows
+ * whether it will search, so every path that returns without searching must
+ * replace that row, or the card spins forever and `describeResearchRun` counts
+ * a search that never happened. It is `skipped`, not `completed`: a `completed`
+ * web update is counted as a search ("8 searches" when three never ran), and one
+ * with an empty result list is what a search that ran and found nothing looks
+ * like. It carries no `results` for the same reason: there is nothing to count,
+ * not a zero. `reason` is the founder-facing why, shown in the card's title.
+ */
+function writeSkippedStep(input: {
+  dataStream: StreamWriter;
+  toolCallId: string;
+  updateId: string;
+  queries: string[];
+  reason: string;
+}): void {
+  const { dataStream, toolCallId, updateId, queries, reason } = input;
+  const count =
+    queries.length === 1 ? "1 search" : `${queries.length} searches`;
+  dataStream.write({
+    type: "data-researchUpdate",
+    id: updateId,
+    data: {
+      toolCallId,
+      title: `Skipped ${count}: ${reason}`,
+      type: "web",
+      status: "skipped",
+      queries,
+    },
+  });
+}
+
+/**
  * A search step that cannot finish before the search deadline, refused before
  * any fetch. `attempted: false` keeps every lane "not attempted" rather than
  * "found nothing", and the reply is an error so the researcher stops searching
@@ -203,20 +238,12 @@ function refuseForTime(input: {
     toolCallId,
     describeLanes({ descriptors, signals: [], failures: [], attempted: false })
   );
-  // `skipped`, not `completed`: this step replaces the "running" row written
-  // for the same `updateId`, and a `completed` web update is counted as a search
-  // by `describeResearchRun` ("8 searches" when three never ran). It carries no
-  // `results` for the same reason: there is nothing to count, not a zero.
-  dataStream.write({
-    type: "data-researchUpdate",
-    id: updateId,
-    data: {
-      toolCallId,
-      title: `Skipped ${queries.length === 1 ? "1 search" : `${queries.length} searches`}: search time ran out`,
-      type: "web",
-      status: "skipped",
-      queries,
-    },
+  writeSkippedStep({
+    dataStream,
+    toolCallId,
+    updateId,
+    queries,
+    reason: "search time ran out",
   });
   return {
     searches: [],
@@ -372,6 +399,15 @@ Avoid:
             attempted: false,
           })
         );
+        // The "running" row written above must not be left open: it would spin
+        // forever and be counted as a search.
+        writeSkippedStep({
+          dataStream,
+          toolCallId,
+          updateId,
+          queries,
+          reason: "no search query was supplied",
+        });
         return {
           searches: [],
           error:

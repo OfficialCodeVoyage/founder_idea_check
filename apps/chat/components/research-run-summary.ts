@@ -64,7 +64,7 @@ const NEVER_SEARCHED =
   "deep research ended before any search was attempted, so there is nothing to count";
 
 const ALL_SKIPPED =
-  "every planned search was skipped because the search time had run out, so there is nothing to count";
+  "every planned search was skipped before any request was made, so there is nothing to count";
 
 /**
  * PURE. Reads the update stream the tool emitted and says what actually ran.
@@ -74,7 +74,8 @@ const ALL_SKIPPED =
  * called, so zero of them means the search tool was never reached.
  *
  * A `skipped` web update is the search tool refusing a step before any request
- * (the search time had run out). It is in the stream so the founder can see the
+ * (the search time had run out, or the call carried no usable query; the reason
+ * is in the update's title). It is in the stream so the founder can see the
  * step was refused, but it is NOT a search: counting it printed "8 searches"
  * for a run in which three never ran. A run whose every step was skipped has
  * nothing to count, and says so on the `searched: false` arm.

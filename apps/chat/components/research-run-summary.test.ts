@@ -179,7 +179,7 @@ describe("describeResearchRun with refused steps", () => {
     expect(view.searched).toBe(false);
     const line = researchRunLine(view);
     expect(line).toContain("No search ran");
-    expect(line).toContain("search time had run out");
+    expect(line).toContain("skipped before any request was made");
     expect(line).not.toMatch(ANY_DIGIT);
   });
 });

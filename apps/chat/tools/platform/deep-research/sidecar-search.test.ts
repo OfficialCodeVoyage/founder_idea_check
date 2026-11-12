@@ -325,7 +325,7 @@ describe("sidecarWebSearch", () => {
     // maps to schema-drift — "the contracts diverged, redeploy". That is the
     // wrong story to tell an operator about a malformed tool call.
     let called = false;
-    const { stream } = recordingStream();
+    const { stream, written } = recordingStream();
     const tool = sidecarWebSearch({
       dataStream: stream,
       writeTopLevelUpdates: false,
@@ -340,6 +340,17 @@ describe("sidecarWebSearch", () => {
     expect(called).toBe(false);
     expect(result.error).toContain("malformed tool call");
     expect(result.searches).toHaveLength(0);
+
+    // The "running" row opened for this call must be closed: left open it
+    // spins forever and `describeResearchRun` counts it as a search. It is
+    // `skipped` (not `completed`), on the same id, with no results.
+    const webUpdates = written.filter((w) => w.data.type === "web");
+    expect(webUpdates.map((w) => w.data.status)).toEqual([
+      "running",
+      "skipped",
+    ]);
+    expect(webUpdates[0].id).toBe(webUpdates[1].id);
+    expect("results" in webUpdates[1].data).toBe(false);
   });
 
   it("still searches the non-empty queries when one is blank", async () => {

@@ -229,6 +229,11 @@ function PureDocumentTool({
     streamEnded,
     input: tool.input,
     errorText: tool.state === "output-error" ? tool.errorText : null,
+    // A turn that just died in this tab still carries its `activeStreamId`,
+    // and its server side may still be marking the part, so a reload can
+    // answer "was it saved". A part loaded from storage has no id and no
+    // marker: the server finished with it long ago and recorded nothing.
+    reloadMayAnswer: Boolean(metadata.activeStreamId),
   });
 
   // Sync streaming content to artifact panel

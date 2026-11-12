@@ -509,6 +509,34 @@ describe("sweepDeadInputStreams", () => {
     expect(verdict.died && verdict.detail).not.toContain("has been saved");
   });
 
+  it("tells a stranded part no reload can explain that it was not saved", () => {
+    // Loaded from storage: no activeStreamId, no marker. The server finished
+    // with this turn long ago and recorded nothing, so "reload to see whether
+    // it was saved" would be a dead end.
+    const verdict = describeInputStream({
+      state: "input-streaming",
+      streamEnded: true,
+      input: dead.input,
+      errorText: null,
+      reloadMayAnswer: false,
+    });
+    expect(verdict.died && verdict.store).toEqual({ state: "not-saved" });
+    expect(verdict.died && verdict.detail).toContain("NOT saved");
+    expect(verdict.died && verdict.detail).not.toContain("Reload the chat");
+  });
+
+  it("keeps the reload hint for a turn that just died in this tab", () => {
+    const verdict = describeInputStream({
+      state: "input-streaming",
+      streamEnded: true,
+      input: dead.input,
+      errorText: null,
+      reloadMayAnswer: true,
+    });
+    expect(verdict.died && verdict.store).toEqual({ state: "unknown" });
+    expect(verdict.died && verdict.detail).toContain("Reload the chat");
+  });
+
   it("ignores non-tool parts that happen to carry a state field", () => {
     const swept = sweepDeadInputStreams([
       { type: "data-research", state: "input-streaming" },

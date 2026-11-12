@@ -67,6 +67,11 @@ const SAVED_DOCUMENT_TAG = /^ \[partial-document:([a-z]+):([^\]\s]+)\]/;
  * `not-saved` once it has tried; the live chat, which renders the dead card
  * the moment the stream stops, knows neither until the page is reloaded and
  * the marked part comes back. Saying "saved" from there would be a guess.
+ *
+ * `unknown` therefore means "a reload can answer this", and only that. A part
+ * the server has already finished with and left unmarked is `not-saved`: no
+ * reload will ever change it, so telling the founder to reload would send them
+ * to a page that says the same thing.
  */
 export type PartialDocumentStore =
   | {
@@ -379,6 +384,8 @@ function whereItWent(store: PartialDocumentStore): string {
     case "not-saved":
       return "What arrived was NOT saved as a document. It survives only in this message, and the copy you can open here is unsaved and labelled partial.";
     default:
+      // Only the live chat gets here: the server is still finishing the turn
+      // and will record its answer on the part, which a reload then shows.
       return "What arrived is kept in this message. Reload the chat to see whether it was also saved as a document; until then, the copy you can open here is unsaved and labelled partial.";
   }
 }
@@ -474,6 +481,7 @@ export function describeInputStream({
   errorText,
   toolType,
   saved,
+  reloadMayAnswer = true,
 }: {
   state: string;
   streamEnded: boolean;
@@ -491,6 +499,17 @@ export function describeInputStream({
    * from a marked part's `errorText` instead.
    */
   saved?: SavedPartialDocument | null;
+  /**
+   * Whether the server may still write its answer onto this part, so that a
+   * reload could show something this render cannot. The renderer passes
+   * whether the message still carries an `activeStreamId`: it does for a turn
+   * that just died in this tab (the finish chunk that clears it never came),
+   * and it does not for a part loaded from storage. An unmarked stranded part
+   * loaded from storage was left that way by a turn whose server side is long
+   * over and recorded nothing, which makes it `not-saved` rather than
+   * `unknown`. Ignored when `saved` or a marker already answers.
+   */
+  reloadMayAnswer?: boolean;
 }): InputStreamVerdict {
   const markedDead =
     state === "output-error" &&
@@ -506,6 +525,7 @@ export function describeInputStream({
     salvage,
     saved,
     markedErrorText: markedDead ? errorText : null,
+    reloadMayAnswer,
   });
   return {
     died: true,
@@ -521,10 +541,12 @@ function storeFor({
   salvage,
   saved,
   markedErrorText,
+  reloadMayAnswer,
 }: {
   salvage: SalvagedTextDocument;
   saved: SavedPartialDocument | null | undefined;
   markedErrorText: string | null | undefined;
+  reloadMayAnswer: boolean;
 }): PartialDocumentStore {
   // Nothing salvaged means nothing could have been written, whatever a caller
   // or a stored string claims.
@@ -539,7 +561,7 @@ function storeFor({
   if (markedErrorText) {
     return readStoreFromErrorText(markedErrorText);
   }
-  return { state: "unknown" };
+  return reloadMayAnswer ? { state: "unknown" } : { state: "not-saved" };
 }
 
 const PARTIAL_PREFIX = "[PARTIAL — stream died]";

@@ -109,16 +109,16 @@ const config = defineConfig({
     },
     tools: {
       webSearch: {
-        enabled: false, // replaced by the Python research sidecar (Step 5)
+        enabled: false, // turned off: research goes through the Python research sidecar (Step 5)
       },
       urlRetrieval: {
-        enabled: false, // replaced by the Python research sidecar (Step 5)
+        enabled: false, // turned off: research goes through the Python research sidecar (Step 5)
       },
       codeExecution: {
-        enabled: false, // code sandbox removed from this fork
+        enabled: false, // code sandbox turned off (the tool code remains behind this flag)
       },
       mcp: {
-        enabled: false, // MCP connectors removed from this fork
+        enabled: false, // MCP connectors turned off (router, tools and settings page remain behind this flag)
       },
       followupSuggestions: {
         enabled: true,
@@ -135,7 +135,7 @@ const config = defineConfig({
       },
       image: {
         // Anthropic ships no image models, so `default` is not a valid key here.
-        enabled: false, // image generation removed from this fork
+        enabled: false, // image generation turned off (the tool code remains behind this flag)
       },
       deepResearch: {
         /**

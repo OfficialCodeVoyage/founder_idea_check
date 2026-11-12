@@ -47,7 +47,12 @@ Enforced by: none yet (no boundary tool; see ADR-0001). Customary today:
 - No author or username is stored with a demand signal.
 - No path enters the export plan unchecked: folder names are slugged to `[a-z0-9-]` and the whole tree is checked
   before the plan is returned.
-- No sidecar port is bound beyond `127.0.0.1`.
+- No caller reaches the sidecar's spending endpoints (`/v1/signals`, `/v1/simulate`) unchecked:
+  `apps/research/app/main.py::require_caller` demands `Authorization: Bearer <token>` when `RESEARCH_SIDECAR_TOKEN` is
+  set (the app sends it through `sidecarHeaders` in `apps/chat/lib/signals/sidecar.ts`), serves loopback callers only
+  when it is unset, and serves any caller only under `RESEARCH_SIDECAR_ALLOW_UNAUTHENTICATED=true`, which is for the
+  Compose sidecar alone. The Compose port is also published on `127.0.0.1` only. See
+  `docs/ADR/0005-sidecar-caller-auth.md`.
 
 ## Cross-cutting
 

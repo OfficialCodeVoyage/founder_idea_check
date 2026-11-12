@@ -34,6 +34,7 @@ vi.mock("@/lib/env", () => ({
 }));
 
 const { getDeepResearchConfig } = await import("./configuration");
+const { researchSystemPrompt } = await import("./prompts");
 
 describe("deep research threads five DISTINCT model roles", () => {
   it("gives every role its own configured model", () => {
@@ -79,5 +80,35 @@ describe("deep research threads five DISTINCT model roles", () => {
 
   it("respects the maxResearcherSteps ceiling rather than inheriting 20", () => {
     expect(getDeepResearchConfig().max_researcher_steps).toBe(6);
+  });
+});
+
+/**
+ * GUARD for the live QA run whose researchers each spent 50 to 60 s writing
+ * their findings out as a 4,000-token free-text reply (finishReason "length",
+ * no tool call) that compression rebuilds from the search results anyway, and
+ * pushed the run past its search stop. A researcher step is short by design:
+ * a small output ceiling, and a prompt that asks for brief notes.
+ */
+describe("a researcher's closing step is short by design", () => {
+  it("caps one researcher step far below the other roles' 4,000 tokens", () => {
+    const config = getDeepResearchConfig();
+    // Measured tool-call steps were 145 to 201 output tokens; at about 70
+    // tokens/s a 4,000-token step took 57 s, and 2,000 would still be 29 s.
+    expect(config.researcher_step_max_tokens).toBeLessThanOrEqual(2000);
+    expect(config.researcher_step_max_tokens).toBeGreaterThanOrEqual(600);
+    expect(config.researcher_step_max_tokens).toBeLessThan(
+      config.research_model_max_tokens
+    );
+  });
+
+  it("asks the researcher for brief notes, not its findings written out", () => {
+    const prompt = researchSystemPrompt({
+      date: "today",
+      mcp_prompt: "",
+      max_search_queries: 2,
+    });
+    expect(prompt).toContain("brief notes only");
+    expect(prompt).not.toContain("provide your final findings as text");
   });
 });

@@ -204,7 +204,7 @@ You can use any of the tools provided to you to find resources that can help ans
 
 <Criteria for Finishing Research>
 - The user will give you a sense of how much effort you should put into the research. This does not translate ~directly~ to the number of tool calls you should make, but it does give you a sense of the depth of the research you should conduct.
-- Once you are satisfied with your research, stop making tool calls and provide your final findings as text.
+- Once you are satisfied with your research, stop making tool calls and reply with brief notes only: at most five short bullet points, about 100 words in all, naming the sources that were most useful. Do NOT write the findings out: they are condensed from your search results by a later step, and a long reply is cut off and wasted.
 - One case where you should stop is if your previous tool calls have stopped yielding useful information.
 </Criteria for Finishing Research>
 

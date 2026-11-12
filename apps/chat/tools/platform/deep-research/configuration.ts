@@ -25,6 +25,14 @@ export interface DeepResearchRuntimeConfig {
   mcp_prompt?: string;
   research_model: string;
   research_model_max_tokens: number;
+  /**
+   * Output ceiling for ONE step of a researcher's tool loop, reasoning included.
+   * Far below `research_model_max_tokens` on purpose: a researcher's steps are
+   * tool calls (about 200 tokens) and, at the end, brief notes; its findings are
+   * condensed from the search results by the compression step. See the value in
+   * `getDeepResearchConfig`.
+   */
+  researcher_step_max_tokens: number;
 
   // Research Configuration
   search_api: SearchAPI;
@@ -98,6 +106,24 @@ export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
     summarization_model_max_tokens: 4000,
     research_model: researchModel,
     research_model_max_tokens: 4000,
+    /*
+      WHY 1,500 AND NOT 4,000 FOR A RESEARCHER STEP. Live QA (2026-11-12): two
+      of a run's five researcher steps ended with finishReason "length" at 4,000
+      output tokens, no tool call, 50 to 60 s each. They were the researcher
+      writing its findings out as free text after its searches, which compression
+      (`compressResearch`) rebuilds from the raw search results anyway, so the
+      time bought nothing and the text was cut off mid-sentence. Those two steps
+      pushed the run past the search stop (cut at 140 s against 120 s).
+
+      The researcher's steps that DO matter are tool calls: the same run's were
+      145 to 201 output tokens, 37 to 53 of them reasoning. 1,500 leaves a tool
+      call about seven times its measured size, and a closing "brief notes" reply
+      (see researchSystemPrompt) room for its reasoning and about 100 words; at
+      the throughput measured in that run (about 70 tokens/s) the worst case for
+      one step is about 21 s, against the 57 s that 4,000 tokens took. A step
+      that still hits the cap is handled in researcher-agent.ts, not retried.
+    */
+    researcher_step_max_tokens: 1500,
     compression_model: compressionModel,
     compression_model_max_tokens: 4000,
     final_report_model: finalReportModel,

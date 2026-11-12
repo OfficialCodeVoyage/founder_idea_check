@@ -91,7 +91,9 @@ export async function runResearcher(
         return true;
       },
     ],
-    maxOutputTokens: config.research_model_max_tokens,
+    // PER STEP, reasoning included, and deliberately far below the 4,000 the
+    // other roles get: see `researcher_step_max_tokens` in configuration.ts.
+    maxOutputTokens: config.researcher_step_max_tokens,
     experimental_telemetry: createTelemetry("researcher", options),
     onStepFinish: ({ usage, response, toolCalls, finishReason }) => {
       // Cumulative: each step's response carries every message so far, with
@@ -123,6 +125,20 @@ export async function runResearcher(
       );
       lastStepFinishedAt = finishedAt;
 
+      if (finishReason === "length") {
+        // Logged loudly: with brief notes asked for, hitting the cap means the
+        // reasoning or the reply ran far past what was measured.
+        log.warn(
+          {
+            step: stepsFinished,
+            outputTokens: usage?.outputTokens,
+            reasoningTokens: usage?.outputTokenDetails?.reasoningTokens,
+            toolCalls: toolCalls.map((call) => call.toolName),
+          },
+          "researcher step hit its output cap"
+        );
+      }
+
       if (usage) {
         options.costAccumulator?.addLLMCost(
           config.research_model as AppModelId,
@@ -136,11 +152,17 @@ export async function runResearcher(
   const stop = stopAt(clock, clock.searchStopAt, abortSignal);
   let researchMessages: ModelMessage[];
   try {
-    const { response } = await researcherAgent.generate({
+    const { response, finishReason } = await researcherAgent.generate({
       prompt: topic,
       abortSignal: stop.signal,
     });
-    researchMessages = response.messages;
+    // The closing reply hit the output cap. It is notes, and the findings are
+    // condensed from the search results, so the cut-off text is dropped and
+    // nothing else is lost: no retry, no error, and no "cut short" for time.
+    researchMessages =
+      finishReason === "length"
+        ? withoutTruncatedReply(response.messages)
+        : response.messages;
   } catch (error) {
     // Only the planned search deadline is absorbed; the route's abort and
     // every real failure still propagate. The step in flight is lost, the
@@ -161,11 +183,11 @@ export async function runResearcher(
     researchMessages = finishedMessages;
   }
 
-  // Stopped before any step finished: there is nothing to condense, and a
-  // compression call over an empty transcript would be paid for nothing.
+  // Nothing finished: there is nothing to condense, and a compression call over
+  // an empty transcript would be paid for nothing.
   const compressed =
     researchMessages.length === 0
-      ? `NOT RESEARCHED: the search time ran out before any search for this topic finished. Topic: ${topic}`
+      ? `NOT RESEARCHED: no search for this topic finished (the search time ran out, or the researcher's first reply was cut off). Topic: ${topic}`
       : await compressResearch(researchMessages, options);
 
   dataStream.write({
@@ -180,6 +202,18 @@ export async function runResearcher(
   });
 
   return compressed;
+}
+
+/**
+ * PURE. The researcher's messages without a closing reply that was cut off at
+ * the output cap. Only a trailing assistant message goes: the searches (the
+ * assistant's tool calls and their results, which end in a tool message) stay,
+ * and a reply that ended a loop cleanly is never passed through here.
+ */
+function withoutTruncatedReply(messages: ModelMessage[]): ModelMessage[] {
+  return messages.at(-1)?.role === "assistant"
+    ? messages.slice(0, -1)
+    : messages;
 }
 
 async function compressResearch(

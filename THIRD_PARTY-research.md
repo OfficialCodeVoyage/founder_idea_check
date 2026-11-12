@@ -110,7 +110,7 @@ lower. Per prompt, against `c0a160b5`:
 | `compressResearchSystemPrompt` | 31 of 31 identical |
 | `compressResearchSimpleHumanMessage` | 2 of 2 identical |
 | `finalReportGenerationPrompt` | Upstream minus 12 lines (the language-matching instruction and a messages block); nothing added |
-| `researchSystemPrompt` | 23 of 29 identical; 6 lines reworded or added (the `ResearchComplete` tool references became "stop making tool calls"; one line states the maximum number of search queries) |
+| `researchSystemPrompt` | 23 of 29 identical; 6 lines reworded or added (the `ResearchComplete` tool references became "stop making tool calls", and the closing reply is limited to brief notes because the findings are condensed from the search results; one line states the maximum number of search queries) |
 | `summarize_webpage_prompt` | Not ported |
 
 So `prompts.ts` is LangChain's prompt text with a few edits, under MIT; it is not

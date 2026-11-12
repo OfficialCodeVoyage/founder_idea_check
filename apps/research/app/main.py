@@ -64,6 +64,24 @@ log = logging.getLogger("research.sidecar")
 #      Docker bridge address. Never in a deployed environment.
 #   3. unset -> loopback callers only, and one warning at startup.
 #
+# IN BOTH NO-TOKEN MODES the `Host` header must also name this machine:
+# `localhost`, `127.0.0.1` or `::1`, port and IPv6 brackets ignored. The reason
+# is DNS rebinding. A page the founder opens at `http://evil.example:8099` can
+# re-point that name at 127.0.0.1; the browser then treats a POST to
+# `/v1/simulate` as same-origin, the TCP peer IS loopback, and the founder's
+# OpenAI key pays for it. What the browser cannot change is the Host it sends,
+# which stays `evil.example:8099`. A token defeats the same attack on its own
+# (a page cannot attach a bearer token it never saw), so mode (1) does not
+# check Host and any name works there.
+#
+# What still works: the app calls `researchSidecarUrl` (`http://localhost:8099`
+# in chat.config.ts), so its Host is `localhost:8099`. The Compose sidecar (2)
+# receives that same request through Docker's port forward, which does not
+# rewrite Host, so mode (2) accepts the same three names and no others. An app
+# configured with any other sidecar URL — a container name, a LAN address —
+# must set RESEARCH_SIDECAR_TOKEN. The Docker healthcheck calls only
+# `/v1/health`, which has no caller check.
+#
 # THE TRADE-OFF in (3), stated once. It keeps a stranger's first run at zero
 # configuration: `uvicorn app.main:app` binds 127.0.0.1 and the app on the same
 # machine calls it from loopback, so nothing has to be generated or copied
@@ -91,6 +109,28 @@ def _is_loopback(host: str | None) -> bool:
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
         return address.ipv4_mapped.is_loopback
     return address.is_loopback
+
+
+#: The `Host` names a no-token sidecar answers to. See IN BOTH NO-TOKEN MODES.
+LOCAL_HOST_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _host_name(host_header: str | None) -> str | None:
+    """The hostname in a `Host` header: port and IPv6 brackets removed.
+
+    `[::1]:8099` -> `::1`, `localhost:8099` -> `localhost`. A bare IPv6 address
+    without brackets (not valid in a Host header, but harmless to read) is
+    returned whole rather than cut at its last colon.
+    """
+    if not host_header:
+        return None
+    value = host_header.strip().lower()
+    if value.startswith("["):
+        closing = value.find("]")
+        return value[1:closing] if closing > 0 else None
+    if value.count(":") == 1:
+        return value.split(":", 1)[0]
+    return value
 
 
 def _bearer(authorization: str | None) -> str | None:
@@ -125,6 +165,16 @@ def require_caller(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return
+
+    # Before either no-token mode answers: the DNS-rebinding guard.
+    if _host_name(request.headers.get("host")) not in LOCAL_HOST_NAMES:
+        raise HTTPException(
+            status_code=403,
+            detail="RESEARCH_SIDECAR_TOKEN is not set, so this sidecar answers "
+            "only requests addressed to localhost, 127.0.0.1 or [::1]. Point "
+            "the app at one of those, or set the same token in the app's and "
+            "the sidecar's environment.",
+        )
 
     if SETTINGS.allow_unauthenticated:
         return

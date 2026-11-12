@@ -200,7 +200,7 @@ export function sidecarHeaders(
 export function describeSidecarRefusal(status: 401 | 403): string {
   return status === 401
     ? "The research sidecar requires RESEARCH_SIDECAR_TOKEN and this app sent no matching token. Set the same value in the app's and the sidecar's environment."
-    : "The research sidecar has no RESEARCH_SIDECAR_TOKEN, so it serves loopback callers only. Set the same token in the app's and the sidecar's environment to call it over a network.";
+    : "The research sidecar has no RESEARCH_SIDECAR_TOKEN, so it serves only callers on its own machine that address it as localhost, 127.0.0.1 or [::1]. Point researchSidecarUrl at one of those, or set the same token in the app's and the sidecar's environment.";
 }
 
 /** PURE. The failure detail for a non-2xx answer from the sidecar itself. */

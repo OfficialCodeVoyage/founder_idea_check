@@ -31,9 +31,11 @@ def local_client(main) -> TestClient:
     """A caller on loopback, which is what the no-token default serves.
 
     TestClient's own default peer is the name "testclient", which
-    `require_caller` rightly refuses: a name is not a loopback address.
+    `require_caller` rightly refuses: a name is not a loopback address. Its
+    default Host, "testserver", is refused too (the DNS-rebinding guard), so
+    the request is addressed to localhost as the app's own calls are.
     """
-    return TestClient(main.app, client=("127.0.0.1", 50000))
+    return TestClient(main.app, base_url="http://localhost:8099", client=("127.0.0.1", 50000))
 
 
 def body(source_id: str = "hackernews") -> dict:
@@ -370,8 +372,39 @@ class TestCallerAuth:
 
     def test_with_no_token_an_ipv4_mapped_loopback_caller_is_served(self, monkeypatch):
         main = self._reload(monkeypatch)
-        mapped = TestClient(main.app, client=("::ffff:127.0.0.1", 40000))
+        mapped = TestClient(
+            main.app, base_url="http://127.0.0.1:8099", client=("::ffff:127.0.0.1", 40000)
+        )
         assert mapped.post("/v1/signals/no-such-source", json=body()).status_code == 200
+
+    @pytest.mark.parametrize("allow", [None, "true"])
+    def test_with_no_token_a_rebound_host_is_refused_even_from_loopback(self, monkeypatch, allow):
+        # DNS REBINDING. A page at evil.example:8099 re-points its name at
+        # 127.0.0.1: the peer is loopback and the browser calls it same-origin,
+        # but the Host it sends is still evil.example. Both no-token modes.
+        main = self._reload(monkeypatch, allow=allow)
+        rebound = TestClient(
+            main.app, base_url="http://evil.example:8099", client=("127.0.0.1", 40000)
+        )
+        assert rebound.post("/v1/signals/no-such-source", json=body()).status_code == 403
+        simulate = rebound.post("/v1/simulate", json={"personas": [], "pitch": "x"})
+        assert simulate.status_code == 403
+        assert "localhost" in simulate.json()["detail"]
+        for host in ("localhost:8099", "127.0.0.1:8099", "[::1]:8099", "LOCALHOST"):
+            served = local_client(main).post(
+                "/v1/signals/no-such-source", json=body(), headers={"host": host}
+            )
+            assert served.status_code == 200, host
+
+    def test_a_set_token_does_not_depend_on_the_host(self, monkeypatch):
+        main = self._reload(monkeypatch, token="s3cret-sidecar-token")
+        named = TestClient(
+            main.app,
+            base_url="http://research:8099",
+            client=("172.18.0.5", 40000),
+            headers={"Authorization": "Bearer s3cret-sidecar-token"},
+        )
+        assert named.post("/v1/signals/no-such-source", json=body()).status_code == 200
 
     def test_a_set_token_is_required_even_from_loopback(self, monkeypatch):
         main = self._reload(monkeypatch, token="s3cret-sidecar-token")
@@ -401,7 +434,11 @@ class TestCallerAuth:
 
     def test_allow_unauthenticated_serves_a_non_loopback_caller_without_a_token(self, monkeypatch):
         main = self._reload(monkeypatch, allow="true")
-        bridge = TestClient(main.app, client=("172.17.0.1", 40000))
+        # The Compose path: the host app calls http://localhost:8099, Docker
+        # forwards it, and it arrives from the bridge with Host unchanged.
+        bridge = TestClient(
+            main.app, base_url="http://localhost:8099", client=("172.17.0.1", 40000)
+        )
         assert bridge.post("/v1/signals/no-such-source", json=body()).status_code == 200
 
     def test_health_stays_open_and_never_carries_the_token(self, monkeypatch):

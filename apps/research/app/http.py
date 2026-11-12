@@ -46,7 +46,7 @@ DEFAULT_TIMEOUT = 20
 #: API is the kind of thing that turns "we called your public API" into "we
 #: evaded your bot detection", which is precisely the characterisation the
 #: Reddit gate in apps/chat/lib/signals/providers.ts exists to avoid.
-USER_AGENT = "idea-check-research/0.1 (+https://github.com/idea-check)"
+USER_AGENT = "idea-check-research/0.1 (+https://github.com/OfficialCodeVoyage/founder_idea_check)"
 
 #: HTML endpoints (DuckDuckGo, Startpage, Reddit RSS) serve a challenge page to
 #: an obviously-automated UA. Used ONLY for endpoints that render HTML for

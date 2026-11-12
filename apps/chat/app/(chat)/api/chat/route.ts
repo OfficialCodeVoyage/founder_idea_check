@@ -259,7 +259,8 @@ async function handleChatValidation({
     // its own it was rounded up to 1¢ for a fraction of a cent, and with
     // exactly 1¢ left that charge made the turn's own check refuse the turn
     // the check below had just admitted. It is now rounded once with the turn
-    // and deducted with it in `finalizeMessageAndCredits`, and this is the
+    // and deducted with it: by `chargeTurnOnce` once the turn's stream exists,
+    // or by `POST`'s `finally` when the request ends before that. This is the
     // turn's only balance check (`handleUserValidationAndCredits`).
     const creditError = await checkUserCanSpend(userId);
     if (creditError) {
@@ -1284,12 +1285,12 @@ async function writePartialDocument({
 }
 
 /**
- * Settles and deducts what an accumulator outside `finalizeMessageAndCredits`
- * recorded: the post-turn passes, or a turn whose request ended before its
- * stream took the accumulator over (`TurnCost`). NEVER THROWS: it runs in
- * `after()` or a `finally`, where a rejection would be unhandled or would
- * replace the response. Logs an unpriced entry the same way
- * finalizeMessageAndCredits does, because the total is then an undercount.
+ * Settles and deducts what an accumulator outside `chargeTurnOnce` recorded:
+ * the post-turn passes, or a turn whose request ended before its stream took
+ * the accumulator over (`TurnCost`). NEVER THROWS: it runs in `after()` or a
+ * `finally`, where a rejection would be unhandled or would replace the
+ * response. Logs an unpriced entry the same way `chargeTurnOnce` does, because
+ * the total is then an undercount.
  */
 async function chargeAccumulatedCost({
   userId,

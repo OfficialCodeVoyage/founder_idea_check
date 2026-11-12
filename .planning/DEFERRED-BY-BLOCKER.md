@@ -92,16 +92,27 @@ the chain on an empty database (`.claude/rules/db.md`).
 reads bodies without a size limit. Only fixed source hosts are called, so the impact is low.
 **Clearing condition:** disable automatic redirects (or re-check each hop) and cap the body size.
 
-### SWEEP-F13 — A failed Redis subscribe leaves a background promise that never settles
-**Raised:** 2026-11-12, review of `executeChatRequest`'s resumable-stream fallback (pre-existing, upstream library).
-**Status:** OPEN (low)
-`resumable-stream@2.2.10` `createNewResumableStream` registers `ctx.waitUntil(new Promise(...))` and only then awaits
-`subscriber.subscribe`; the promise resolves at the end of its read loop. When `subscribe` rejects, `makeStream` never
-runs, the read loop never starts and that promise never settles. The route then serves the stream plain and charges it
-(`apps/chat/app/(chat)/api/chat/route.ts::executeChatRequest`), but `waitUntil` is `after`, so on Vercel the invocation
-is held open until its time limit. Locally nothing is held.
-**Clearing condition:** fixed upstream (register `waitUntil` after `subscribe`, or settle it on failure), or the route
-passes resumable-stream a `waitUntil` that bounds what it waits on.
+### SWEEP-F13 — resumable-stream's background promise never settles when Redis or the chat stream fails
+**Raised:** 2026-11-12, review of `executeChatRequest`'s resumable-stream fallback (pre-existing, upstream library);
+widened the same day after a second review. **Status:** OPEN (low)
+`resumable-stream@2.2.10` `createNewResumableStream` registers `ctx.waitUntil(new Promise(...))` whose resolver
+(`streamDoneResolver`) runs only in its read loop's `done` branch, after the sentinel `set`, the `unsubscribe` and the
+done `publish`es all succeed. Every other way out leaves the promise unsettled, and `waitUntil` is `after`, so on
+Vercel each holds the invocation open until its time limit (locally nothing is held):
+- `subscriber.subscribe` rejects: `makeStream` never runs and the read loop never starts. The route then serves the
+  stream plain and charges it (`apps/chat/app/(chat)/api/chat/route.ts::executeChatRequest`).
+- `reader.read()` rejects, which is what the chat stream does when it errors partway (the SDK's message processor
+  rejects a malformed chunk): `reader.read().then(async …)` has no rejection handler, so the rejection is unhandled
+  (Next logs it) and, from the source, the response's controller is neither errored nor closed, so a client reading
+  through Redis is left waiting instead of getting the error.
+- A chunk `publish` to a resuming listener rejects: the async `then` callback rejects unhandled and the loop stops.
+- The `done` branch's `set` / `unsubscribe` / `publish` rejects: the same unhandled rejection, and the resolver is
+  never reached.
+The turn's charge does not depend on any of these: the route drains its own tee of the stream.
+**Clearing condition:** fixed upstream (settle the promise and error or close the controller on every exit of
+`subscribe` and of the read loop, and handle the read and publish rejections), or the route wraps resumable-stream so
+that what it hands `waitUntil` is bounded by the chat stream's own end and every rejection in the read loop is caught.
+Check all four paths above, not only the subscribe one.
 
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>

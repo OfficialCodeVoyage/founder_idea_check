@@ -71,7 +71,7 @@ full repository paths.
 | Sidecar client | The one network seam to `apps/research` for signals; speaks and validates the wire format | `apps/chat/lib/signals/sidecar.ts` |
 | Simulation | Pure seeding, divergence and verdict logic; socket to the sidecar; action that records the run | `apps/chat/lib/research/simulation.ts`, `apps/chat/lib/research/sidecar-simulation.ts`, `apps/chat/app/actions/run-simulation.ts` |
 | Export | Pure `buildHandoff` returns every path and byte; a server action hands the plan to the browser | `apps/chat/lib/export/handoff.ts`, `apps/chat/app/actions/build-handoff.ts` |
-| Credits | Per-turn cost accumulator, settlement in cents, balance reads and deductions | `apps/chat/lib/credits/cost-accumulator.ts`, `apps/chat/lib/db/credits.ts` |
+| Credits | Per-turn cost accumulator, the chat model's per-step usage meter, settlement in cents, balance reads and deductions | `apps/chat/lib/credits/cost-accumulator.ts`, `apps/chat/lib/credits/main-chat-usage.ts`, `apps/chat/lib/db/credits.ts` |
 | Data layer | Drizzle schema, queries, migrator | `apps/chat/lib/db/schema.ts`, `apps/chat/lib/db/queries.ts`, `apps/chat/lib/db/phase-queries.ts`, `apps/chat/lib/db/migrate.ts` |
 | Auth | better-auth session, cookie cache, social providers; page guard in the proxy | `apps/chat/lib/auth.ts`, `apps/chat/proxy.ts` |
 | Client chat state | Per-chat runtime store, message tree, persistence and data-stream slices | `apps/chat/lib/stores/`, `apps/chat/lib/runtime-registry/`, `apps/chat/lib/app-chat-runtime.ts` |
@@ -173,8 +173,11 @@ N+1's system prompt.
    response, and a client disconnect or a stalled resumable read loop cannot end or skip the charge. The other branch
    is returned as SSE, wrapped by `resumable-stream` when `REDIS_URL` is set (`getStreamContext`; the GET resume
    handler is `apps/chat/app/(chat)/api/chat/[id]/stream/route.ts`), or plain when `resumable-stream` fails before it
-   takes the stream. Generation is never tied to the request: a disconnect does not stop the model; the stop button
-   does, through `canceledAt`.
+   takes the stream. Generation is never tied to the request: a disconnect does not stop the model. For a signed-in
+   turn the stop button does, through `canceledAt` (`stopStream` sets it; the cancel check aborts the model). An
+   anonymous turn has no cancel check (it is installed only when `!isAnonymous && userId`, and `handleStop` in
+   `apps/chat/components/multimodal-input.tsx` sends the mutation only with a session), so there Stop only ends the
+   client's stream and the model runs on to its end or the deadline.
 5. `createChatStream` composes the system prompt in `getSystemPrompt`: `systemPrompt()` (`apps/chat/lib/ai/prompts.ts`), the
    project's instructions, then `buildPhaseSystemBlock` (`apps/chat/lib/phases/runtime.ts`: persona prompt, current phase prompt
    from `apps/chat/prompts/`, ranked fact block, gate directive). Anonymous chats and chats whose owner does not own
@@ -183,16 +186,21 @@ N+1's system prompt.
    `GATE_TRANSCRIPT_BUDGET_TOKENS` in `apps/chat/lib/phases/context.ts`) with `selectContextWindow`, filters reasoning parts,
    converts to model messages, inlines only files the viewer may read (`apps/chat/lib/file-access.ts`), assembles tools
    (`getTools`, `getMcpTools`), applies the anonymous and explicit-tool filters, and calls `streamText` with
-   `stopWhen` = 5 steps or a `deepResearch` report result and `maxOutputTokens` clamped to the model ceiling.
+   `stopWhen` = 5 steps or a `deepResearch` report result and `maxOutputTokens` clamped to the model ceiling. Its first
+   transform, `createMainChatUsageMeter` (`apps/chat/lib/credits/main-chat-usage.ts`), records the chat model's usage
+   on the turn's accumulator step by step from each `finish-step`, and estimates (labelled as such) a step an abort
+   cuts off, so a stopped or deadline-cut turn still charges what it spent.
 7. The result is merged into the UI message stream with metadata; follow-up suggestions stream afterwards when
    `config.ai.tools.followupSuggestions.enabled` (`apps/chat/lib/ai/followup-suggestions.ts`).
 8. `onFinish` of `createUIMessageStream` runs once, when the drained branch reaches the end of the stream (or earlier,
    from the SDK's finish transform `cancel`, when the stream errors partway), and runs `finalizeMessageAndCredits`:
    `rescueDeadToolInputStreams` (salvages a frozen `createTextDocument` input as a labelled partial document,
-   `apps/chat/lib/artifacts/text/salvage.ts`), `updateMessage`, then `chargeTurnOnce`. That waits until `execute` has
-   ended (`spendRecorded`, so the model's usage is in), settles the accumulator, sets `TurnCost.charged` and deducts.
-   The drain calls `chargeTurnOnce` again when it ends; it deducts only if nothing has, which covers a stream error that
-   never reached `onFinish`.
+   `apps/chat/lib/artifacts/text/salvage.ts`), `updateMessage`, then hands `chargeTurnOnce` to `after()` (not awaited,
+   so an early `onFinish` does not hold the client's error). That waits until `execute` has ended (`spendRecorded`: by
+   then every step's usage, or a cut step's estimate, and the follow-ups are recorded), settles the accumulator, sets
+   `TurnCost.charged` and deducts. The drain calls `chargeTurnOnce` again when it ends; it stands down once `onFinish`
+   has taken the charge (`TurnCost.chargeTakenByOnFinish`), which leaves it the charge for a stream error that never
+   reached `onFinish`. The deadline timer is cleared in `execute`'s `finally`, not in `onFinish`.
 9. Still in `onFinish`, unless the turn was aborted, anonymous, a non-primary parallel reply, projectless, or its chat
    owner is not the project owner, the route registers `after(async () => ...)` that awaits, in sequence,
    `runPostTurnPhasePass` then `runPostTurnPersonaPass`, and charges their cost in `finally` through a second

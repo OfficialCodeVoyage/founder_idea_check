@@ -152,7 +152,8 @@ of the three `testMatch` regexes. There is no authenticated e2e coverage yet.
 Tracked in `NOTICE` (Apache-2.0 §4(d) requires stating modifications):
 
 - `apps/electron`, `apps/site`, `apps/docs` — whole workspaces
-- All vendor telemetry: Langfuse, `@vercel/otel`, OpenTelemetry exporters.
+- All vendor telemetry: Langfuse, `@vercel/otel`, OpenTelemetry exporters,
+  `@vercel/analytics` and `@vercel/speed-insights`.
   `createTelemetry` is a no-op; `instrumentation.ts` registers nothing.
   **This is load-bearing for the privacy claim — do not reintroduce.**
 - The `retrieve-url` demo tool (required `FIRECRAWL_API_KEY`)

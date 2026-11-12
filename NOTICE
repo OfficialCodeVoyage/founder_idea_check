@@ -13,7 +13,8 @@ Forked at commit 14113a98c2e3b7675562945ae8acf6a9e15d06be (2026-08-06).
 
 MODIFICATIONS made by the idea_check contributors:
   - Removed the Electron desktop application, marketing site, and docs site.
-  - Removed all vendor telemetry (Langfuse, OpenTelemetry exporters).
+  - Removed all vendor telemetry (Langfuse, OpenTelemetry exporters, Vercel
+    Analytics, Vercel Speed Insights).
     `createTelemetry` is now a no-op and `instrumentation.ts` registers nothing.
   - Added a gated, phase-based product-validation engine and project fact store.
   - Replaced the sequential deep-research supervisor queue with a bounded

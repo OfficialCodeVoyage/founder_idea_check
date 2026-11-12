@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from app.errors import SourceBlocked, SourceRateLimited, SourceSchemaDrift, SourceUnavailable
+from app.errors import (
+    SourceBlocked,
+    SourceError,
+    SourceRateLimited,
+    SourceSchemaDrift,
+    SourceUnavailable,
+)
 from app.http import _classify, _is_private_http
 from app.sources import (
     arctic_shift,
@@ -336,9 +342,7 @@ class TestArcticShiftParsing:
         return PreparedQuery("pricing churn")
 
     def test_parses_a_row_into_a_source_item(self):
-        items = arctic_shift.parse_posts(
-            {"data": [_arctic_row()]}, self._prepared(), "u"
-        )
+        items = arctic_shift.parse_posts({"data": [_arctic_row()]}, self._prepared(), "u")
         assert len(items) == 1
         item = items[0]
         assert item.title == "Pricing feedback wanted"
@@ -399,9 +403,7 @@ class TestArcticShiftParsing:
         # `permalink` is not a selectable field, and the selectable `url` is the
         # OFF-SITE target for a link post — citing it would send a founder to
         # the article instead of the discussion.
-        items = arctic_shift.parse_posts(
-            {"data": [_arctic_row()]}, self._prepared(), "u"
-        )
+        items = arctic_shift.parse_posts({"data": [_arctic_row()]}, self._prepared(), "u")
         assert items[0].url == "https://www.reddit.com/r/startups/comments/abc123/"
 
     def test_never_requests_the_unselectable_permalink_field(self):
@@ -426,76 +428,175 @@ class TestArcticShiftScoping:
         Without a subreddit the API ignores `query` and returns the newest posts
         in the archive, which would read as "we searched and found little".
         """
-        query = SourceQuery(
-            query="pricing", date_from="2026-01-01", date_to="2026-08-01", limit=5
-        )
+        query = SourceQuery(query="pricing", date_from="2026-01-01", date_to="2026-08-01", limit=5)
         with pytest.raises(SourceUnavailable) as caught:
             arctic_shift.ArcticShiftSource().fetch(query)
         assert "subreddit" in caught.value.detail.lower()
 
 
+class _Clock:
+    """A fake monotonic clock that `sleep` advances. No test ever waits."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.slept: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+class _FreeLimiter:
+    """Always grants: the politeness limiter is tested on its own, not here."""
+
+    def acquire(self, max_wait=None):
+        return True
+
+
+def _http_error(cls, status, detail, retry_after=None):
+    error = cls(detail)
+    error.status = status
+    error.retry_after = retry_after
+    return error
+
+
+def _retry(url, clock, deadline_in=25.0):
+    return arctic_shift._get_with_retry(
+        url,
+        deadline=clock() + deadline_in,
+        clock=clock,
+        sleep=clock.sleep,
+        limiter=_FreeLimiter(),
+    )
+
+
 class TestArcticShiftRetry:
-    """Retry only what retrying can fix. `sleep` is injected — no real waiting."""
+    """Retry only what retrying can fix, at most once. Nothing here waits."""
 
-    def test_retries_an_overload_and_succeeds_on_a_later_attempt(self, monkeypatch):
-        calls = {"n": 0}
-
-        def fake_get_json(url, timeout=None):
-            calls["n"] += 1
-            if calls["n"] < 3:
-                return {"data": None, "error": "Timeout. Maybe slow down a bit"}
-            return {"data": [_arctic_row()]}
-
-        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
-        payload = arctic_shift._get_with_retry("u", sleep=lambda _s: None)
-        assert calls["n"] == 3
-        assert len(payload["data"]) == 1
-
-    def test_gives_up_as_rate_limited_rather_than_as_empty(self, monkeypatch):
-        # The whole point: exhausting retries must still be a FAILURE, never a
-        # quiet empty result that reads as "nobody is talking about this".
-        monkeypatch.setattr(
-            arctic_shift,
-            "get_json",
-            lambda url, timeout=None: {
-                "data": None,
-                "error": "Timeout. Maybe slow down a bit",
-            },
-        )
-        with pytest.raises(SourceRateLimited):
-            arctic_shift._get_with_retry("u", sleep=lambda _s: None)
-
-    def test_does_not_retry_a_bad_request(self, monkeypatch):
-        """A 400 will not improve by asking again — retrying only slows it."""
-        calls = {"n": 0}
-
-        def fake_get_json(url, timeout=None):
-            calls["n"] += 1
-            raise SourceUnavailable("HTTP 400 ... 'permalink' is not a valid field")
-
-        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
-        with pytest.raises(SourceUnavailable):
-            arctic_shift._get_with_retry("u", sleep=lambda _s: None)
-        assert calls["n"] == 1
-
-    def test_an_overload_arriving_as_an_http_status_is_still_retryable(
-        self, monkeypatch
-    ):
-        # The archive sends the same message as a 422, which lands as a raised
-        # SourceUnavailable rather than in the body check. Same meaning.
+    def test_retries_a_body_reported_overload_once_and_succeeds(self, monkeypatch):
         calls = {"n": 0}
 
         def fake_get_json(url, timeout=None):
             calls["n"] += 1
             if calls["n"] == 1:
-                raise SourceUnavailable(
-                    "HTTP 422 ... 'Timeout. Maybe slow down a bit'"
-                )
+                return {"data": None, "error": "Timeout. Maybe slow down a bit"}
             return {"data": [_arctic_row()]}
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
-        assert arctic_shift._get_with_retry("u", sleep=lambda _s: None)["data"]
+        payload = _retry("u", _Clock())
         assert calls["n"] == 2
+        assert len(payload["data"]) == 1
+
+    def test_gives_up_as_rate_limited_after_one_retry_never_as_empty(self, monkeypatch):
+        # Exhausting the retry must still be a FAILURE, never a quiet empty
+        # result that reads as "nobody is talking about this".
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            return {"data": None, "error": "Timeout. Maybe slow down a bit"}
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        with pytest.raises(SourceRateLimited) as caught:
+            _retry("u", _Clock())
+        assert calls["n"] == 2
+        assert caught.value.detail.startswith("rate-limited")
+
+    def test_a_429_waits_for_retry_after_then_retries_once(self, monkeypatch):
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _http_error(SourceRateLimited, 429, "HTTP 429", retry_after=3.0)
+            return {"data": [_arctic_row()]}
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        clock = _Clock()
+        assert _retry("u", clock)["data"]
+        assert calls["n"] == 2
+        assert clock.slept == [3.0]
+
+    def test_a_429_asking_for_a_long_wait_is_not_retried(self, monkeypatch):
+        # Asking again sooner than told is impolite and pointless; waiting
+        # longer does not fit the lane. Either way: report, do not retry.
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            raise _http_error(SourceRateLimited, 429, "HTTP 429", retry_after=60.0)
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        clock = _Clock()
+        with pytest.raises(SourceRateLimited):
+            _retry("u", clock)
+        assert calls["n"] == 1
+        assert clock.slept == []
+
+    def test_does_not_retry_a_bad_request_and_says_it_was_rejected(self, monkeypatch):
+        """A 400 will not improve by asking again — retrying only slows it."""
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            raise _http_error(
+                SourceUnavailable, 400, "HTTP 400 ... 'permalink' is not a valid field"
+            )
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        with pytest.raises(SourceUnavailable) as caught:
+            _retry("u", _Clock())
+        assert calls["n"] == 1
+        assert caught.value.detail.startswith("rejected the query")
+
+    def test_a_422_overload_is_rate_limited_but_not_retried(self, monkeypatch):
+        # The archive sends "slow down" as a 422 too. It is a rate limit in
+        # meaning, but a 4xx other than 429 is never retried.
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            raise _http_error(
+                SourceUnavailable, 422, "HTTP 422 ... 'Timeout. Maybe slow down a bit'"
+            )
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        with pytest.raises(SourceRateLimited):
+            _retry("u", _Clock())
+        assert calls["n"] == 1
+
+
+class TestArcticShiftKeywordQuery:
+    """The archive matches every word it is sent; a web query matches nothing."""
+
+    def test_a_long_web_query_becomes_two_content_words(self):
+        query = (
+            "parents struggling reluctant readers age 5 7 decodable books phonics "
+            "apps tutoring dyslexia reviews price cancellation complaints UK US "
+            "Australia Canada New Zealand"
+        )
+        assert arctic_shift.keyword_query(query) == "reluctant readers"
+
+    def test_search_operators_and_quotes_are_dropped(self):
+        query = 'site:reddit.com -ads "flea treatment" OR reminder'
+        assert arctic_shift.keyword_query(query) == "flea treatment"
+
+    def test_a_query_with_no_content_word_is_refused_not_sent_empty(self):
+        # An empty `query` returns the newest posts in the subreddit, which
+        # would read as a search that found little.
+        lane = SourceQuery(
+            query="site:reddit.com the of",
+            date_from="2026-01-01",
+            date_to="2026-08-20",
+            limit=5,
+            options={"subreddits": ["startups"]},
+        )
+        with pytest.raises(SourceUnavailable) as caught:
+            arctic_shift.ArcticShiftSource().fetch(lane)
+        assert "not asked" in caught.value.detail
 
 
 class TestArcticShiftLaneResilience:
@@ -503,14 +604,20 @@ class TestArcticShiftLaneResilience:
 
     def _query(self, subs):
         return SourceQuery(
-            query="pricing",
+            query="pricing anxiety",
             date_from="2026-01-01",
             date_to="2026-08-20",
             limit=5,
             options={"subreddits": subs},
         )
 
-    def test_a_rate_limited_subreddit_does_not_kill_a_healthy_one(self, monkeypatch):
+    def _fetch(self, subs, clock=None):
+        clock = clock or _Clock()
+        return arctic_shift.ArcticShiftSource().fetch(
+            self._query(subs), clock=clock, sleep=clock.sleep, limiter=_FreeLimiter()
+        )
+
+    def test_a_failing_subreddit_does_not_kill_a_healthy_one(self, monkeypatch):
         """REGRESSION. SourceRateLimited is a SIBLING of SourceUnavailable.
 
         Catching the narrower type in the per-subreddit loop let an exhausted
@@ -518,23 +625,61 @@ class TestArcticShiftLaneResilience:
         collected from subreddits that answered perfectly well.
         """
 
-        def fake_retry(url, sleep=None):
+        def fake_retry(url, **_kw):
             if "subreddit=dead" in url:
-                raise SourceRateLimited("Arctic Shift is shedding load")
+                raise SourceUnavailable("HTTP 503 from the archive")
             return {"data": [_arctic_row()]}
 
         monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
-        items = arctic_shift.ArcticShiftSource().fetch(self._query(["dead", "alive"]))
+        items = self._fetch(["dead", "alive"])
         assert len(items) == 1
         assert items[0].container == "startups"
 
-    def test_every_subreddit_failing_is_an_outage_not_an_empty_topic(
-        self, monkeypatch
-    ):
-        def fake_retry(url, sleep=None):
-            raise SourceRateLimited("Arctic Shift is shedding load")
+    def test_a_rate_limited_lane_says_so_and_stops_asking(self, monkeypatch):
+        asked: list[str] = []
+
+        def fake_retry(url, **_kw):
+            asked.append(url)
+            raise SourceRateLimited("rate-limited (HTTP 429)")
+
+        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
+        with pytest.raises(SourceRateLimited) as caught:
+            self._fetch(["a", "b", "c"])
+        # Asking the next subreddit of a host that is rate-limiting us would be
+        # refused too.
+        assert len(asked) == 1
+        detail = caught.value.detail
+        assert detail.startswith("Arctic Shift rate-limited this lane")
+        assert "not a finding" in detail
+        assert "r/b: not asked" in detail
+
+    def test_nothing_found_while_part_of_the_lane_failed_is_never_empty(self, monkeypatch):
+        # One subreddit answered with no posts, one rejected the query. "Found
+        # nothing" would be a claim about a subreddit nobody searched.
+        def fake_retry(url, **_kw):
+            if "subreddit=bad" in url:
+                raise _http_error(SourceUnavailable, 400, "rejected the query (HTTP 400)")
+            return {"data": []}
 
         monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_retry)
         with pytest.raises(SourceUnavailable) as caught:
-            arctic_shift.ArcticShiftSource().fetch(self._query(["a", "b"]))
-        assert "outage" in caught.value.detail
+            self._fetch(["empty", "bad"])
+        assert "rejected the query" in caught.value.detail
+
+    def test_the_lane_stops_at_its_time_limit(self, monkeypatch):
+        """The guard for the QA run: a slow archive cannot eat the research run."""
+        clock = _Clock()
+        asked: list[str] = []
+
+        def slow_get_json(url, timeout=None):
+            asked.append(url)
+            clock.now += timeout  # every request uses its whole timeout
+            raise SourceUnavailable(f"Timed out after {timeout}s reaching {url}.")
+
+        monkeypatch.setattr(arctic_shift, "get_json", slow_get_json)
+        start = clock()
+        with pytest.raises(SourceError) as caught:
+            self._fetch(["a", "b", "c", "d"], clock=clock)
+        assert clock() - start <= arctic_shift._LANE_WALL_TIME_SECONDS
+        assert len(asked) < 4
+        assert "not asked" in caught.value.detail

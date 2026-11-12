@@ -87,6 +87,16 @@ none ships; and storing posts makes the operator a GDPR controller with no lawfu
 basis and no way to honour erasure, so the archive is asked for a field list
 without the author and no username is ever received.
 
+The archive matches every word it is sent, so the lane does not forward the
+researcher's web-search string: `keyword_query` drops search operators
+(`site:`, `-term`, `OR`), quotes, stopwords and web-search boilerplate and keeps
+the first two content words. It is polite and bounded: one request per second,
+at most one retry (a 429 or a body-reported overload, honouring the archive's
+requested wait up to five seconds), no retry for any other 4xx, no further
+subreddits once one is rate-limited, and 25 seconds for the whole lane. When it
+returns nothing because it was rate-limited, rejected the query or ran out of
+time, it says so in those words instead of reporting an empty result.
+
 The permission gate (`app/sources/base.py::assert_permitted`) still supports a
 source that is barred in hosted mode or needs a credential beyond the operator
 toggle; no registered source uses either today.

@@ -23,6 +23,18 @@ class SourceError(Exception):
     #: `schema-drift` rather than guessing, so a drift is visible, not silent.
     kind: str = "unavailable"
 
+    #: The upstream HTTP status, when the failure was one. Set by
+    #: `http.py::_classify`; None for network errors, timeouts and failures an
+    #: adapter found inside a 2xx body. Lets a caller tell "the host rejected
+    #: this request" (a 4xx, which will not improve by asking again) from
+    #: "the host is overloaded" without parsing `detail`.
+    status: int | None = None
+
+    #: Seconds the host asked us to wait before asking again (`Retry-After`, or
+    #: Arctic Shift's `X-RateLimit-Reset`), when it said. None means unstated,
+    #: never "retry immediately".
+    retry_after: float | None = None
+
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
         self.detail = detail

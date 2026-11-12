@@ -34,7 +34,9 @@ by discipline.
 
 from __future__ import annotations
 
+import re
 import time
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlencode
 
@@ -44,7 +46,7 @@ from ..errors import (
     SourceSchemaDrift,
     SourceUnavailable,
 )
-from ..http import ARCTIC_SHIFT_LIMITER, get_json
+from ..http import ARCTIC_SHIFT_LIMITER, RateLimiter, get_json
 from ..schema import SourceItem
 from ..text.relevance import PreparedQuery, token_overlap_relevance
 from .base import SourceDescriptor, SourceQuery
@@ -69,7 +71,115 @@ DESCRIPTOR = SourceDescriptor(
 
 _BASE_URL = "https://arctic-shift.photon-reddit.com/api"
 _POSTS_SEARCH = f"{_BASE_URL}/posts/search"
-_TIMEOUT = 45
+
+# ── TIME. One dead lane must not eat a research run. ─────────────────────────
+#
+# Live QA (2026-11-12): the archive answered 429 or 422 for every subreddit of a
+# parent-buyer run, and the old policy (three retries at 2+5+11 s, 45 s request
+# timeout, four subreddits in turn) added about a minute to every search step
+# of a deep-research run whose whole budget is 290 s. Measured the same day
+# through this sidecar: one two-word query on r/Parenting took 16 s end to end.
+#
+#: The whole lane, every subreddit and every wait included. Below the 30 s the
+#: app gives one search step (`SEARCH_STEP_TIMEOUT_MS` in
+#: apps/chat/tools/platform/deep-research/research-clock.ts), so this lane
+#: always reports its own outcome rather than being cut off by the caller.
+_LANE_WALL_TIME_SECONDS = 25.0
+#: One archive request. Above the 16 s measured for a real query, so a slow
+#: but working archive still answers.
+_REQUEST_TIMEOUT_SECONDS = 20.0
+#: A request with less time than this left is not sent: it could not finish.
+_MIN_REQUEST_SECONDS = 3.0
+#: A 429 is retried once, after the wait the archive asked for, but only when
+#: that wait is at most this long; asking again sooner than told is impolite and
+#: pointless, and a longer wait does not fit the lane.
+_MAX_RETRY_WAIT_SECONDS = 5.0
+#: The wait before that one retry when the archive names none.
+_DEFAULT_RETRY_WAIT_SECONDS = 2.0
+
+# ── THE QUERY. Arctic Shift matches keywords, not web-search strings. ────────
+#
+# The researcher writes queries for a web search engine: seventeen words, a
+# `site:reddit.com`, quoted phrases, a "£", country names. The archive matches
+# every word it is given (live probe: that seventeen-word query on r/Parenting
+# returned 0 posts; "reluctant readers" returned 2), so a long query asks for a
+# post that contains all of it, which none does. `keyword_query` keeps the few
+# words a post would actually contain.
+#
+#: Two, not three: each extra word is another AND term inside one subreddit and
+#: one year, and the sidecar still scores relevance against the FULL query.
+_MAX_KEYWORDS = 2
+
+#: `site:reddit.com`, `intitle:x`, `-exclude`, `OR` — search-engine syntax the
+#: archive would read as words.
+_OPERATOR_TOKEN = re.compile(r"^(-.+|[A-Za-z]+:.*|OR|AND|NOT)$")
+_WORD = re.compile(r"[a-z]+(?:'[a-z]+)?")
+#: U+2019 RIGHT SINGLE QUOTATION MARK, which phones type for an apostrophe.
+_CURLY_APOSTROPHE = chr(0x2019)
+
+_STOPWORDS = frozenset(
+    (
+        "a", "about", "after", "also", "an", "and", "any", "are", "as", "at",
+        "be", "been", "but", "by", "can", "could", "do", "does", "for", "from",
+        "get", "had", "has", "have", "how", "i", "if", "in", "into", "is", "it",
+        "its", "just", "like", "many", "may", "me", "more", "most", "much",
+        "my", "no", "not", "of", "on", "or", "other", "our", "over", "should",
+        "so", "some", "such", "than", "that", "the", "their", "them", "then",
+        "there", "these", "they", "this", "those", "to", "too", "under", "up",
+        "us", "vs", "versus", "was", "we", "what", "when", "where", "which",
+        "while", "who", "why", "will", "with", "without", "would", "you",
+        "your",
+    )
+)  # fmt: skip
+
+#: Words that steer a web search engine but that a Reddit post does not
+#: contain, or that every post in a topical subreddit contains. Dropping them
+#: is what turns a web query into a keyword query.
+_BOILERPLATE = frozenset(
+    (
+        # Search-engine framing.
+        "reddit", "site", "forum", "forums", "thread", "threads", "discussion",
+        "discussions", "post", "posts", "review", "reviews", "complaint",
+        "complaints", "price", "prices", "pricing", "cost", "costs", "survey",
+        "surveys", "report", "reports", "pdf", "study", "studies",
+        "statistics", "stats", "data", "research", "market", "best", "top",
+        "alternative", "alternatives", "guide", "example", "examples",
+        # Words every post in a subreddit chosen for this buyer already shares.
+        "people", "person", "parent", "parents", "user", "users", "customer",
+        "customers", "struggling", "struggle", "struggles", "problem",
+        "problems", "issue", "issues", "help", "advice", "experience",
+        "experiences", "year", "years", "old", "age", "aged", "child",
+        "children", "kid", "kids",
+        # Geography, which a web engine uses to localise and a post rarely names.
+        "uk", "usa", "america", "american", "australia", "canada", "new",
+        "zealand", "ireland", "india", "europe",
+    )
+)  # fmt: skip
+
+
+def keyword_query(query: str) -> str:
+    """PURE. The researcher's web-search string, cut to what the archive can match.
+
+    Search operators and quotes go first, then stopwords and web-search
+    boilerplate, then everything after the first `_MAX_KEYWORDS` content words.
+    If that leaves nothing, the first non-stopwords are used rather than none:
+    an empty `query` would make the archive return the newest posts in the
+    subreddit, which reads as a search that found little.
+    """
+    kept_tokens = [
+        token for token in query.split() if not _OPERATOR_TOKEN.match(token.strip("\"'"))
+    ]
+    words = _WORD.findall(" ".join(kept_tokens).lower().replace(_CURLY_APOSTROPHE, "'"))
+    plain = [word for word in words if len(word) > 1 and word not in _STOPWORDS]
+
+    chosen: list[str] = []
+    for word in plain:
+        if word not in _BOILERPLATE and word not in chosen:
+            chosen.append(word)
+    if not chosen:
+        chosen = list(dict.fromkeys(plain))
+    return " ".join(chosen[:_MAX_KEYWORDS])
+
 
 #: Documented ceiling is 1-100. Asking for more is a 400, not a truncation.
 _MAX_LIMIT = 100
@@ -109,14 +219,11 @@ _FIELDS = (
 # So this adapter still calls the PUBLIC API, which still sheds load by
 # answering 200 with {"error": "Timeout. Maybe slow down a bit"}. Removing the
 # retry path would delete the handling for a condition that is still live.
+#
+# The retry is now ONE retry, for a 429 or a body-reported overload only (see
+# `_get_with_retry`): three retries at 2+5+11 s per subreddit is what let a
+# rate-limited archive eat a minute of every research step.
 _OVERLOAD_MARKERS = ("timeout", "slow down")
-
-#: The archive is genuinely flaky under load — measured live, three identical
-#: requests six seconds apart returned two successes and one overload, then all
-#: three overloaded a few minutes later. Retrying is what makes this lane usable
-#: rather than theoretically correct; NOT retrying would have meant an adapter
-#: that is right about its failure and useless in practice.
-_RETRY_BACKOFF_SECONDS = (2.0, 5.0, 11.0)
 
 
 def _is_overload(text: str) -> bool:
@@ -244,18 +351,71 @@ def parse_posts(payload: Any, prepared: PreparedQuery, url: str) -> list[SourceI
     return items
 
 
-def _get_with_retry(url: str, *, sleep=time.sleep) -> Any:
-    """One request, retried only while the archive says it is overloaded.
+class _LaneOutOfTime(Exception):
+    """Not a source failure: this lane's own time limit, reached before asking.
 
-    ONLY overload is retried. A 400 (bad field), a 404 or a schema drift is a
-    fact about the request that will not improve by asking again, and retrying
-    it would turn a clear error into a slow one. `sleep` is injected so a test
-    can drive the backoff without spending eleven seconds.
+    Deliberately NOT a SourceError, so it can never be mistaken for something the
+    archive said. `fetch` turns it into a plain "not asked" line.
     """
-    last: SourceError | None = None
-    for attempt, backoff in enumerate((*_RETRY_BACKOFF_SECONDS, None)):
+
+
+def _normalise(error: SourceError) -> tuple[SourceError, bool]:
+    """PURE. The failure in plain words, and whether asking once more can help.
+
+    - 429, or overload reported in a 200 body: RATE-LIMITED, retryable once.
+    - Any other 4xx: not retryable, because the archive has decided about this
+      request. With the overload wording (the archive sends "Timeout. Maybe
+      slow down a bit" as a 422 too) it is still rate-limiting; otherwise it
+      REJECTED THE QUERY.
+    - Anything else (5xx, network, timeout, schema drift): as raised, no retry.
+    """
+    status = error.status
+    if status == 429 or (status is None and isinstance(error, SourceRateLimited)):
+        limited = SourceRateLimited(f"rate-limited ({error.detail})")
+        limited.status, limited.retry_after = status, error.retry_after
+        return limited, True
+    if status is not None and 400 <= status < 500:
+        if _is_overload(error.detail):
+            limited = SourceRateLimited(
+                f"rate-limited (HTTP {status}, the archive asked us to slow down): {error.detail}"
+            )
+            limited.status = status
+            return limited, False
+        rejected = SourceUnavailable(f"rejected the query (HTTP {status}): {error.detail}")
+        rejected.status = status
+        return rejected, False
+    return error, False
+
+
+def _get_with_retry(
+    url: str,
+    *,
+    deadline: float,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+    limiter: RateLimiter = ARCTIC_SHIFT_LIMITER,
+) -> Any:
+    """One request, plus at most ONE retry, and never past `deadline`.
+
+    Only a rate limit is retried (see `_normalise`): a 400, a 404, a 422 or a
+    schema drift is a fact about the request that will not improve by asking
+    again. The retry waits for what the archive asked (`Retry-After` or
+    `X-RateLimit-Reset`), and is skipped when that is longer than
+    `_MAX_RETRY_WAIT_SECONDS` or would not leave time for the request itself.
+
+    Every attempt goes through `limiter`, so a retry is paced like a first
+    request: the 1 request/second politeness limit holds either way.
+    `clock`, `sleep` and `limiter` are injected so a test never waits.
+    """
+    for attempt in (1, 2):
+        remaining = deadline - clock()
+        if remaining < _MIN_REQUEST_SECONDS or not limiter.acquire(
+            max_wait=remaining - _MIN_REQUEST_SECONDS
+        ):
+            raise _LaneOutOfTime
+        timeout = min(_REQUEST_TIMEOUT_SECONDS, deadline - clock())
         try:
-            payload = get_json(url, timeout=_TIMEOUT)
+            payload = get_json(url, timeout=timeout)
             # Inside the try on purpose: the archive reports overload in a 200
             # BODY as often as by status, so both forms must reach the same
             # retry decision. SourceRateLimited and SourceUnavailable are
@@ -263,25 +423,31 @@ def _get_with_retry(url: str, *, sleep=time.sleep) -> Any:
             # narrower one here would silently skip the body-reported case.
             _raise_for_payload_error(payload, url)
         except SourceError as error:
-            if not _is_overload(error.detail):
-                raise
-            last = SourceRateLimited(
-                f"Arctic Shift is shedding load (attempt {attempt + 1}): "
-                f"{error.detail}"
-            )
+            failure, retryable = _normalise(error)
         else:
             return payload
-        if backoff is None:
-            break
-        sleep(backoff)
 
-    raise last or SourceRateLimited(f"Arctic Shift did not answer {url}.")
+        if attempt == 2 or not retryable:
+            raise failure
+        wait = _DEFAULT_RETRY_WAIT_SECONDS if failure.retry_after is None else failure.retry_after
+        if wait > _MAX_RETRY_WAIT_SECONDS or clock() + wait + _MIN_REQUEST_SECONDS > deadline:
+            raise failure
+        sleep(wait)
+
+    raise AssertionError("unreachable: the second attempt returns or raises")
 
 
 class ArcticShiftSource:
     descriptor = DESCRIPTOR
 
-    def fetch(self, query: SourceQuery) -> list[SourceItem]:
+    def fetch(
+        self,
+        query: SourceQuery,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+        limiter: RateLimiter = ARCTIC_SHIFT_LIMITER,
+    ) -> list[SourceItem]:
         subreddits = query.options.get("subreddits") or []
         if not subreddits:
             # REFUSAL, not a silent unscoped search. `query` is documented as
@@ -295,32 +461,64 @@ class ArcticShiftSource:
                 "web-search lane to discover which subreddits to ask about."
             )
 
+        keywords = keyword_query(query.query)
+        if not keywords:
+            raise SourceUnavailable(
+                f"Arctic Shift was not asked: the query {query.query!r} has no word "
+                "the archive could match, and an empty query would return the "
+                "newest posts rather than a search."
+            )
+
+        # Relevance is still scored against the researcher's FULL query: the
+        # keywords decide what the archive returns, not how well it fits.
         prepared = PreparedQuery(query.query)
         collected: list[SourceItem] = []
         seen_urls: set[str] = set()
-        failures: list[str] = []
+        # One plain line per subreddit, for the founder-facing lane report.
+        outcomes: list[str] = []
+        # Which of "rate-limited", "rejected", "out of time", "failed" happened.
+        problems: set[str] = set()
+        deadline = clock() + _LANE_WALL_TIME_SECONDS
+        stop_reason: str | None = None
 
         for subreddit in subreddits:
+            if stop_reason is not None:
+                outcomes.append(f"r/{subreddit}: not asked ({stop_reason})")
+                continue
             url = build_search_url(
                 subreddit=str(subreddit),
-                query=query.query,
+                query=keywords,
                 date_from=query.date_from,
                 date_to=query.date_to,
                 limit=query.limit,
             )
-            ARCTIC_SHIFT_LIMITER.acquire()
             try:
-                payload = _get_with_retry(url)
+                payload = _get_with_retry(
+                    url, deadline=deadline, clock=clock, sleep=sleep, limiter=limiter
+                )
                 found = parse_posts(payload, prepared, url)
+            except _LaneOutOfTime:
+                problems.add("out of time")
+                stop_reason = f"this lane's {_LANE_WALL_TIME_SECONDS:.0f} s limit ran out"
+                outcomes.append(f"r/{subreddit}: not asked ({stop_reason})")
+                continue
+            except SourceRateLimited as error:
+                # Asking the next subreddit of a host that is rate-limiting us
+                # would be refused too, and would be the opposite of polite.
+                problems.add("rate-limited")
+                stop_reason = "the archive was already rate-limiting this lane"
+                outcomes.append(f"r/{subreddit}: {error.detail}")
+                continue
             except SourceError as error:
-                # The BASE class, deliberately: SourceRateLimited is a sibling
-                # of SourceUnavailable, not a subclass, so catching the narrower
-                # one would let an exhausted-retry failure kill the whole lane
-                # instead of being recorded against one subreddit. One subreddit
-                # failing is not the lane failing; every subreddit failing is.
-                failures.append(f"r/{subreddit}: {error.detail}")
+                # The BASE class, deliberately: one subreddit failing is not the
+                # lane failing, and a narrower catch would let another sibling
+                # of SourceError kill the lane and discard what was collected.
+                status = error.status
+                problems.add("rejected" if status is not None and 400 <= status < 500 else "failed")
+                outcomes.append(f"r/{subreddit}: {error.detail}")
                 continue
 
+            outcomes.append(f"r/{subreddit}: answered, {len(found)} matching posts")
             for item in found:
                 if item.url in seen_urls:
                     continue
@@ -329,12 +527,37 @@ class ArcticShiftSource:
             if len(collected) >= query.limit:
                 break
 
-        if not collected and failures and len(failures) == len(subreddits):
-            raise SourceUnavailable(
-                "Every Arctic Shift request failed, so this is a source outage "
-                "rather than a topic with no discussion. Tried — " + "; ".join(failures)
-            )
+        if not collected and problems:
+            # NEVER an empty list here. Nothing came back AND part of the lane
+            # was not searched, so "found nothing" would be a claim about
+            # subreddits nobody looked at.
+            raise _lane_failure(keywords, problems, outcomes)
 
         for index, item in enumerate(collected, start=1):
             item.item_id = f"A{index}"
         return collected[: query.limit]
+
+
+_PROBLEM_WORDS = {
+    "rate-limited": "rate-limited this lane",
+    "rejected": "rejected the query",
+    "failed": "failed to answer",
+    "out of time": "ran past this lane's time limit",
+}
+
+
+def _lane_failure(keywords: str, problems: set[str], outcomes: list[str]) -> SourceError:
+    """PURE. The lane's failure, headline first, in words a founder can read.
+
+    `rate-limited` when every problem was a rate limit or the lane's own time
+    limit (asking later can help); `unavailable` otherwise.
+    """
+    words = [_PROBLEM_WORDS[key] for key in _PROBLEM_WORDS if key in problems]
+    detail = (
+        f"Arctic Shift {' and '.join(words)}, so Reddit was not searched in full: "
+        f"this is not a finding that nobody discusses the topic. Searched for "
+        f"{keywords!r}. " + "; ".join(outcomes)
+    )
+    if problems <= {"rate-limited", "out of time"}:
+        return SourceRateLimited(detail)
+    return SourceUnavailable(detail)

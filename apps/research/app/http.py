@@ -51,6 +51,7 @@ from typing import Any
 
 from .errors import (
     SourceBlocked,
+    SourceError,
     SourceRateLimited,
     SourceSchemaDrift,
     SourceUnavailable,
@@ -87,20 +88,27 @@ class RateLimiter:
         self._updated = time.monotonic()
         self._lock = threading.Lock()
 
-    def acquire(self) -> None:
+    def acquire(self, max_wait: float | None = None) -> bool:
+        """Take one token, sleeping until one is free. Returns True when taken.
+
+        With `max_wait`, a caller on a deadline gets False instead of a sleep
+        longer than that, and NO token is reserved: the slot stays free for a
+        caller that can still use it, and the limiter's pace is unchanged.
+        """
         with self._lock:
             now = time.monotonic()
-            self._tokens = min(
-                float(self._burst), self._tokens + (now - self._updated) * self._rate
-            )
-            self._updated = now
-            if self._tokens >= 1.0:
-                self._tokens -= 1.0
-                return
-            wait = (1.0 - self._tokens) / self._rate
+            tokens = min(float(self._burst), self._tokens + (now - self._updated) * self._rate)
+            if tokens >= 1.0:
+                self._tokens = tokens - 1.0
+                self._updated = now
+                return True
+            wait = (1.0 - tokens) / self._rate
+            if max_wait is not None and wait > max_wait:
+                return False
             self._tokens = 0.0
             self._updated = now + wait
         time.sleep(wait)
+        return True
 
 
 #: Arctic Shift sheds load by answering 200 with {"error": "Timeout. Maybe slow
@@ -170,24 +178,69 @@ def _is_private_http(url: str) -> bool:
     return True
 
 
-def _classify(status: int, url: str, body: str) -> SourceUnavailable:
+#: Above this, an `X-RateLimit-Reset` value is an epoch timestamp rather than a
+#: number of seconds. Arctic Shift's README names the header without saying
+#: which form it uses, so both are read.
+_EPOCH_THRESHOLD = 1_000_000_000
+
+
+def retry_after_seconds(headers: Any, *, now: float | None = None) -> float | None:
+    """PURE. How long the host asked us to wait, in seconds, or None if unstated.
+
+    `Retry-After` in its delta-seconds form first (the HTTP-date form is not
+    worth a parser here and reads as unstated), then `X-RateLimit-Reset`, which
+    Arctic Shift documents for its 429s. A negative or unparseable value is
+    unstated, never "retry now".
+    """
+    if headers is None:
+        return None
+    raw = headers.get("Retry-After")
+    if raw is not None:
+        try:
+            value = float(str(raw).strip())
+        except ValueError:
+            value = None
+        if value is not None and value >= 0:
+            return value
+    raw = headers.get("X-RateLimit-Reset")
+    if raw is None:
+        return None
+    try:
+        value = float(str(raw).strip())
+    except ValueError:
+        return None
+    if value > _EPOCH_THRESHOLD:
+        value -= time.time() if now is None else now
+    return value if value >= 0 else None
+
+
+def _classify(status: int, url: str, body: str, retry_after: float | None = None) -> SourceError:
     """Turn an HTTP status into the RIGHT named error.
 
     403 is singled out on purpose. It is not a generic failure here — it is the
     documented, expected condition for every keyless adapter running from a
     datacenter IP, and the operator's remedy is completely different from the
     remedy for a 500.
+
+    The status and any wait the host asked for travel on the error, so an
+    adapter can decide whether asking again is worth anything without parsing
+    `detail`.
     """
     excerpt = body[:200].replace("\n", " ")
+    error: SourceError
     if status == 403:
-        return SourceBlocked(
+        error = SourceBlocked(
             f"HTTP 403 from {url}. This is the expected response when the host "
             f"refuses a datacenter egress range; the keyless adapters were only "
             f"verified from a residential IP. Body began: {excerpt!r}"
         )
-    if status == 429:
-        return SourceRateLimited(f"HTTP 429 from {url}. Body began: {excerpt!r}")
-    return SourceUnavailable(f"HTTP {status} from {url}. Body began: {excerpt!r}")
+    elif status == 429:
+        error = SourceRateLimited(f"HTTP 429 from {url}. Body began: {excerpt!r}")
+    else:
+        error = SourceUnavailable(f"HTTP {status} from {url}. Body began: {excerpt!r}")
+    error.status = status
+    error.retry_after = retry_after
+    return error
 
 
 def _request(
@@ -195,7 +248,7 @@ def _request(
     *,
     accept: str,
     user_agent: str,
-    timeout: int,
+    timeout: float,
     headers: dict[str, str] | None = None,
 ) -> str:
     request = urllib.request.Request(url, method="GET")
@@ -231,7 +284,7 @@ def _request(
             body = error.read().decode("utf-8", errors="replace")
         except Exception:
             body = ""
-        raise _classify(error.code, url, body) from error
+        raise _classify(error.code, url, body, retry_after_seconds(error.headers)) from error
     except urllib.error.URLError as error:
         raise SourceUnavailable(f"Could not reach {url}: {error.reason}") from error
     except TimeoutError as error:
@@ -266,7 +319,7 @@ def get_text(
 def get_json(
     url: str,
     *,
-    timeout: int = DEFAULT_TIMEOUT,
+    timeout: float = DEFAULT_TIMEOUT,
     headers: dict[str, str] | None = None,
 ) -> Any:
     """Fetch a documented JSON API. Raises a named error; never returns None."""

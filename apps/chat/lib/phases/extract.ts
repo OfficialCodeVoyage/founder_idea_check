@@ -1,4 +1,4 @@
-import { renderFacts, renderTranscript } from "./gate";
+import { DOCUMENT_MARKER_NOTE, renderFacts, renderTranscript } from "./gate";
 import {
   type ExtractedFact,
   ExtractionOutputSchema,
@@ -60,7 +60,8 @@ Rules:
 - confidence: 0-100. Score what the FOUNDER evidenced, not what they hope.
   Observed behaviour or money spent scores high; a survey answer or "people
   would love this" scores below ${MIN_FACT_CONFIDENCE} and will be discarded.
-- Extract nothing rather than something speculative. An empty list is a valid answer.`,
+- Extract nothing rather than something speculative. An empty list is a valid answer.
+- ${DOCUMENT_MARKER_NOTE}`,
   ].join("\n\n---\n\n");
 
   const prompt = [

@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import { PHASE_ONE, PHASES } from "./definitions";
 import {
   buildGatePrompt,
+  DOCUMENT_MARKER_NOTE,
   decideGate,
+  documentMarker,
   evaluateGate,
   type GateCriterionMeta,
   type GateJudge,
@@ -347,6 +349,18 @@ describe("buildGatePrompt — the judge sees the right criteria", () => {
     const { system } = buildGatePrompt(input);
     expect(system).toContain("PERSONA");
     expect(system).toContain("PHASE");
+  });
+
+  it("tells the judge a document marker is not founder evidence", () => {
+    // runtime.ts::toTranscript writes the marker; without this note the judge
+    // could credit an assistant-written document as something the founder
+    // established.
+    const { system } = buildGatePrompt(input);
+    expect(system).toContain(DOCUMENT_MARKER_NOTE);
+    expect(DOCUMENT_MARKER_NOTE).toContain("[document:");
+    expect(documentMarker("Interview protocol", 42)).toBe(
+      '[document: "Interview protocol", 42 chars]'
+    );
   });
 });
 

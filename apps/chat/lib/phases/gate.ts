@@ -555,6 +555,27 @@ export function renderFacts(facts: KnownFact[]): string {
  */
 export const TRANSCRIPT_SEPARATOR = "\n\n";
 
+/**
+ * The line a saved document leaves in a transcript turn, and the sentence that
+ * tells a reader of that transcript what the line does and does not prove.
+ * They live side by side so the format and its explanation cannot drift:
+ * runtime.ts::toTranscript writes the marker, and every prompt that renders a
+ * transcript containing one (buildGatePrompt here, extract.ts's
+ * buildExtractionPrompt) states DOCUMENT_MARKER_NOTE.
+ *
+ * WHY THE NOTE IS NEEDED. Without it a judge reads `[document: "Interview
+ * protocol", 4200 chars]` as an artefact and may credit it as evidence — but
+ * the ASSISTANT wrote it, its content is not shown, and its existence says
+ * nothing about what the founder supplied or agreed to. Crediting it would be
+ * synthetic output counting as evidence, which the gate never allows.
+ */
+export function documentMarker(title: string, chars: number): string {
+  return `[document: ${JSON.stringify(title)}, ${chars} chars]`;
+}
+
+export const DOCUMENT_MARKER_NOTE =
+  'A line like [document: "<title>", N chars] means the assistant wrote and saved that document in that turn; its content is not shown. It is not evidence that the founder supplied, or agreed with, anything in it.';
+
 export function renderTranscript(turns: TranscriptTurn[]): string {
   if (turns.length === 0) {
     return "(no conversation yet)";
@@ -593,6 +614,7 @@ You are NOT talking to the founder. You are judging whether phase ${phase.order}
 
 Judge ONLY the evidence in the transcript and the established facts below. Do not
 infer, do not be generous, and do not credit enthusiasm as evidence.
+${DOCUMENT_MARKER_NOTE}
 
 For EVERY criterion listed, return exactly one evaluation object with:
 - criterionId: the id, copied exactly

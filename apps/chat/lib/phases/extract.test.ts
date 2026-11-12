@@ -8,6 +8,7 @@ import {
   reconcileFacts,
   sanitizeFacts,
 } from "./extract";
+import { DOCUMENT_MARKER_NOTE } from "./gate";
 import type { ExtractedFact, KnownFact } from "./types";
 
 const ALLOWED = PHASE_ONE.factKeys;
@@ -149,6 +150,11 @@ describe("buildExtractionPrompt", () => {
     const { prompt } = buildExtractionPrompt(input);
     expect(prompt).toContain("(none established yet)");
     expect(prompt).toContain("dog walkers lose keys constantly");
+  });
+
+  it("tells the extractor a document marker is not founder evidence", () => {
+    const { system } = buildExtractionPrompt(input);
+    expect(system).toContain(DOCUMENT_MARKER_NOTE);
   });
 });
 

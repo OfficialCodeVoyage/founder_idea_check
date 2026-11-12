@@ -39,7 +39,7 @@ import {
   toPhaseGateState,
 } from "./directive";
 import { extractFacts, reconcileFacts } from "./extract";
-import { evaluateGate, failClosedVerdict } from "./gate";
+import { documentMarker, evaluateGate, failClosedVerdict } from "./gate";
 import {
   createModelFactExtractor,
   createModelGateJudge,
@@ -182,7 +182,7 @@ function transcriptPartText(part: MessagePart): string | null {
     part.state === "output-available" &&
     part.output.status === "success"
   ) {
-    return `[document: ${JSON.stringify(part.input.title)}, ${part.input.content.length} chars]`;
+    return documentMarker(part.input.title, part.input.content.length);
   }
   return null;
 }

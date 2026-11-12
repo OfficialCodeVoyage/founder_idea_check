@@ -776,7 +776,9 @@ describe("runPostTurnPhasePass / documents the judge can see", () => {
 
     const shown = judgePrompt();
     expect(shown).toContain("Here is the protocol.");
-    expect(shown).not.toContain("[document:");
+    // Not "[document:" itself: the system prompt's DOCUMENT_MARKER_NOTE quotes
+    // the marker's format. No marker in the transcript means no size suffix.
+    expect(shown).not.toContain(`${PROTOCOL_BODY.length} chars]`);
     expect(shown).not.toContain("FROZEN DOC");
     expect(shown).not.toContain("ERRORED DOC");
     expect(shown).not.toContain("AN IMAGE PROMPT");

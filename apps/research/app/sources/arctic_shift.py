@@ -18,8 +18,8 @@ question from any IP without touching Reddit's servers for content. It is the
 lane that survives being deployed.
 
 WHAT IT CANNOT DO, stated up front because it shapes the whole adapter: there is
-no global keyword search. `query` is documented as "Only in use with `author` or
-`subreddit`". Searching all of Reddit for a phrase is not on offer at any price,
+no global keyword search. The keyword parameters are documented as "Only in use
+with `author` or `subreddit`". Searching all of Reddit for a phrase is not on offer at any price,
 so this adapter REFUSES a query with no subreddits rather than quietly returning
 the newest posts from nowhere in particular — an unscoped result would look like
 a search that found little, when in fact no search happened.
@@ -185,6 +185,38 @@ def keyword_query(query: str) -> str:
 #: Documented ceiling is 1-100. Asking for more is a 400, not a truncation.
 _MAX_LIMIT = 100
 
+# ── WHICH KEYWORD PARAMETER. `title`, not `query`. ───────────────────────────
+#
+# The README lists `query` ("Search in both `title` and `selftext`") beside
+# `title`, `selftext` and `link_flair_text`. Live probes against the public API
+# (2026-11-12, six requests in all, generic queries, nothing stored), every one
+# of them `subreddit=Parenting` unless noted, `limit=5&sort=desc` and this
+# adapter's own `fields` list:
+#
+#   query=early reading, one-year window   HTTP 422 in 0.4 s  {"data":null,"error":"Timeout. Maybe slow down a bit"}
+#   the same request again                 HTTP 422 in 0.5 s  (same body)
+#   query=early reading, 30-day window     HTTP 422 in 0.6 s  (same body)
+#   query=early reading, r/kindergarten    HTTP 422 in 0.5 s  (same body)
+#   NO keyword, 7-day window               HTTP 200 in 1.7 s  (five posts)
+#   title=early reading, one-year window   HTTP 200 in 4.9 s  (five matching posts)
+#
+# So the rejection is about the `query` parameter and nothing else in the
+# request: the same subreddit, window, limit, sort and field list are answered
+# when the keyword is sent as `title`, which is also the parameter the README's
+# own search example uses. The body's "Timeout... slow down" wording is not what
+# happened: a real timeout or a rate limit does not answer in half a second
+# while a keyword-free request to the same host is served within the same
+# minute. The archive documents a rate limit as HTTP 429.
+#
+# THE COST: `title` matches the title only, where `query` was meant to match the
+# title and the selftext. A thread whose title lacks the words but whose body
+# has them is no longer found by this lane. Relevance is still scored against the
+# title AND the body of whatever comes back (`parse_posts`). `selftext` is a
+# documented keyword parameter too, but it was not among the probes, so it is not
+# used: sending both would AND them, and a second request per subreddit would
+# double a lane that has a 25 s wall time.
+_KEYWORD_PARAMETER = "title"
+
 #: EXACTLY the fields this adapter reads, and `author` is deliberately not among
 #: them. Sending this list is what keeps the username out of the process rather
 #: than merely out of the output.
@@ -204,10 +236,11 @@ _FIELDS = (
     "subreddit",
 )
 
-#: The archive reports overload BOTH ways: as a 200 whose body carries an error
-#: string, and as a 422 with the same string. Either way it is a TRANSPORT
+#: The archive reports overload as a 200 whose body carries an error string
+#: (a 429 is the other documented form, handled by status). That is a TRANSPORT
 #: FAILURE, not an empty result set, and conflating the two is how a degraded
-#: lane gets written into a report as "no demand for this idea".
+#: lane gets written into a report as "no demand for this idea". The same string
+#: also arrives with a 422, but a 422 is NOT overload: see `_normalise`.
 # DO NOT DELETE THIS MACHINERY. It was slated for removal in the batch that
 # added SearXNG, on the plan that self-hosting Arctic Shift would remove the
 # need for retry, backoff and the overload sniffer. Self-hosting was then
@@ -254,9 +287,9 @@ def build_search_url(
 ) -> str:
     """PURE. The documented parameter set, and nothing invented.
 
-    `query` searches title and selftext together. `sort=desc` with `before`/
-    `after` is what gives "the most recent N in this window" rather than the
-    oldest posts in the archive.
+    The keywords go in `title` (see `_KEYWORD_PARAMETER`: the archive answers
+    `query` with a 422). `sort=desc` with `before`/`after` is what gives "the
+    most recent N in this window" rather than the oldest posts in the archive.
     """
     params: dict[str, str] = {
         "subreddit": subreddit,
@@ -265,7 +298,7 @@ def build_search_url(
         "fields": ",".join(_FIELDS),
     }
     if query.strip():
-        params["query"] = query.strip()
+        params[_KEYWORD_PARAMETER] = query.strip()
     if date_from:
         params["after"] = date_from
     if date_to:
@@ -370,9 +403,14 @@ def _normalise(error: SourceError) -> tuple[SourceError, bool]:
       `errors.py::SourceBlocked`.
     - 429, or overload reported in a 200 body: RATE-LIMITED, retryable once.
     - Any other 4xx: not retryable, because the archive has decided about this
-      request. With the overload wording (the archive sends "Timeout. Maybe
-      slow down a bit" as a 422 too) it is still rate-limiting; otherwise it
-      REJECTED THE QUERY.
+      request: it REJECTED THE QUERY. The status decides, not the body's
+      wording. The archive documents a rate limit as 429. A 422 carrying
+      "Timeout. Maybe slow down a bit" was answered in under a second while a
+      keyword-free request to the same host was served within the same minute
+      (`_KEYWORD_PARAMETER`), so it is the archive refusing a request it cannot
+      process, not asking us to wait. Reading it as a rate limit sent the
+      founder to wait out a problem that waiting cannot fix, and made the lane
+      stop asking its other subreddits.
     - Anything else (5xx, network, timeout, schema drift): as raised, no retry.
     """
     if isinstance(error, SourceBlocked):
@@ -383,13 +421,13 @@ def _normalise(error: SourceError) -> tuple[SourceError, bool]:
         limited.status, limited.retry_after = status, error.retry_after
         return limited, True
     if status is not None and 400 <= status < 500:
-        if _is_overload(error.detail):
-            limited = SourceRateLimited(
-                f"rate-limited (HTTP {status}, the archive asked us to slow down): {error.detail}"
-            )
-            limited.status = status
-            return limited, False
-        rejected = SourceUnavailable(f"rejected the query (HTTP {status}): {error.detail}")
+        cause = (
+            "an unprocessable request, not a rate limit: the archive answers a "
+            "rate limit with HTTP 429"
+            if status == 422
+            else "a request the archive will not process"
+        )
+        rejected = SourceUnavailable(f"rejected the query (HTTP {status}, {cause}): {error.detail}")
         rejected.status = status
         return rejected, False
     return error, False
@@ -458,13 +496,13 @@ class ArcticShiftSource:
     ) -> list[SourceItem]:
         subreddits = query.options.get("subreddits") or []
         if not subreddits:
-            # REFUSAL, not a silent unscoped search. `query` is documented as
-            # working only alongside `author` or `subreddit`; without one this
-            # would return the newest posts from nowhere in particular and read
-            # as "we searched and found little".
+            # REFUSAL, not a silent unscoped search. The keyword parameters are
+            # documented as working only alongside `author` or `subreddit`;
+            # without one this would return the newest posts from nowhere in
+            # particular and read as "we searched and found little".
             raise SourceUnavailable(
                 "Arctic Shift cannot search all of Reddit for a phrase — its "
-                "`query` parameter is documented as working only with a "
+                "keyword parameters are documented as working only with a "
                 "`subreddit` or `author`. Pass options['subreddits']; use the "
                 "web-search lane to discover which subreddits to ask about."
             )

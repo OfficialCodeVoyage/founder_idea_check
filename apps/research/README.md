@@ -90,12 +90,18 @@ without the author and no username is ever received.
 The archive matches every word it is sent, so the lane does not forward the
 researcher's web-search string: `keyword_query` drops search operators
 (`site:`, `-term`, `OR`), quotes, stopwords and web-search boilerplate and keeps
-the first two content words. It is polite and bounded: one request per second,
+the first two content words, sent as the archive's `title` keyword parameter:
+checked live on 2026-11-12, the archive answered the `query` parameter (title and
+body together, per its README) with HTTP 422 in under a second every time, and
+the same request with `title` with HTTP 200 and matching posts. So the lane
+matches titles only. It is polite and bounded: one request per second,
 at most one retry (a 429 or a body-reported overload, honouring the archive's
 requested wait up to five seconds), no retry for any other 4xx, no further
-subreddits once one is rate-limited, and 25 seconds for the whole lane. When it
-returns nothing because it was rate-limited, rejected the query or ran out of
-time, it says so in those words instead of reporting an empty result.
+subreddits once one is rate-limited, and 25 seconds for the whole lane. Only a
+429 (or an overload in a 200 body) is called a rate limit: any other 4xx,
+including the 422 whose body says "slow down", is reported as a rejected query.
+When it returns nothing because it was rate-limited, rejected the query or ran
+out of time, it says so in those words instead of reporting an empty result.
 
 The permission gate (`app/sources/base.py::assert_permitted`) still supports a
 source that is barred in hosted mode or needs a credential beyond the operator
@@ -147,7 +153,7 @@ Deprioritised is not disabled.
 `options["subreddits"]`.
 
 That adapter **refuses** a query with no subreddits, on purpose: Arctic Shift's
-`query` parameter is documented as working only alongside `subreddit` or
+keyword parameters are documented as working only alongside `subreddit` or
 `author`, so there is no global keyword search and an unscoped answer would read
 as "we searched and found little" when no search happened. The app never sent
 `options`, so the lane could be enabled, reachable and correct and still refuse

@@ -206,7 +206,10 @@ headers. Those are the only terms found.
 (burst of two, `ARCTIC_SHIFT_LIMITER` in `app/http.py`, retries included); at most
 one retry, only for a 429 or an overload reported in a 200 body, after the wait the
 archive asks for (`Retry-After` or `X-RateLimit-Reset`) and only when that wait is
-five seconds or less; no retry for any other 4xx; once a subreddit is rate-limited,
+five seconds or less; no retry for any other 4xx (a 422 is reported as a rejected
+query, not as a rate limit, which the archive documents as 429); keywords are sent
+as `title`, the parameter the archive's own search example uses (six live GET
+requests on 2026-11-12, generic queries, nothing stored); once a subreddit is rate-limited,
 the rest of that lane's subreddits are not asked; the whole lane stops at 25 seconds;
 one request per subreddit, never an unscoped search; a field list that excludes `author`, so no username is ever
 received; and the monthly dumps are not downloaded or ingested.

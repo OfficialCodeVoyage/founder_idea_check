@@ -313,7 +313,11 @@ class TestArcticShiftUrl:
             limit=25,
         )
         assert "subreddit=startups" in url
-        assert "query=pricing" in url
+        # `title`, not `query`: live (2026-11-12) the archive answered `query=` with
+        # HTTP 422 in under a second on every try, and the same request with the
+        # keyword sent as `title=` with 200 and matching posts.
+        assert "title=pricing" in url
+        assert "query=" not in url
         assert "after=2026-01-01" in url
         assert "before=2026-08-01" in url
         assert "sort=desc" in url
@@ -332,6 +336,7 @@ class TestArcticShiftUrl:
         url = arctic_shift.build_search_url(
             subreddit="startups", query="   ", date_from="", date_to="", limit=5
         )
+        assert "title=" not in url
         assert "query=" not in url
 
 
@@ -569,9 +574,12 @@ class TestArcticShiftRetry:
         assert caught.value.kind == "blocked"
         assert not caught.value.detail.startswith("rejected the query")
 
-    def test_a_422_overload_is_rate_limited_but_not_retried(self, monkeypatch):
-        # The archive sends "slow down" as a 422 too. It is a rate limit in
-        # meaning, but a 4xx other than 429 is never retried.
+    def test_a_422_is_a_rejected_request_not_a_rate_limit_and_is_not_retried(self, monkeypatch):
+        # REGRESSION (live QA). The archive answers a request it cannot process
+        # with HTTP 422 and the body "Timeout. Maybe slow down a bit"; the lane
+        # read that wording as a rate limit and told the founder so. A rate limit
+        # is a 429. The failure kind is `unavailable`, the message names the
+        # cause, and a 4xx other than 429 is never retried.
         calls = {"n": 0}
 
         def fake_get_json(url, timeout=None):
@@ -581,9 +589,14 @@ class TestArcticShiftRetry:
             )
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
-        with pytest.raises(SourceRateLimited):
+        with pytest.raises(SourceUnavailable) as caught:
             _retry("u", _Clock())
         assert calls["n"] == 1
+        assert caught.value.kind == "unavailable"
+        assert caught.value.status == 422
+        assert caught.value.detail.startswith("rejected the query (HTTP 422")
+        assert "not a rate limit" in caught.value.detail
+        assert "429" in caught.value.detail
 
 
 class TestArcticShiftKeywordQuery:
@@ -682,6 +695,32 @@ class TestArcticShiftLaneResilience:
         with pytest.raises(SourceUnavailable) as caught:
             self._fetch(["empty", "bad"])
         assert "rejected the query" in caught.value.detail
+
+    def test_a_lane_rejected_with_422_names_the_request_not_a_rate_limit(self, monkeypatch):
+        # REGRESSION (live QA): four of five archive calls answered 422 and the
+        # lane told the founder it was rate-limited, and stopped after the first
+        # subreddit. Every subreddit is asked, the lane fails as `unavailable`,
+        # and the headline says the archive rejected the query.
+        asked: list[str] = []
+
+        def get_json_422(url, timeout=None):
+            asked.append(url)
+            raise _http_error(
+                SourceUnavailable,
+                422,
+                "HTTP 422 from the archive. Body began: 'Timeout. Maybe slow down a bit'",
+            )
+
+        monkeypatch.setattr(arctic_shift, "get_json", get_json_422)
+        with pytest.raises(SourceError) as caught:
+            self._fetch(["a", "b", "c", "d"])
+        assert len(asked) == 4
+        failure = caught.value
+        assert type(failure) is SourceUnavailable
+        assert failure.kind == "unavailable"
+        assert failure.detail.startswith("Arctic Shift rejected the query")
+        assert "rate-limited" not in failure.detail
+        assert "not a rate limit" in failure.detail
 
     def test_a_lane_refused_with_403_is_reported_blocked_not_rejected(self, monkeypatch):
         # Every subreddit answered 403: the archive refused this server. The

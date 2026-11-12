@@ -54,6 +54,7 @@ async function currentPhaseLedger({
     }))
   ).map((step) => ({
     attemptNo: step.attemptNo,
+    decision: step.decision,
     unmet: step.detail.readable ? step.detail.unmet : null,
     closed: step.closed,
     opened: step.opened,

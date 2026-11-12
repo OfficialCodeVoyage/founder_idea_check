@@ -550,6 +550,13 @@ export function describeGateVerdict(input: DescribeRailInput): GateVerdictView {
  */
 export type AttemptLedgerStep = {
   attemptNo: number;
+  /**
+   * What the gate decided on this attempt. Only a BLOCK blocked anything: a
+   * WARN advanced with criteria still open, and calling those "blocked" would
+   * name a refusal the gate never made.
+   */
+  decision: GateDecisionValue;
+  /** Every criterion not marked met, advisory ones included. */
   unmet: readonly string[] | null;
   /** From describeAttemptSeries — the diff against the attempt before. */
   closed: readonly string[];
@@ -559,7 +566,11 @@ export type AttemptLedgerStep = {
 
 export type CriterionRepeat = {
   criterionId: string;
-  /** Attempts ON RECORD where this criterion was not met. */
+  /**
+   * Attempts ON RECORD that the gate BLOCKED with this criterion not met.
+   * Blocking-severity criteria only: an advisory criterion can only ever
+   * downgrade to WARN, so it never blocked anything and is never counted.
+   */
   blocked: number;
   /**
    * Attempts on record that had criterion state at all — the denominator.
@@ -610,7 +621,26 @@ export type AttemptStandingView = {
 /** Blocking once is a refusal. Blocking twice is a pattern worth naming. */
 const REPEAT_THRESHOLD = 2;
 
-function countRepeats(ledger: readonly AttemptLedgerStep[]): CriterionRepeat[] {
+/**
+ * The criteria that BLOCKED this attempt: not met, blocking severity, on an
+ * attempt the gate decided BLOCK. Empty for a WARN or PASS — open criteria on
+ * an attempt that advanced did not block it. Deduped: a criterion listed twice
+ * in one verdict is the judge's own defect and must not inflate any count.
+ */
+function blockersOf(
+  attempt: AttemptLedgerStep,
+  isBlocking: (criterionId: string) => boolean
+): Set<string> {
+  if (attempt.decision !== "BLOCK") {
+    return new Set();
+  }
+  return new Set((attempt.unmet ?? []).filter(isBlocking));
+}
+
+function countRepeats(
+  ledger: readonly AttemptLedgerStep[],
+  criteria: readonly { id: string; severity: CriterionSeverity }[]
+): CriterionRepeat[] {
   const latest = ledger.at(-1);
   // The card is showing the LATEST attempt. If that one scored nothing, saying
   // "this criterion is still blocking you" is a claim about work the gate never
@@ -618,16 +648,21 @@ function countRepeats(ledger: readonly AttemptLedgerStep[]): CriterionRepeat[] {
   if (!latest?.unmet) {
     return [];
   }
+  // Only a criterion the phase DEFINES as blocking. An id the definition no
+  // longer carries has no known severity, and guessing "blocking" for it is how
+  // an advisory criterion would end up called a blocker.
+  const blockingIds = new Set(
+    criteria.filter((c) => c.severity === "blocking").map((c) => c.id)
+  );
+  const isBlocking = (id: string) => blockingIds.has(id);
   const scored = ledger.filter((s) => s.unmet !== null);
   const blocked = new Map<string, number>();
   for (const attempt of scored) {
-    // Deduped per attempt: a criterion listed twice in one verdict is the
-    // judge's own defect and must not inflate the count.
-    for (const id of new Set(attempt.unmet ?? [])) {
+    for (const id of blockersOf(attempt, isBlocking)) {
       blocked.set(id, (blocked.get(id) ?? 0) + 1);
     }
   }
-  return [...new Set(latest.unmet)]
+  return [...blockersOf(latest, isBlocking)]
     .map((criterionId) => ({
       criterionId,
       blocked: blocked.get(criterionId) ?? 0,
@@ -648,8 +683,10 @@ export function describeAttemptStanding(input: {
   attemptCount: number;
   /** Oldest first, as describeAttemptSeries returns it. */
   ledger: readonly AttemptLedgerStep[];
+  /** The phase's criteria: severity decides what can be called a blocker. */
+  criteria: readonly { id: string; severity: CriterionSeverity }[];
 }): AttemptStandingView {
-  const repeats = countRepeats(input.ledger);
+  const repeats = countRepeats(input.ledger, input.criteria);
   return {
     attemptLabel:
       input.attemptCount > 0 ? `Attempt ${input.attemptCount}` : null,

@@ -329,6 +329,7 @@ export function GateVerdictCard({
   const standing = describeAttemptStanding({
     attemptCount: gate.data.attemptCount,
     ledger: gate.data.ledger,
+    criteria: gate.data.criteria,
   });
   const checklist = describeCriterionChecklist({
     criteria: gate.data.criteria,

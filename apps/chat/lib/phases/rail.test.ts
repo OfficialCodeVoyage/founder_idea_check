@@ -698,6 +698,7 @@ describe("describeGateVerdict — a mixed set gets a mixed heading", () => {
 function step(over: Partial<AttemptLedgerStep> = {}): AttemptLedgerStep {
   return {
     attemptNo: 1,
+    decision: "BLOCK",
     unmet: [],
     closed: [],
     opened: [],
@@ -706,24 +707,87 @@ function step(over: Partial<AttemptLedgerStep> = {}): AttemptLedgerStep {
   };
 }
 
+/**
+ * describeAttemptStanding with every criterion the ledger names defined as
+ * blocking, unless the case passes its own definitions.
+ */
+function standing(input: {
+  attemptCount: number;
+  ledger: AttemptLedgerStep[];
+  criteria?: { id: string; severity: "blocking" | "advisory" }[];
+}) {
+  const ids = new Set(input.ledger.flatMap((s) => s.unmet ?? []));
+  return describeAttemptStanding({
+    ...input,
+    criteria:
+      input.criteria ??
+      [...ids].map((id) => ({ id, severity: "blocking" as const })),
+  });
+}
+
 describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'", () => {
+  it("never counts an advisory criterion as having blocked anything", () => {
+    // An advisory miss can only downgrade to WARN. "people-interviewed has
+    // blocked 2 of 2 attempts", beside its own "advisory only" tag, called it
+    // the opposite of what it is.
+    const s = standing({
+      attemptCount: 2,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["people-interviewed", "target-user"] }),
+        step({ attemptNo: 2, unmet: ["people-interviewed", "target-user"] }),
+      ],
+      criteria: [
+        { id: "people-interviewed", severity: "advisory" },
+        { id: "target-user", severity: "blocking" },
+      ],
+    });
+    expect(s.repeats).toEqual([
+      { criterionId: "target-user", blocked: 2, of: 2 },
+    ]);
+  });
+
+  it("does not count a WARN attempt as one a criterion blocked", () => {
+    // The gate let attempt 2 through with the criterion open, so it blocked
+    // one attempt of the three, and the WARN still counts in the denominator.
+    const s = standing({
+      attemptCount: 3,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["validation-score"] }),
+        step({ attemptNo: 2, decision: "WARN", unmet: ["validation-score"] }),
+        step({ attemptNo: 3, unmet: ["validation-score"] }),
+      ],
+    });
+    expect(s.repeats).toEqual([
+      { criterionId: "validation-score", blocked: 2, of: 3 },
+    ]);
+  });
+
+  it("reports no repeat when the latest attempt was not a BLOCK", () => {
+    const s = standing({
+      attemptCount: 2,
+      ledger: [
+        step({ attemptNo: 1, unmet: ["validation-score"] }),
+        step({ attemptNo: 2, decision: "WARN", unmet: ["validation-score"] }),
+      ],
+    });
+    expect(s.repeats).toEqual([]);
+  });
+
   it("names the attempt the founder is on", () => {
     // Seven refusals rendered identically and standalone. Nothing on any of
     // them said which one it was, which is why the seventh read as pushback
     // rather than as position in a sequence.
-    const s = describeAttemptStanding({ attemptCount: 7, ledger: [] });
+    const s = standing({ attemptCount: 7, ledger: [] });
     expect(s.attemptLabel).toBe("Attempt 7");
   });
 
   it("names no attempt at all before the gate has ever run", () => {
     // "Attempt 0" is a number standing in for "never judged".
-    expect(
-      describeAttemptStanding({ attemptCount: 0, ledger: [] }).attemptLabel
-    ).toBeNull();
+    expect(standing({ attemptCount: 0, ledger: [] }).attemptLabel).toBeNull();
   });
 
   it("counts how many attempts one criterion has blocked", () => {
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 3,
       ledger: [
         step({ attemptNo: 1, unmet: ["validation-score", "target-user"] }),
@@ -737,7 +801,7 @@ describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'"
   });
 
   it("reports nothing as repeating on its first refusal", () => {
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 1,
       ledger: [step({ attemptNo: 1, unmet: ["validation-score"] })],
     });
@@ -748,7 +812,7 @@ describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'"
     // "target-user has blocked 2 of your 3 attempts" is a true sentence and a
     // useless one once the founder has closed it. The repeat line is about what
     // is in the way now.
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 3,
       ledger: [
         step({ attemptNo: 1, unmet: ["target-user", "validation-score"] }),
@@ -763,7 +827,7 @@ describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'"
     // An attempt where the gate failed closed scored nothing. Counting it as an
     // attempt this criterion did NOT block would understate the repeat — the
     // gate never looked.
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 3,
       ledger: [
         step({ attemptNo: 1, unmet: ["validation-score"] }),
@@ -780,7 +844,7 @@ describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'"
     // The card is showing that attempt. Saying "this criterion is still
     // blocking you" over a verdict that judged nothing is a claim about work
     // the gate never looked at.
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 3,
       ledger: [
         step({ attemptNo: 1, unmet: ["validation-score"] }),
@@ -792,7 +856,7 @@ describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'"
   });
 
   it("says a single repeat as one plain sentence", () => {
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 2,
       ledger: [
         step({ attemptNo: 1, unmet: ["validation-score"] }),
@@ -810,7 +874,7 @@ describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'"
     // the regression — the one line the founder could not have worked out for
     // themselves. Every repeat still reaches the checklist.
     const ids = ["a-one", "b-two", "c-three"];
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 2,
       ledger: [
         step({ attemptNo: 1, unmet: ids }),
@@ -823,13 +887,11 @@ describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'"
   });
 
   it("says nothing at all when nothing repeats", () => {
-    expect(
-      describeAttemptStanding({ attemptCount: 1, ledger: [] }).repeatNote
-    ).toBeNull();
+    expect(standing({ attemptCount: 1, ledger: [] }).repeatNote).toBeNull();
   });
 
   it("puts the criterion that has blocked most often first", () => {
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 3,
       ledger: [
         step({ attemptNo: 1, unmet: ["a-criterion", "b-criterion"] }),
@@ -846,7 +908,7 @@ describe("describeAttemptStanding — 'attempt 7' and 'this is the fourth time'"
   it("counts a duplicated id in one verdict once", () => {
     // The judge writes the list; a duplicate there is its own defect and must
     // not inflate the repeat count, nor produce two rows with one key.
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 2,
       ledger: [
         step({ attemptNo: 1, unmet: ["validation-score", "validation-score"] }),
@@ -863,7 +925,7 @@ describe("describeAttemptStanding — the diff, regressions included", () => {
   it("carries the latest attempt's diff through", () => {
     // 5 -> 1 -> 1 -> 1 -> 5 -> 5 -> 1. The founder closed four criteria,
     // watched them re-open twice, and was told none of it.
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 5,
       ledger: [
         step({ attemptNo: 4, unmet: ["validation-score"] }),
@@ -887,16 +949,12 @@ describe("describeAttemptStanding — the diff, regressions included", () => {
     // and when the two attempts could not be compared at all. An empty object
     // rendered as "nothing moved" would be a claim in the second case, so the
     // arm is null and the card says nothing.
-    expect(
-      describeAttemptStanding({ attemptCount: 1, ledger: [step()] }).progress
-    ).toBeNull();
-    expect(
-      describeAttemptStanding({ attemptCount: 0, ledger: [] }).progress
-    ).toBeNull();
+    expect(standing({ attemptCount: 1, ledger: [step()] }).progress).toBeNull();
+    expect(standing({ attemptCount: 0, ledger: [] }).progress).toBeNull();
   });
 
   it("reports a regression even when nothing else moved", () => {
-    const s = describeAttemptStanding({
+    const s = standing({
       attemptCount: 2,
       ledger: [step({ attemptNo: 1 }), step({ attemptNo: 2, opened: ["x-y"] })],
     });

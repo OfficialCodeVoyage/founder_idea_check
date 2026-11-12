@@ -3,9 +3,42 @@ import { z } from "zod";
 import { getLanguageModel } from "@/lib/ai/providers";
 import type { StreamWriter } from "@/lib/ai/types";
 import { config } from "@/lib/config";
-import { generateUUID } from "@/lib/utils";
+import { generateUUID, getTextContentFromModelMessage } from "@/lib/utils";
 
 const FOLLOWUP_CONTEXT_MESSAGES = 2;
+
+/**
+ * PURE. The last few conversational turns, AS PLAIN TEXT ONLY.
+ *
+ * This used to be `modelMessages.slice(-2)`. After a turn that called a tool,
+ * the tail of the conversation is an assistant tool call, a `tool` message
+ * carrying its result, and the closing assistant text — so a two-message slice
+ * kept the result and cut off the call it answers. OpenAI rejects that request
+ * with HTTP 400 "No tool call found for function call output", and the
+ * follow-up suggestions failed after every tool turn.
+ *
+ * Keeping only text makes an orphan impossible by construction rather than by
+ * pairing calls with results: `tool` messages are dropped whole, tool-call,
+ * tool-result, reasoning and file parts are dropped from the rest, and a
+ * message left with no text is skipped so the window still holds real turns.
+ * Suggesting the next question needs what was said, not the tool payloads.
+ */
+export function followupContext(
+  modelMessages: readonly ModelMessage[]
+): ModelMessage[] {
+  const turns: ModelMessage[] = [];
+  for (const message of modelMessages) {
+    if (message.role !== "user" && message.role !== "assistant") {
+      continue;
+    }
+    const text = getTextContentFromModelMessage(message).trim();
+    if (text.length === 0) {
+      continue;
+    }
+    turns.push({ role: message.role, content: text });
+  }
+  return turns.slice(-FOLLOWUP_CONTEXT_MESSAGES);
+}
 
 export async function generateFollowupSuggestions(
   modelMessages: ModelMessage[]
@@ -13,7 +46,7 @@ export async function generateFollowupSuggestions(
   const maxQuestionCount = 5;
   const minQuestionCount = 3;
   const maxCharactersPerQuestion = 80;
-  const recentMessages = modelMessages.slice(-FOLLOWUP_CONTEXT_MESSAGES);
+  const recentMessages = followupContext(modelMessages);
   return streamText({
     model: await getLanguageModel(config.ai.tools.followupSuggestions.default),
     messages: [

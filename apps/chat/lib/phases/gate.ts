@@ -382,8 +382,12 @@ export function decideGate(
   //    The QUESTION is chosen over the whole open set, not over this group: if
   //    anything still open is answerable in conversation, that is what to ask,
   //    whichever group decided the verdict.
+  //
+  //    When EVERY open blocking criterion is offline-only, the obstacle is the
+  //    fieldwork, as in the unmet branch: "restate it plainly" cannot close a
+  //    criterion that needs data nobody has collected yet. Still BLOCK.
   if (notEvaluable.length > 0) {
-    const { nextQuestion } = questionFor(
+    const { nextQuestion, fieldworkOnly } = questionFor(
       openBlocking,
       closureOf,
       "I could not assess part of this phase. Give me more detail and I will re-check."
@@ -397,7 +401,10 @@ export function decideGate(
       perCriterion,
       openGaps,
       nextQuestion,
-      obstacleFor("not-evaluable", openBlocking)
+      obstacleFor(
+        fieldworkOnly ? "fieldwork-required" : "not-evaluable",
+        openBlocking
+      )
     );
   }
 

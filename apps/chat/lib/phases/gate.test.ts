@@ -673,6 +673,29 @@ describe("decideGate — a gap that needs fieldwork", () => {
   });
 
   it("separates not-evaluable from unmet in the arm it reports", () => {
+    // `target-user` is in-conversation: restating it can close it.
+    const perCriterion = allMet().map((e) =>
+      e.criterionId === "target-user"
+        ? ev(e.criterionId, "not-evaluable", { gap: "no user was named" })
+        : e
+    );
+    const verdict = decideGate(perCriterion, {
+      criteria: ALL_META,
+      gate,
+      factCount: 9,
+    });
+
+    expect(verdict.decision).toBe("BLOCK");
+    expect(verdict.obstacle).toEqual({
+      kind: "not-evaluable",
+      criterionIds: ["target-user"],
+    });
+  });
+
+  it("names fieldwork when everything open, not-evaluable included, is offline-only", () => {
+    // `evidence-quality` is offline-only and the only open criterion, so
+    // "restate it plainly" cannot close it: the arm and the question are the
+    // fieldwork ones. The decision does not move.
     const perCriterion = allMet().map((e) =>
       e.criterionId === "evidence-quality"
         ? ev(e.criterionId, "not-evaluable", { gap: "no sources were named" })
@@ -686,9 +709,10 @@ describe("decideGate — a gap that needs fieldwork", () => {
 
     expect(verdict.decision).toBe("BLOCK");
     expect(verdict.obstacle).toEqual({
-      kind: "not-evaluable",
+      kind: "fieldwork-required",
       criterionIds: ["evidence-quality"],
     });
+    expect(verdict.nextQuestion).toMatch(RE_INSTRUMENT);
   });
 
   it("gives every non-criterion refusal its own arm", () => {

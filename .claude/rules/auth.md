@@ -21,9 +21,9 @@ paths:
   `DATABASE_URL`/`AUTH_SECRET` test defaults (`lib/env-schema.ts`). Never set them in a deployed environment.
 - **`/api/dev-login` exists only when `NODE_ENV === "development"`** (404 otherwise). It signs a session cookie
   for `dev@localhost` with `AUTH_SECRET`. Keep that guard first in the handler. It also 404s unless
-  `IC_DEV_SERVER_LOCALHOST_ONLY=1`, which only the scripts that run `next dev --hostname localhost` set (same line);
-  never set the marker without that bind, and never drop either from `dev-local.sh` or the chat `dev`/`dev:inspect`
-  scripts. The `Host` / `X-Forwarded-For` loopback checks behind it are forgeable and only refuse, never grant.
+  `IC_DEV_SERVER_LOCALHOST_ONLY=1`, which only `apps/chat/scripts/next-dev-localhost.sh` sets, together with
+  `--hostname localhost`, and it refuses a `-H`/`--hostname` argument (Next takes the last one). Never set the marker
+  any other way, and keep `dev-local.sh` and the chat `dev`/`dev:inspect` scripts going through that script. The `Host` / `X-Forwarded-For` loopback checks behind it are forgeable and only refuse, never grant.
 - **A shared secret read from env must be checked as set before it is compared.** `CRON_SECRET` is optional, and
   `` `Bearer ${undefined}` `` is the string `Bearer undefined`. Pattern:
   `app/api/cron/cleanup/route.ts::isAuthorizedCronRequest` (refuse when unset, constant-time compare).

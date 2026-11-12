@@ -71,9 +71,11 @@ function isLoopbackHost(hostHeader: string | null): boolean {
  * session for the founder's real account to whoever calls it, so it must only
  * exist on a server nothing off this machine can reach. `scripts/dev-local.sh`
  * and the chat `dev` / `dev:inspect` scripts start `next dev --hostname
- * localhost` AND set this variable in the same command; a server started any
- * other way (a bare `next dev`, which listens on every interface) lacks it, and
- * the route answers 404 there.
+ * localhost` AND set this variable in the same command, through
+ * `scripts/next-dev-localhost.sh`, which refuses a `-H` / `--hostname`
+ * argument: Next takes the last `-H`, so an appended one used to move the bind
+ * and keep the marker. A server started any other way (a bare `next dev`,
+ * which listens on every interface) lacks it, and the route answers 404 there.
  *
  * Why a marker rather than trusting the headers below: a route handler cannot
  * see the socket's address, and Next KEEPS a client-sent `X-Forwarded-For`.

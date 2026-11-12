@@ -156,9 +156,12 @@ Prefer `dev:local`: it bypasses turbo and sets `APP_URL` to the port it serves o
 Open `http://localhost:3100/api/dev-login`, or use the "Dev login" button on `/login`. Either creates `dev@localhost`,
 signs the session cookie and redirects to `/`. The route answers 404 unless `NODE_ENV` is `development`, and unless
 `IC_DEV_SERVER_LOCALHOST_ONLY=1`. Only the scripts that bind the server to this machine set that variable:
-`dev-local.sh` and the chat `dev` / `dev:inspect` scripts start `next dev --hostname localhost` with it on the same
-line, so other machines on your network cannot reach the server. A bare `next dev` listens on every interface and has
-no marker, so the route is off there. Do not set the variable yourself. Behind the marker the route also answers 404
+`dev-local.sh` and the chat `dev` / `dev:inspect` scripts start `next dev --hostname localhost` with it through
+`apps/chat/scripts/next-dev-localhost.sh`, so other machines on your network cannot reach the server. These scripts
+refuse to start when you pass a hostname (`-H`, `--hostname`, `--hostname=…`): Next takes the last one, so
+`bun run dev --hostname 0.0.0.0` would listen on every interface with the marker still set. To serve on your network,
+run `next dev` yourself; the route is then off. A bare `next dev` listens on every interface and has no marker, so the
+route is off there. Do not set the variable yourself. Behind the marker the route also answers 404
 unless the request's `Host` is a loopback name and its `X-Forwarded-For` is a loopback address. Those headers can be
 forged, so they only turn away callers who do not forge them; the bind is what protects you. Open the app as
 `localhost`, not by the machine's LAN address.

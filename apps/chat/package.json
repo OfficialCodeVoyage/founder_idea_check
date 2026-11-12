@@ -5,9 +5,9 @@
   "license": "Apache-2.0",
   "scripts": {
     "prebuild": "bun run check-env",
-    "dev": "bun run check-env:dev && bash scripts/with-db.sh env IC_DEV_SERVER_LOCALHOST_ONLY=1 next dev --hostname localhost",
+    "dev": "bun run check-env:dev && bash scripts/with-db.sh bash scripts/next-dev-localhost.sh",
     "dev:local": "bash scripts/dev-local.sh",
-    "dev:inspect": "bash scripts/with-db.sh env IC_DEV_SERVER_LOCALHOST_ONLY=1 next dev --hostname localhost --inspect",
+    "dev:inspect": "bash scripts/with-db.sh bash scripts/next-dev-localhost.sh --inspect",
     "build": "tsx lib/db/migrate && next build",
     "analyze": "next experimental-analyze",
     "start": "next start",

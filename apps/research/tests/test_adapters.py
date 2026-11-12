@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlsplit
+
 import pytest
 
 from app.errors import (
@@ -114,6 +116,16 @@ class TestHackerNews:
             "dog walking scheduling app", "2026-07-01", "2026-08-01", 5
         )
         assert "optionalWords" in url
+
+    def test_algolia_is_asked_for_title_matches_only(self):
+        # The relevance test reads the title only, so a body-only hit would take a
+        # slot of the overfetched page and then be dropped. Upstream does not set
+        # this; we do (departure noted in THIRD_PARTY-research.md). It holds for a
+        # single word and for a query that also gets `optionalWords`.
+        for query in ("dogs", "dog walking scheduling app"):
+            url = hackernews.build_search_url(query, "2026-07-01", "2026-08-01", 5)
+            params = parse_qs(urlsplit(url).query)
+            assert params["restrictSearchableAttributes"] == ["title"], query
 
     def test_a_single_word_query_needs_no_optionalwords(self):
         url = hackernews.build_search_url("dogs", "2026-07-01", "2026-08-01", 5)

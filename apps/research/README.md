@@ -138,8 +138,11 @@ left out: that is a lane that was not searched in full, so it is reported as a
 failure naming each subreddit. "Found nothing" (an empty result) is kept for a
 lane in which every subreddit it was given answered cleanly with no posts.
 
-Hacker News is searched with Algolia's `optionalWords`, so a page of stories
-comes back whatever the topic, and the lane keeps a story only when it is on
+Hacker News is searched with Algolia's `optionalWords`, restricted to the title
+(`restrictSearchableAttributes=title`, which the upstream request does not set: the
+relevance test below reads the title only, so a body-only hit would fill a slot of
+the over-fetched page and then be dropped), so a page of stories comes back
+whatever the topic, and the lane keeps a story only when it is on
 topic for the query (`app/sources/hackernews.py::matches_a_content_word`). Only the
 **title** decides: one content word of the query in it is enough, or two
 different weak ones ("code" and "review"). The story's text (the Show HN or Ask HN

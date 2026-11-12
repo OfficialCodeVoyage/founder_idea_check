@@ -5,7 +5,8 @@
 #
 # MODIFICATIONS: the Algolia query construction — including BOTH traps quoted in
 # the comments below, which are the reason this file was worth taking rather
-# than writing — is upstream's. Removed: the depth presets, the thread-comment
+# than writing — is upstream's, except that `restrictSearchableAttributes=title`
+# is added (`build_search_url`). Removed: the depth presets, the thread-comment
 # enrichment fan-out, and the `log.source_log` sink. Errors now raise named
 # exceptions instead of returning `{"hits": [], "error": ...}`. Added: a hit is
 # dropped unless its TITLE shares a CONTENT word with the query (or two distinct
@@ -96,15 +97,22 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
     `optionalWords` makes Algolia rank by how many tokens match instead of
     requiring every one.
 
-    Also deliberate: `restrictSearchableAttributes=title` is NOT set, which is
-    upstream's choice and is left as it was. Our own relevance test is TITLE-ONLY
-    (`matches_a_content_word`), so a story whose topic appears only in its body
-    still takes a slot of the overfetched page and is then dropped client-side.
+    DEPARTURE FROM UPSTREAM — `restrictSearchableAttributes=title` IS set.
+    Upstream leaves it off so that Ask HN / Show HN threads whose topic appears
+    only in the body are found. Our relevance test is TITLE-ONLY
+    (`matches_a_content_word`), so such a story would be dropped client-side
+    anyway, and without the restriction it first takes a slot of the overfetched
+    page: a body-only hit fills the page that the title-only filter then empties.
+    Asking Algolia for title matches spends the page on stories that can pass.
+    Checked live on 2026-11-12 with the single-word query "reading": HTTP 200,
+    7,903 hits restricted against 20,777 unrestricted, every returned title
+    containing the word. `optionalWords` (TRAP 2) still applies, now to the title.
     """
     flat = _flatten_query(query)
     params = {
         "query": flat,
         "tags": "story",
+        "restrictSearchableAttributes": "title",
         "numericFilters": (
             f"created_at_i>{_date_to_unix(date_from)},created_at_i<{_date_to_unix(date_to) + 86400}"
         ),

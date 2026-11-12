@@ -82,3 +82,6 @@ CLAUDE.local.md
 
 # Temp dirs from the thread package smoke test (packages/thread).
 .package-smoke-*/
+
+# OASIS (the optional simulation extra) writes log/*.log into the working directory on import
+log/

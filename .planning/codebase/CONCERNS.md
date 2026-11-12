@@ -295,8 +295,12 @@ missed ownership or charging step.
 reformatted on purpose (`apps/research/pyproject.toml`); do not run `ruff --fix` over them.
 
 **Version-coupled internals:** code comments rely on `ai@6.0.219` behaviour (`ToolLoopAgent` default of 20 steps,
-`convertToModelMessages` dropping `input-streaming` parts) and on `next@16.3.0` setting `X-Forwarded-For` from the socket
-(`apps/chat/app/api/dev-login/route.ts`). A bump of either needs those rechecked.
+`convertToModelMessages` dropping `input-streaming` parts, `handleUIMessageStreamFinish` calling `onFinish` once from
+`flush` or `cancel`), on `resumable-stream@2.2.10` (`createNewResumableStream`'s read loop has no catch) and on
+`next@16.3.0` (`X-Forwarded-For` from the socket in `apps/chat/app/api/dev-login/route.ts`; `after()` given a promise
+waits on it at once, given a callback runs it when the response closes). The turn's charge rests on the first three
+(`apps/chat/app/(chat)/api/chat/route.ts::executeChatRequest` drains a tee of the chat stream). A bump of any of them needs
+those rechecked.
 
 ## Scaling Limits
 

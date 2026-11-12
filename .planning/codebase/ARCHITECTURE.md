@@ -168,10 +168,13 @@ N+1's system prompt.
 3. The route arms an abort timer from `CHAT_REQUEST_BUDGET_MS` (`apps/chat/lib/ai/request-budget.ts`, 290 s) and passes
    the same deadline to tools as `requestDeadlineAt`.
 4. `executeChatRequest` inserts an empty assistant placeholder with an `activeStreamId`, installs a throttled cancel
-   check (`getMessageCanceledAt`, once per second), builds the stream with `createChatStream`, and returns it as SSE,
-   wrapped by `resumable-stream` when `REDIS_URL` is set (`getStreamContext`; the GET resume handler is
-   `apps/chat/app/(chat)/api/chat/[id]/stream/route.ts`), or plain when `resumable-stream` fails before it takes the
-   stream, so the turn is still read and charged.
+   check (`getMessageCanceledAt`, once per second), builds the stream with `createChatStream`, and tees it: one branch
+   is drained to its end in the background (`after()` with a promise), so `onFinish` charges the turn whoever reads the
+   response, and a client disconnect or a stalled resumable read loop cannot end or skip the charge. The other branch
+   is returned as SSE, wrapped by `resumable-stream` when `REDIS_URL` is set (`getStreamContext`; the GET resume
+   handler is `apps/chat/app/(chat)/api/chat/[id]/stream/route.ts`), or plain when `resumable-stream` fails before it
+   takes the stream. Generation is never tied to the request: a disconnect does not stop the model; the stop button
+   does, through `canceledAt`.
 5. `createChatStream` composes the system prompt in `getSystemPrompt`: `systemPrompt()` (`apps/chat/lib/ai/prompts.ts`), the
    project's instructions, then `buildPhaseSystemBlock` (`apps/chat/lib/phases/runtime.ts`: persona prompt, current phase prompt
    from `apps/chat/prompts/`, ranked fact block, gate directive). Anonymous chats and chats whose owner does not own
@@ -183,7 +186,8 @@ N+1's system prompt.
    `stopWhen` = 5 steps or a `deepResearch` report result and `maxOutputTokens` clamped to the model ceiling.
 7. The result is merged into the UI message stream with metadata; follow-up suggestions stream afterwards when
    `config.ai.tools.followupSuggestions.enabled` (`apps/chat/lib/ai/followup-suggestions.ts`).
-8. `onFinish` of `createUIMessageStream` runs `finalizeMessageAndCredits`: `rescueDeadToolInputStreams` (salvages a
+8. `onFinish` of `createUIMessageStream` runs once, when the drained branch reaches the end of the stream (after the
+   model's finish part has recorded its usage), and runs `finalizeMessageAndCredits`: `rescueDeadToolInputStreams` (salvages a
    frozen `createTextDocument` input as a labelled partial document, `apps/chat/lib/artifacts/text/salvage.ts`), `updateMessage`,
    `CostAccumulator.settle()`, `deductCredits`.
 9. Still in `onFinish`, unless the turn was aborted, anonymous, a non-primary parallel reply, projectless, or its chat

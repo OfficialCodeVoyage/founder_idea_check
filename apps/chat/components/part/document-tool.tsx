@@ -89,7 +89,12 @@ function DeadDocumentStream({
   const { setArtifact } = useArtifact();
   const { sendMessage } = useChatActions<ChatMessage>();
   const storeApi = useChatStoreApi<ChatMessage>();
+  const chatStatus = useChatStatus();
   const { salvage, store } = verdict;
+  // This card stays on screen while a continuation is on its way (see
+  // `AssistantMessage`), so a second press must not queue a second request.
+  const isRequestInFlight =
+    chatStatus === "submitted" || chatStatus === "streaming";
 
   // A STREAM THAT DIES WHILE THIS TAB WATCHES LEAVES THE PANEL SPINNING.
   //
@@ -187,7 +192,13 @@ function DeadDocumentStream({
           </Button>
         )}
         {!isReadonly && (
-          <Button onClick={resume} size="sm" type="button" variant="outline">
+          <Button
+            disabled={isRequestInFlight}
+            onClick={resume}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
             <PlayCircle size={14} />
             Continue from where it stopped
           </Button>

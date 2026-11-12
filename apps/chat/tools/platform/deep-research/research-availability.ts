@@ -3,6 +3,7 @@ import {
   gateRefusalToFailure,
   selectEnabledProviders,
 } from "@/lib/signals/provider";
+import { describeUnknownSourceIds } from "@/lib/signals/providers";
 import type {
   DeploymentMode,
   ProviderDescriptor,
@@ -60,20 +61,6 @@ const NO_BACKEND =
 const EVERY_LANE_REFUSED =
   "Every research source is switched off for this deployment.";
 
-/**
- * Names ids that matched no descriptor. Mirrors `describeUnknownSourceIds` in
- * sidecar-search.ts, and for the same reason `/v1/health` reports them: a typo
- * in RESEARCH_ENABLED_SOURCES must read as a typo, not as a source that ran and
- * found nothing.
- */
-function describeUnknownSourceIds(ids: readonly string[]): string {
-  if (ids.length === 0) {
-    return "";
-  }
-  const noun = ids.length === 1 ? "an id" : "ids";
-  return ` RESEARCH_ENABLED_SOURCES also names ${noun} that match no source: ${ids.join(", ")}.`;
-}
-
 /** The cloud arms are a single opaque lane: a key is either set or it is not. */
 const CLOUD_LANE_LABEL: Partial<Record<SearchAPI, string>> = {
   tavily: "Tavily web search",
@@ -95,7 +82,9 @@ export function decideResearchAvailability(input: {
   if (input.searchApi === "none") {
     return {
       available: false,
-      headline: NO_BACKEND + describeUnknownSourceIds(input.unknownSourceIds),
+      headline:
+        NO_BACKEND +
+        describeUnknownSourceIds(input.unknownSourceIds, { also: true }),
       refusals: [],
     };
   }
@@ -111,7 +100,8 @@ export function decideResearchAvailability(input: {
   return {
     available: false,
     headline:
-      EVERY_LANE_REFUSED + describeUnknownSourceIds(input.unknownSourceIds),
+      EVERY_LANE_REFUSED +
+      describeUnknownSourceIds(input.unknownSourceIds, { also: true }),
     refusals: selection.refused.map(({ descriptor, outcome }) =>
       gateRefusalToFailure(
         descriptor,

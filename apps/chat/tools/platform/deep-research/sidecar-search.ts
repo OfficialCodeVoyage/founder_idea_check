@@ -11,7 +11,10 @@ import {
   sourceOptionsFor,
 } from "@/lib/signals/audience";
 import { runSignalHarvest } from "@/lib/signals/provider";
-import { ALL_PROVIDERS } from "@/lib/signals/providers";
+import {
+  ALL_PROVIDERS,
+  describeUnknownSourceIds,
+} from "@/lib/signals/providers";
 import { createSidecarSignalFetcher } from "@/lib/signals/sidecar";
 import type { DemandSignal, SignalFailure } from "@/lib/signals/types";
 import { generateUUID } from "@/lib/utils";
@@ -81,17 +84,6 @@ const NO_AUDIENCE: AudienceView = {
 
 function isoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
-}
-
-/**
- * Names the ids that matched no descriptor, so a misspelled source reads as a
- * misspelling rather than as a quiet absence.
- */
-function describeUnknownSourceIds(ids: readonly string[]): string {
-  if (ids.length === 0) {
-    return "";
-  }
-  return ` RESEARCH_ENABLED_SOURCES names ${ids.length === 1 ? "an id" : "ids"} that match no source: ${ids.join(", ")}.`;
 }
 
 function describeFailures(failures: readonly SignalFailure[]): string {

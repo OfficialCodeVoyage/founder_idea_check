@@ -214,6 +214,30 @@ export type OperatorSourceRequest = {
 };
 
 /**
+ * PURE. A sentence (leading space included, empty for none) naming the ids in
+ * `RESEARCH_ENABLED_SOURCES` that matched no descriptor, so a typo reads as a
+ * typo and not as a source that ran and found nothing — the same reason
+ * `/v1/health` reports them. The ids are what `parseOperatorEnabledSources`
+ * returns as `unknown`, so the two sit together.
+ *
+ * ONE WORDING FOR EVERY CALLER. The search tool's failure text and the preflight
+ * headline each had a private copy, and the copies had already drifted. A caller
+ * whose preceding sentence has already given another cause passes `also`, which
+ * is the only difference between them.
+ */
+export function describeUnknownSourceIds(
+  ids: readonly string[],
+  options: { also?: boolean } = {}
+): string {
+  if (ids.length === 0) {
+    return "";
+  }
+  const noun = ids.length === 1 ? "an id" : "ids";
+  const also = options.also ? "also " : "";
+  return ` RESEARCH_ENABLED_SOURCES ${also}names ${noun} that match no source: ${ids.join(", ")}.`;
+}
+
+/**
  * PURE. Reads `RESEARCH_ENABLED_SOURCES` the way the sidecar reads it.
  *
  * This exists because the app and the sidecar were disagreeing about the same

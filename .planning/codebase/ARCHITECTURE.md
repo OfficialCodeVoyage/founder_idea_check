@@ -174,7 +174,11 @@ N+1's system prompt.
    is returned as SSE, wrapped by `resumable-stream` when `REDIS_URL` is set (`getStreamContext`; the GET resume
    handler is `apps/chat/app/(chat)/api/chat/[id]/stream/route.ts`), or plain when `resumable-stream` fails before it
    takes the stream. Generation is never tied to the request: a disconnect does not stop the model. For a signed-in
-   turn the stop button does, through `canceledAt` (`stopStream` sets it; the cancel check aborts the model). An
+   turn the stop button does, through `canceledAt` (`stopStream` sets it; the cancel check aborts the model). The
+   cancel check runs only when the model streams a chunk, and a running tool streams none, so Stop does not interrupt
+   a running deep-research tool: unless a check still pending from the step's last chunks (about a second) sees it,
+   the tool runs to its end, its step is charged at the provider's real usage, and the turn stops before the next
+   step. Only the deadline interrupts a running tool (its step then takes the estimate path in step 6). An
    anonymous turn has no cancel check (it is installed only when `!isAnonymous && userId`, and `handleStop` in
    `apps/chat/components/multimodal-input.tsx` sends the mutation only with a session), so there Stop only ends the
    client's stream and the model runs on to its end or the deadline.
@@ -189,7 +193,8 @@ N+1's system prompt.
    `stopWhen` = 5 steps or a `deepResearch` report result and `maxOutputTokens` clamped to the model ceiling. Its first
    transform, `createMainChatUsageMeter` (`apps/chat/lib/credits/main-chat-usage.ts`), records the chat model's usage
    on the turn's accumulator step by step from each `finish-step`, and estimates (labelled as such) a step an abort
-   cuts off, so a stopped or deadline-cut turn still charges what it spent.
+   or a broken provider connection cuts off, so a stopped, deadline-cut or disconnected turn still charges what it
+   spent.
 7. The result is merged into the UI message stream with metadata; follow-up suggestions stream afterwards when
    `config.ai.tools.followupSuggestions.enabled` (`apps/chat/lib/ai/followup-suggestions.ts`).
 8. `onFinish` of `createUIMessageStream` runs once, when the drained branch reaches the end of the stream (or earlier,

@@ -231,13 +231,22 @@ function hasReportedUsage(usage: LanguageModelUsage): boolean {
  *    abort landed before the provider sent the next step's first chunk): no
  *    evidence the provider began that step, so nothing is charged for it.
  *
- * A STOP WHILE A TOOL RUNS IS ESTIMATED TOO, though the model call that asked
- * for the tool is over and the provider reported its usage: `streamText`
+ * AN ABORT WHILE A TOOL RUNS IS ESTIMATED TOO, though the model call that
+ * asked for the tool is over and the provider reported its usage: `streamText`
  * writes a step's `finish-step` only once the step's tool calls have returned
  * (verified on ai@6.0.219), so the abort reaches this transform first and
- * the step's reported usage is never surfaced. The stop button pressed during
- * deep research, and the deadline that a long tool runs into, both take this
- * path.
+ * the step's reported usage is never surfaced. The route's deadline, which a
+ * long tool such as deep research can run into, takes this path.
+ *
+ * A STOP PRESSED WHILE A TOOL RUNS USUALLY DOES NOT. The route acts on Stop
+ * from its cancel check (`onChunk` -> `getMessageCanceledAt`, throttled to
+ * once a second), which runs only when `streamText` emits a chunk, and a
+ * running tool emits none. Unless a check still pending from the step's last
+ * chunks (about a second after them) sees the stop, it is acted on only when
+ * the tool returns: the tool runs to its end, its step's `finish-step` is
+ * recorded at the provider's real usage, and the abort then lands before the
+ * next step begins, which is charged nothing (mock on ai@6.0.219: a stop 1.2 s
+ * into a 3 s tool was acted on at 3,027 ms).
  *
  * A STEP WHOSE CONNECTION DIES IS ESTIMATED TOO. When the provider's HTTP
  * body breaks mid-step (a socket reset, a network failure), `streamText`

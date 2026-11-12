@@ -26,7 +26,18 @@ export type CutStepEstimate = {
   inputBasis: CutStepInputBasis;
   /** Characters of text, reasoning and tool input the cut step streamed. */
   streamedChars: number;
+  /**
+   * "characters" when the tokenizer threw and a count fell back to
+   * `FALLBACK_CHARS_PER_TOKEN`; "tokenizer" otherwise.
+   */
+  countedBy: "tokenizer" | "characters";
 };
+
+/**
+ * The repo's characters-per-token heuristic (`lib/phases/context.ts`
+ * `approxTokenCount`), used only when the tokenizer throws.
+ */
+const FALLBACK_CHARS_PER_TOKEN = 4;
 
 /**
  * What step 1's prompt is known to contain at least: text to tokenize, and a
@@ -241,6 +252,14 @@ function hasReportedUsage(usage: LanguageModelUsage): boolean {
  * bare `error` event carries none, and such a step is then not recorded
  * (`onStepWithoutUsage` says so) rather than recorded as zero.
  *
+ * A METER FAILURE NEVER BREAKS THE STREAM OR DROPS THE ESTIMATE. A count that
+ * throws falls back to `FALLBACK_CHARS_PER_TOKEN` (the estimate says
+ * `countedBy: "characters"`), and anything else the bookkeeping throws is
+ * reported through `onMeterError` while the part still moves on. Before this, a
+ * tokenizer throw inside the estimate errored the chat stream: the client got
+ * `error` instead of `abort`, `onFinish` saw `isAborted` false and ran the
+ * post-turn passes on a partial turn, and the cut step was charged nothing.
+ *
  * Tool calls made inside a step (deep research, image generation, …) record
  * their own model calls under their own sources; a step's usage is the chat
  * model's alone, so nothing here overlaps them.
@@ -252,6 +271,7 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
   getPromptFloor,
   onCutStepEstimated,
   onStepWithoutUsage,
+  onMeterError,
 }: {
   costAccumulator: CostAccumulator;
   modelId: AppModelId;
@@ -264,6 +284,8 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
   getPromptFloor: () => PromptFloor;
   onCutStepEstimated?: (estimate: CutStepEstimate) => void;
   onStepWithoutUsage?: (finishReason: string) => void;
+  /** Something in the meter threw; the stream went on regardless. */
+  onMeterError?: (error: unknown) => void;
 }): () => TransformStream<TextStreamPart<TOOLS>, TextStreamPart<TOOLS>> {
   let stepOpen = false;
   let streamed: string[] = [];
@@ -282,16 +304,39 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
     };
   }
 
-  function countPromptFloor({ texts, attachmentTokens }: PromptFloor) {
-    let tokens = attachmentTokens;
-    for (const text of texts) {
-      tokens += text.length > 0 ? countTokens(text) : 0;
-    }
-    return tokens;
-  }
-
   function recordCutStep(text: string) {
-    const outputTokens = text.length > 0 ? countTokens(text) : 0;
+    let countedBy: CutStepEstimate["countedBy"] = "tokenizer";
+    const count = (piece: string) => {
+      if (piece.length === 0) {
+        return 0;
+      }
+      try {
+        return countTokens(piece);
+      } catch (error) {
+        countedBy = "characters";
+        onMeterError?.(error);
+        return Math.ceil(piece.length / FALLBACK_CHARS_PER_TOKEN);
+      }
+    };
+    const countPromptFloor = () => {
+      let floor: PromptFloor;
+      try {
+        floor = getPromptFloor();
+      } catch (error) {
+        // The output is still charged; the input has no count to fall back to.
+        countedBy = "characters";
+        onMeterError?.(error);
+        return 0;
+      }
+      const { texts, attachmentTokens } = floor;
+      let tokens = attachmentTokens;
+      for (const piece of texts) {
+        tokens += count(piece);
+      }
+      return tokens;
+    };
+
+    const outputTokens = count(text);
     const estimate: CutStepEstimate = lastCompletedStep
       ? {
           inputTokens:
@@ -299,12 +344,14 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
           outputTokens,
           inputBasis: "previous-step",
           streamedChars: text.length,
+          countedBy,
         }
       : {
-          inputTokens: countPromptFloor(getPromptFloor()),
+          inputTokens: countPromptFloor(),
           outputTokens,
           inputBasis: "prompt-count",
           streamedChars: text.length,
+          countedBy,
         };
     costAccumulator.addLLMCost(
       modelId,
@@ -335,31 +382,39 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
     TextStreamPart<TOOLS>
   > & { cancel: (reason: unknown) => void };
 
+  function track(part: TextStreamPart<TOOLS>) {
+    switch (part.type) {
+      case "start-step":
+        stepOpen = true;
+        streamed = [];
+        break;
+      case "text-delta":
+      case "reasoning-delta":
+        streamed.push(part.text);
+        break;
+      case "tool-input-delta":
+        streamed.push(part.delta);
+        break;
+      case "finish-step":
+        stepOpen = false;
+        streamed = [];
+        recordStep(part.usage, part.finishReason);
+        break;
+      case "abort":
+        closeCutStep();
+        break;
+      default:
+        break;
+    }
+  }
+
   return () => {
     const transformer: MeterTransformer = {
       transform(part, controller) {
-        switch (part.type) {
-          case "start-step":
-            stepOpen = true;
-            streamed = [];
-            break;
-          case "text-delta":
-          case "reasoning-delta":
-            streamed.push(part.text);
-            break;
-          case "tool-input-delta":
-            streamed.push(part.delta);
-            break;
-          case "finish-step":
-            recordStep(part.usage, part.finishReason);
-            stepOpen = false;
-            streamed = [];
-            break;
-          case "abort":
-            closeCutStep();
-            break;
-          default:
-            break;
+        try {
+          track(part);
+        } catch (error) {
+          onMeterError?.(error);
         }
         controller.enqueue(part);
       },
@@ -372,7 +427,11 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
       // upstream errors). `closeCutStep` estimates it only while it is still
       // open, so a step already recorded or estimated is never charged twice.
       cancel() {
-        closeCutStep();
+        try {
+          closeCutStep();
+        } catch (error) {
+          onMeterError?.(error);
+        }
       },
     };
     return new TransformStream(transformer);

@@ -6,6 +6,23 @@ const MinChunkSize = 140;
 const encoder = getEncoding("o200k_base");
 
 /**
+ * The tokens `encoder` makes of `text`, with special-token markers such as
+ * `<|endoftext|>` counted as the plain text they are.
+ *
+ * js-tiktoken's `encode(text)` defaults to `disallowedSpecial: "all"` and
+ * THROWS on text that contains a special-token marker. That text is ordinary
+ * here: a founder can paste it, and a model can write it. One such message
+ * made every later turn of its chat fail in `selectContextWindow`, and the
+ * same throw inside the usage meter's estimate broke a stopped turn's stream.
+ * Passing empty allowed and disallowed lists encodes a marker as the
+ * characters it is (`<|`, `endoftext`, `|>`), never as a control token, so a
+ * count can no longer throw on what a message says.
+ */
+function encodedLength(text: string): number {
+  return encoder.encode(text, [], []).length;
+}
+
+/**
  * Token count of a bare string, with no message-envelope overhead.
  *
  * calculateMessagesTokens() adds the role tokens and a +5 structural overhead
@@ -15,7 +32,7 @@ const encoder = getEncoding("o200k_base");
  * injects in production.
  */
 export function countTextTokens(text: string): number {
-  return encoder.encode(text).length;
+  return encodedLength(text);
 }
 
 // Calculate total tokens from messages
@@ -24,15 +41,15 @@ export function calculateMessagesTokens(messages: ModelMessage[]): number {
 
   for (const message of messages) {
     // Count tokens for role
-    totalTokens += encoder.encode(message.role).length;
+    totalTokens += encodedLength(message.role);
 
     // Count tokens for content - handle both string and array formats
     if (typeof message.content === "string") {
-      totalTokens += encoder.encode(message.content).length;
+      totalTokens += encodedLength(message.content);
     } else if (Array.isArray(message.content)) {
       for (const part of message.content) {
         if (part.type === "text") {
-          totalTokens += encoder.encode(part.text).length;
+          totalTokens += encodedLength(part.text);
         }
         // Add overhead for other part types (image, file, etc.)
         // Using GPT-4V approximation: ~765 tokens for typical image
@@ -55,7 +72,7 @@ function trimPrompt(prompt: string, contextSize: number) {
     return "";
   }
 
-  const length = encoder.encode(prompt).length;
+  const length = encodedLength(prompt);
   if (length <= contextSize) {
     return prompt;
   }
@@ -168,7 +185,7 @@ function truncateToolResultPart(
     return { truncatedPart: part, tokensRemoved: 0 };
   }
 
-  const partTokens = encoder.encode(part.output.value).length;
+  const partTokens = encodedLength(part.output.value);
   if (partTokens > 0) {
     const targetTokens = Math.max(0, partTokens - tokensToRemove);
     return {

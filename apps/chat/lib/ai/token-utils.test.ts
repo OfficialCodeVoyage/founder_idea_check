@@ -1,6 +1,10 @@
 import type { ModelMessage } from "ai";
 import { beforeEach, describe, expect, it } from "vitest";
-import { calculateMessagesTokens, truncateMessages } from "./token-utils";
+import {
+  calculateMessagesTokens,
+  countTextTokens,
+  truncateMessages,
+} from "./token-utils";
 
 // Mock js-tiktoken encoder for consistent testing
 const _mockEncoder = {
@@ -363,5 +367,29 @@ describe("calculateMessagesTokens", () => {
 
     const tokens = calculateMessagesTokens(messages);
     expect(tokens).toBeGreaterThanOrEqual(5); // Should still have role + overhead tokens
+  });
+});
+
+// GUARD: js-tiktoken's encode() throws on a special-token marker by default.
+// One message containing "<|endoftext|>" made every later turn of its chat
+// fail (selectContextWindow counts the history), and broke the usage meter's
+// estimate on a stopped turn.
+describe("special-token markers are counted as plain text", () => {
+  const marker = "the token is <|endoftext|> and <|fim_prefix|> ok";
+
+  it("countTextTokens counts a marker as several text tokens", () => {
+    expect(() => countTextTokens(marker)).not.toThrow();
+    // As plain text a marker is several tokens, never one control token.
+    expect(countTextTokens("<|endoftext|>")).toBeGreaterThan(1);
+  });
+
+  it("calculateMessagesTokens and truncateMessages do not throw on one", () => {
+    const messages: ModelMessage[] = [
+      { role: "system", content: marker },
+      { role: "user", content: [{ type: "text", text: marker }] },
+      { role: "assistant", content: marker.repeat(200) },
+    ];
+    expect(calculateMessagesTokens(messages)).toBeGreaterThan(0);
+    expect(() => truncateMessages(messages, 50)).not.toThrow();
   });
 });

@@ -239,6 +239,12 @@ export async function createCoreChatAgent({
         "chat step finished with no usage reported: nothing charged for it"
       );
     },
+    onMeterError: (error) => {
+      log.error(
+        { messageId, chatId, selectedModelId, error },
+        "chat usage meter failed: the stream went on, a count fell back to characters"
+      );
+    },
   });
 
   const result = streamText({

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { CutStepEstimate } from "./main-chat-usage";
 
 // Mock app-models to return test pricing
 vi.mock("../ai/app-models", () => ({
@@ -281,7 +282,13 @@ describe("createMainChatUsageMeter", () => {
 
   async function meter(
     parts: Record<string, unknown>[],
-    { end = "close" }: { end?: "close" | "error" } = {}
+    {
+      end = "close",
+      countTokens = (text) => Math.ceil(text.length / 4),
+    }: {
+      end?: "close" | "error";
+      countTokens?: (text: string) => number;
+    } = {}
   ) {
     const { createMainChatUsageMeter, MAIN_CHAT_CUT_STEP_SOURCE } =
       await import("./main-chat-usage");
@@ -291,11 +298,15 @@ describe("createMainChatUsageMeter", () => {
       texts: ["x".repeat(16_000), "y".repeat(3320)],
       attachmentTokens: 170,
     }));
+    const estimates: CutStepEstimate[] = [];
+    const meterErrors: unknown[] = [];
     const transform = createMainChatUsageMeter({
       costAccumulator: accumulator,
       modelId: "test-model" as never,
-      countTokens: (text) => Math.ceil(text.length / 4),
+      countTokens,
       getPromptFloor,
+      onCutStepEstimated: (estimate) => estimates.push(estimate),
+      onMeterError: (error) => meterErrors.push(error),
     })();
     const passed: unknown[] = [];
     const reading = (async () => {
@@ -331,6 +342,8 @@ describe("createMainChatUsageMeter", () => {
     return {
       entries,
       passed,
+      estimates,
+      meterErrors,
       getPromptFloor,
       cutSource: MAIN_CHAT_CUT_STEP_SOURCE,
     };
@@ -430,6 +443,35 @@ describe("createMainChatUsageMeter", () => {
       { end: "error" }
     );
     expect(aborted.entries).toEqual([[aborted.cutSource, 5000, 10]]);
+  });
+
+  // GUARD: a tokenizer that throws inside the estimate used to error the chat
+  // stream (the client got `error`, not `abort`) and drop the estimate.
+  it("falls back to characters when the tokenizer throws, and the stream goes on", async () => {
+    const throwing = (text: string) => {
+      if (text.includes("<|")) {
+        throw new Error("special token");
+      }
+      return Math.ceil(text.length / 4);
+    };
+    const { entries, passed, estimates, meterErrors, cutSource } = await meter(
+      [
+        { type: "start-step" },
+        finishStep(40_000, 3000, "tool-calls"),
+        { type: "start-step" },
+        { type: "text-delta", id: "t", text: "<|endoftext|>".repeat(30) },
+        { type: "abort" },
+      ],
+      { countTokens: throwing }
+    );
+    // 390 characters at 4 per token.
+    expect(entries).toEqual([
+      ["main-chat", 40_000, 3000],
+      [cutSource, 43_000, 98],
+    ]);
+    expect(estimates[0]?.countedBy).toBe("characters");
+    expect(meterErrors).toHaveLength(1);
+    expect(passed.at(-1)).toEqual({ type: "abort" });
   });
 
   it("charges a failed step's usage when the provider reported it, and skips it when not", async () => {

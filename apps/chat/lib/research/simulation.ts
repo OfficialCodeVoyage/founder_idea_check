@@ -691,7 +691,8 @@ export function estimateSimulationCostCents({
  *     `missing-credential` (the sidecar refused the app with 401/403): the
  *     request never reached `/v1/simulate`;
  *   - `sidecar-unreachable` (`runSimulation`, see `isConnectionRefusal`): the
- *     connection was never opened, so no request was sent;
+ *     connection was never opened (or the URL never parsed), so no request
+ *     was sent;
  *   - `invalid-personas`: `runSimulation` refuses before `deps.run`, and the
  *     sidecar's `oasis_runner.py::run_simulation` before the OASIS import;
  *   - `unknown-simulation-model`: `oasis_runner.py::_validate_model_id` asks
@@ -760,17 +761,27 @@ export function simulationReachedModel(
 }
 
 /**
- * Error codes that mean the TCP connection was never opened: the sidecar is
- * not listening or its host does not resolve. Node's `fetch` (undici) throws
- * `TypeError("fetch failed")` with the socket error as `cause`; Bun's fetch
- * puts its own code on the error itself. Anything else (a reset, a timeout, a
- * body that would not parse) may have come after the request was sent, so it
- * is not on this list.
+ * Error codes that mean no request was ever sent: the sidecar is not
+ * listening, its host does not resolve or cannot be routed to, the TCP
+ * connect timed out, or the configured URL does not parse. Node's `fetch`
+ * (undici) throws a `TypeError` with the real error as `cause`: "fetch failed"
+ * over the socket error (`ECONNREFUSED`, `EHOSTUNREACH`, `ENETUNREACH`, the
+ * resolver's `ENOTFOUND`/`EAI_AGAIN`) or undici's `ConnectTimeoutError`
+ * (`UND_ERR_CONNECT_TIMEOUT`, raised before the socket opened), and "Failed
+ * to parse URL" over `ERR_INVALID_URL`. Bun's fetch puts its own code on the
+ * error itself (`ConnectionRefused`, `ERR_INVALID_URL`); its connect timeout
+ * surfaces as the request's AbortSignal timeout, which stays charged.
+ * Anything else (a reset, the request timeout, a body that would not parse)
+ * may have come after the request was sent, so it is not on this list.
  */
 const CONNECTION_REFUSAL_CODES = new Set([
   "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
   "ENOTFOUND",
   "EAI_AGAIN",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "ERR_INVALID_URL",
   "ConnectionRefused",
 ]);
 

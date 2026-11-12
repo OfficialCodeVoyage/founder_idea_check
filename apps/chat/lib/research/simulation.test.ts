@@ -346,6 +346,51 @@ describe("simulationReachedModel — when a run is charged", () => {
     );
     expect(!refused.ok && refused.kind).toBe("sidecar-unreachable");
     expect(simulationReachedModel(refused, SIZE)).toBe(false);
+
+    // The other never-sent shapes, as Node 24's fetch and Bun's throw them:
+    // an unroutable host, undici's connect timeout, and a URL that does not
+    // parse (Node puts the code on `cause`, Bun on the error itself).
+    const neverSent = [
+      new TypeError("fetch failed", {
+        cause: Object.assign(new Error("connect EHOSTUNREACH"), {
+          code: "EHOSTUNREACH",
+        }),
+      }),
+      new TypeError("fetch failed", {
+        cause: Object.assign(new Error("connect ENETUNREACH"), {
+          code: "ENETUNREACH",
+        }),
+      }),
+      new TypeError("fetch failed", {
+        cause: Object.assign(new Error("Connect Timeout Error"), {
+          code: "UND_ERR_CONNECT_TIMEOUT",
+        }),
+      }),
+      new TypeError("Failed to parse URL from not a url/v1/simulate", {
+        cause: Object.assign(new TypeError("Invalid URL"), {
+          code: "ERR_INVALID_URL",
+        }),
+      }),
+      Object.assign(new TypeError("fetch() URL is invalid"), {
+        code: "ERR_INVALID_URL",
+      }),
+    ];
+    for (const error of neverSent) {
+      const outcome = await run(error);
+      expect(!outcome.ok && outcome.kind).toBe("sidecar-unreachable");
+      expect(simulationReachedModel(outcome, SIZE)).toBe(false);
+    }
+
+    // A reset may come after the request was sent: still charged.
+    const reset = await run(
+      new TypeError("fetch failed", {
+        cause: Object.assign(new Error("read ECONNRESET"), {
+          code: "ECONNRESET",
+        }),
+      })
+    );
+    expect(!reset.ok && reset.kind).toBe("unavailable");
+    expect(simulationReachedModel(reset, SIZE)).toBe(true);
   });
 });
 

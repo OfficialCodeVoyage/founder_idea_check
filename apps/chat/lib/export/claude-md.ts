@@ -93,10 +93,15 @@ function renderRules(context: DocumentContext): string {
     `3. **Facts recorded below ${LOW_CONFIDENCE_CEILING}/100 confidence are not decisions.**`,
     "   They are listed under “Not yet verified”. Treat them the same way you",
     "   treat a missing fact.",
-    "4. **Do not implement anything listed as out of scope.** Scope exclusions",
+    "4. **A ledger line marked “asserted by the founder, not extracted” is the",
+    "   founder's own claim.** It was typed or corrected by hand and no extractor",
+    "   judged it, so its confidence number is not a certainty. Those facts are",
+    "   listed under “Asserted by the founder”; re-evidence them before building",
+    "   on them.",
+    "5. **Do not implement anything listed as out of scope.** Scope exclusions",
     "   were argued for explicitly; re-adding them silently is the single easiest",
     "   way to blow the build window.",
-    "5. **When you learn something new, write it down** in `.planning/` and say",
+    "6. **When you learn something new, write it down** in `.planning/` and say",
     "   where the evidence came from. A fact with no evidence is a guess with",
     "   better formatting.",
     "",
@@ -150,6 +155,9 @@ function renderGaps(context: DocumentContext): string {
   const unverified = context.lowConfidenceKeys.map(
     (key) => `\`${key}\` — ${labelFor(key)}`
   );
+  const asserted = context.founderAssertedKeys.map(
+    (key) => `\`${key}\` — ${labelFor(key)}`
+  );
   const unknown = context.notEstablishedKeys.map(
     (key) => `\`${key}\` — ${labelFor(key)}`
   );
@@ -157,9 +165,18 @@ function renderGaps(context: DocumentContext): string {
   return [
     "## Not yet verified",
     "",
-    `Recorded, but below ${LOW_CONFIDENCE_CEILING}/100 confidence. Do not treat as decided:`,
+    `Extracted, but recorded below ${LOW_CONFIDENCE_CEILING}/100 confidence. Do not treat as decided:`,
     "",
-    bulletList(unverified, "_(none — every recorded fact is above the floor)_"),
+    bulletList(
+      unverified,
+      "_(none — every extracted fact is above the floor)_"
+    ),
+    "",
+    "## Asserted by the founder",
+    "",
+    "Typed or corrected by the founder, not extracted, so the confidence number beside each is not a certainty. Treat as the founder's claim and re-evidence before building on it:",
+    "",
+    bulletList(asserted, "_(none — every recorded fact was extracted)_"),
     "",
     "## Never established",
     "",

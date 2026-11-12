@@ -241,13 +241,15 @@ export async function getProjectFacts({
  * "correcting" it would be a delete plus an insert wearing a rename.
  *
  * Confidence is deliberately NOT editable, and removing the control removes the
- * question rather than answering it badly. `renderFactsLedger` ships this
- * sentence in every exported FACTS.md: confidence "is the extractor's own
- * certainty at the moment it recorded the fact — it is not a quality score and
- * it was never revised upwards by anything". A founder-editable confidence
- * makes a shipped document lie, and it is the exact dial that would let someone
- * pass their own gate on an assumption. The correction carries the extracted
- * row's confidence forward untouched; what changes is the PROVENANCE.
+ * question rather than answering it badly. `renderFactsLedger` ships in every
+ * exported FACTS.md that confidence "is not a quality score and it was never
+ * revised upwards by anything", and that for an extracted row it is the
+ * extractor's own certainty. A founder-editable confidence makes a shipped
+ * document lie, and it is the exact dial that would let someone pass their own
+ * gate on an assumption. The correction carries the extracted row's confidence
+ * forward untouched; what changes is the PROVENANCE, and the export prints it
+ * (the `Origin` column, the FOUNDER-ASSERTED marker) so that carried-over
+ * number is never read as certainty about the founder's new wording.
  *
  * THE EMBEDDING MUST GO WITH THE VALUE. `embedding` is a vector over
  * "key: value" (lib/embeddings/text.ts). Leaving it behind would mean fact

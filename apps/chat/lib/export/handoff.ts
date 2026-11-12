@@ -76,7 +76,13 @@ export function deriveRepoName(input: BuildHandoffInput): string {
  * are the thing a reader actually wants from a generated commit.
  */
 function buildCommitMessage(plan: Omit<HandoffPlan, "commitMessage">): string {
-  const { readiness, notEstablishedKeys, lowConfidenceKeys, files } = plan;
+  const {
+    readiness,
+    notEstablishedKeys,
+    lowConfidenceKeys,
+    founderAssertedKeys,
+    files,
+  } = plan;
   return [
     "Initial handoff export",
     "",
@@ -84,7 +90,8 @@ function buildCommitMessage(plan: Omit<HandoffPlan, "commitMessage">): string {
     "",
     `- ${readiness.factCount} facts established`,
     `- ${notEstablishedKeys.length} questions never answered`,
-    `- ${lowConfidenceKeys.length} answered below the confidence floor`,
+    `- ${lowConfidenceKeys.length} extracted facts below the confidence floor`,
+    `- ${founderAssertedKeys.length} facts asserted by the founder, not extracted`,
     `- ${files.length} files written`,
     "",
     "Every project-specific claim in these files is copied from a recorded fact",
@@ -154,6 +161,7 @@ export function buildHandoff(input: BuildHandoffInput): HandoffOutcome {
     readiness,
     notEstablishedKeys: [...context.notEstablishedKeys],
     lowConfidenceKeys: [...context.lowConfidenceKeys],
+    founderAssertedKeys: [...context.founderAssertedKeys],
     unrecognizedKeys: [...context.unrecognizedKeys],
   };
 

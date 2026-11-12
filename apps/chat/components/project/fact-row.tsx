@@ -10,10 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
  * One fact, correctable and deletable.
  *
  * THE CONFIDENCE IS READ-ONLY, ON PURPOSE, and the UI says why rather than
- * leaving a founder to wonder where the control is. Confidence is the
- * extractor's certainty at the moment it recorded the fact — the exported
- * FACTS.md states that in as many words — and it is the single dial that would
- * let someone raise their own evidence and pass their own gate on it.
+ * leaving a founder to wonder where the control is. On an extracted fact,
+ * confidence is the extractor's certainty at the moment it recorded the fact —
+ * the exported FACTS.md states that, and says what it means for a founder fact —
+ * and it is the single dial that would let someone raise their own evidence
+ * and pass their own gate on it.
  *
  * A corrected fact is labelled YOURS everywhere afterwards, including in the
  * prompt the judge reads. That is the trade being offered: you can fix what the

@@ -18,9 +18,10 @@ import { resolveCurrentPhase } from "@/lib/phases/advance";
  *
  * WHAT A CORRECTION DELIBERATELY CANNOT DO: change a fact's KEY, or change its
  * CONFIDENCE. The key is identity — half of the (projectId, key) unique index.
- * Confidence is the extractor's own certainty at the moment it recorded the
- * fact, a sentence the exported FACTS.md ships verbatim, and it is the one dial
- * that would let a founder pass their own gate on an assumption.
+ * On an extracted fact, confidence is the extractor's own certainty at the
+ * moment it recorded the fact (the exported FACTS.md says so, and says what it
+ * means for a founder fact instead), and it is the one dial that would let a
+ * founder pass their own gate on an assumption.
  *
  * What a correction changes is the value and the PROVENANCE. `origin` becomes
  * `founder`, `renderFacts` marks it in the judge's own prompt, and the

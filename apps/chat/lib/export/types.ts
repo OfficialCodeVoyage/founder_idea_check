@@ -29,6 +29,11 @@ import type { StoredFact } from "@/lib/phases/context";
  * rendered identically to a 95/100 fact is silent promotion, and silent
  * promotion is fabrication with extra steps.
  *
+ * Founder assertion is a fourth, and it is about WHO, not how sure: a value the
+ * founder typed or corrected by hand is shown marked as the founder's and
+ * repeated in its own list. Its confidence number is not the extractor's
+ * certainty, so it is never read as low (or high) certainty either.
+ *
  * DISCIPLINE (copied from lib/phases/gate.ts): everything in lib/export except
  * node-writer.ts is PURE — no fs, no network, no model, no clock, no
  * randomness. `generatedAt` is injected rather than read from Date.now() so the
@@ -184,8 +189,14 @@ export type HandoffPlan = {
   readiness: ExportReadiness;
   /** Fact keys the workflow defines but the project never established. */
   notEstablishedKeys: string[];
-  /** Established fact keys below the low-confidence ceiling. */
+  /** Established EXTRACTED fact keys below the low-confidence ceiling. */
   lowConfidenceKeys: string[];
+  /**
+   * Established fact keys the founder entered or corrected by hand
+   * (`origin = founder`). Never also in `lowConfidenceKeys`: their stored
+   * confidence is not the extractor's certainty, so it is not banded.
+   */
+  founderAssertedKeys: string[];
   /**
    * Stored fact keys that belong to NO phase vocabulary. They are still
    * exported (dropping a founder's data silently is not an option) but they are

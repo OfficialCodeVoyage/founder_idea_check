@@ -60,12 +60,13 @@ export const MAX_ASSERTED_FACT_VALUE = 2000;
  * the assertion floor moves with it, and the sentence above stays true.
  *
  * A KNOWN AWKWARDNESS, RECORDED RATHER THAN HIDDEN: `confidence` is documented
- * everywhere else — including in every exported FACTS.md — as "the extractor's
- * own certainty at the moment it recorded the fact", and for these rows no
- * extractor ever ran. The column is NOT NULL and there is no migration in this
- * work, so the row must carry some number. 40 is the least misleading one
- * available, and `renderFacts` prints the founder annotation directly beside it
- * so the judge never sees the number unqualified.
+ * elsewhere as "the extractor's own certainty at the moment it recorded the
+ * fact", and for these rows no extractor ever ran. The column is NOT NULL and
+ * there is no migration in this work, so the row must carry some number. 40 is
+ * the least misleading one available, and every reader prints the founder
+ * annotation directly beside it so the number is never seen unqualified:
+ * `renderFacts` for the judge, and the export (FACTS.md `Origin` column, the
+ * FOUNDER-ASSERTED marker in PRD.md and CLAUDE.md) for the founder's readers.
  */
 export const FOUNDER_ASSERTION_CONFIDENCE = MIN_FACT_CONFIDENCE;
 

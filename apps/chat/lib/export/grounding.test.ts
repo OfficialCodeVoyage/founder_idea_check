@@ -132,6 +132,8 @@ describe("groundFact — the only way a project claim enters a document", () => 
       value: "dog walkers",
       confidence: 88,
       band: "high",
+      // A fact with no `origin` is an extracted one, as KnownFactSchema defines.
+      origin: "extracted",
       phaseKey: "problem-validation",
     });
   });

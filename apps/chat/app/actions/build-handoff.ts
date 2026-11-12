@@ -7,7 +7,7 @@ import {
   getPersonaDocumentsByProjectId,
   getProjectById,
 } from "@/lib/db/queries";
-import { missingFromVerdict } from "@/lib/export/grounding";
+import { missingFromVerdict, toExportFacts } from "@/lib/export/grounding";
 import { buildHandoff } from "@/lib/export/handoff";
 import { toExportPersonas } from "@/lib/export/persona";
 import type { ExportPhaseState, HandoffOutcome } from "@/lib/export/types";
@@ -64,13 +64,10 @@ export async function buildProjectHandoff({
 
   return buildHandoff({
     project: { name: project.name, instructions: project.instructions },
-    facts: factRows.map((row) => ({
-      key: row.key,
-      value: row.value,
-      confidence: row.confidence,
-      phaseKey: row.phaseKey,
-      updatedAt: row.updatedAt,
-    })),
+    // `origin` crosses here: without it a founder-asserted fact exports as if
+    // the extractor had read it. The mapping is `toExportFacts` so a test can
+    // pin it; this file talks to the database and cannot be unit-tested.
+    facts: toExportFacts(factRows),
     phases,
     // Rows in, pure shapes out: the DB read stays here and only row-shaped data
     // crosses into lib/export.

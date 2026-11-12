@@ -1,5 +1,6 @@
 import type { StoredFact } from "@/lib/phases/context";
 import { PHASES } from "@/lib/phases/definitions";
+import { MIN_FACT_CONFIDENCE } from "@/lib/phases/extract";
 import { GateVerdictSchema, PHASE_COUNT } from "@/lib/phases/types";
 import { blockquote, singleLine } from "./markdown";
 import type {
@@ -28,8 +29,8 @@ import type {
  */
 
 /**
- * Below this, a fact is rendered with a visible warning and repeated in the
- * document's "unverified" list.
+ * Below this, an EXTRACTED fact is rendered with a visible warning and repeated
+ * in the document's "unverified" list.
  *
  * 50 is not arbitrary: it is the default confidence
  * ExtractedFactSchema assigns when the extraction model does not supply one
@@ -37,6 +38,10 @@ import type {
  * storing a fact at all. So "below the default" means the model actively chose
  * to express doubt — which is exactly the signal that must survive into the PRD
  * instead of being flattened into confident prose.
+ *
+ * A FOUNDER-ASSERTED fact is never banded by this ceiling. Its stored number is
+ * not the extractor's doubt about anything (see `FactOrigin`), so reading it
+ * against this ceiling would report doubt that nobody expressed.
  */
 export const LOW_CONFIDENCE_CEILING = 50;
 
@@ -58,6 +63,32 @@ export function confidenceBand(confidence: number): ConfidenceBand {
 }
 
 /**
+ * Who asserted a fact: `ProjectFact.origin`.
+ *
+ * WHAT `confidence` MEANS DEPENDS ON THIS, which is the whole reason the export
+ * carries it:
+ *
+ *   • `extracted` — the extractor's own certainty at the moment it recorded the
+ *     fact.
+ *   • `founder` — NOT the extractor's certainty about anything. A fact the
+ *     founder entered by hand carries the fixed `MIN_FACT_CONFIDENCE`
+ *     (lib/db/fact-assertion.ts); a fact the founder CORRECTED keeps the score
+ *     the extractor gave the wording the founder replaced
+ *     (lib/db/phase-queries.ts::correctProjectFact). Neither number says how
+ *     sure anyone is of the value now stored.
+ *
+ * Absent on a `StoredFact` means `extracted`, exactly as `KnownFactSchema`
+ * defines it: the read path always supplies the column, so absence can only
+ * come from a hand-written literal that predates it.
+ */
+export type FactOrigin = NonNullable<StoredFact["origin"]>;
+
+/** PURE. The one place "absent means extracted" is decided. */
+export function originOf(fact: Pick<StoredFact, "origin">): FactOrigin {
+  return fact.origin ?? "extracted";
+}
+
+/**
  * A value that is allowed into a generated document.
  *
  * `not-established` carries the key so the generator can name the thing that is
@@ -69,11 +100,58 @@ export type Grounded =
       key: string;
       value: string;
       confidence: number;
-      band: ConfidenceBand;
+      /**
+       * The 0-100 band of an EXTRACTED fact's confidence; `null` exactly when
+       * `origin` is `founder`. Null rather than a band computed from the
+       * number, because a founder's stored 40 is not low certainty and a
+       * corrected fact's carried-over 85 is not high certainty: both would be
+       * a statement about the extractor that was never made. Every consumer
+       * that tests `band === "low"` is therefore already correct for founder
+       * facts without knowing about them.
+       */
+      band: ConfidenceBand | null;
+      origin: FactOrigin;
       /** Phase that wrote the fact. Provenance the founder can audit. */
       phaseKey: string;
     }
   | { status: "not-established"; key: string };
+
+/**
+ * The row shape the export reads from `ProjectFact`. Structural, so lib/export
+ * keeps importing nothing from lib/db; `origin` is REQUIRED here (the column is
+ * NOT NULL) so a caller that drops it is a compile error, not a quiet
+ * downgrade of every founder assertion to "extracted".
+ */
+export type ProjectFactRowLike = {
+  key: string;
+  value: string;
+  confidence: number;
+  phaseKey: string;
+  updatedAt: Date;
+  origin: FactOrigin;
+};
+
+/**
+ * PURE. `ProjectFact` rows -> the export's input facts.
+ *
+ * Exists as its own function so the `origin` mapping is checkable: it used to
+ * be an inline `.map` in the server action that listed four columns and forgot
+ * the fifth, so every founder assertion exported as if the extractor had read
+ * it. The return type makes `origin` REQUIRED on every element, so dropping it
+ * from the mapping below is a compile error rather than a quiet downgrade.
+ */
+export function toExportFacts(
+  rows: readonly ProjectFactRowLike[]
+): (StoredFact & { origin: FactOrigin })[] {
+  return rows.map((row) => ({
+    key: row.key,
+    value: row.value,
+    confidence: row.confidence,
+    phaseKey: row.phaseKey,
+    updatedAt: row.updatedAt,
+    origin: row.origin,
+  }));
+}
 
 export type FactIndex = ReadonlyMap<string, StoredFact>;
 
@@ -124,18 +202,36 @@ export function groundFact(index: FactIndex, key: string): Grounded {
   if (!fact || singleLine(fact.value).length === 0) {
     return { status: "not-established", key };
   }
+  const origin = originOf(fact);
   return {
     status: "established",
     key,
     value: fact.value,
     confidence: fact.confidence,
-    band: confidenceBand(fact.confidence),
+    band: origin === "founder" ? null : confidenceBand(fact.confidence),
+    origin,
     phaseKey: fact.phaseKey,
   };
 }
 
 /** The marker prefixed to any low-confidence value, in every document. */
 export const LOW_CONFIDENCE_MARKER = "⚠ LOW CONFIDENCE";
+
+/**
+ * The marker on any fact the founder asserted or corrected by hand, in every
+ * document. Plain words on purpose: it has to survive being pasted into a tool
+ * that strips symbols, and a coding agent has to be able to search for it.
+ */
+export const FOUNDER_ASSERTED_MARKER = "FOUNDER-ASSERTED";
+
+/**
+ * Why a founder fact's confidence figure is not a certainty, as one clause
+ * shared by the PRD legend and the FACTS.md header so the two cannot disagree.
+ * Built from MIN_FACT_CONFIDENCE rather than copying the number, for the same
+ * reason lib/db/fact-assertion.ts imports it: if the floor moves, the sentence
+ * moves with it.
+ */
+export const FOUNDER_CONFIDENCE_MEANING = `a fixed floor score (${MIN_FACT_CONFIDENCE}) when the founder entered the fact, or the score the extractor gave the wording the founder replaced when they corrected it. It says nothing about how sure anyone is of the value now stored`;
 
 /**
  * PURE. Render one grounded value as a Markdown block.
@@ -154,7 +250,14 @@ export function renderGrounded(grounded: Grounded, label: string): string {
     ].join("\n");
   }
 
-  const provenance = `_confidence ${grounded.confidence}/100 · established in phase \`${grounded.phaseKey}\` · fact \`${grounded.key}\`_`;
+  // A founder fact leads with the marker and says outright that its number is
+  // not an extractor score. The fixed shape (label, provenance, blockquote)
+  // is unchanged: only the provenance line differs, and only for this origin.
+  const confidenceNote =
+    grounded.origin === "founder"
+      ? `${FOUNDER_ASSERTED_MARKER} · confidence ${grounded.confidence}/100, not an extractor score for this value`
+      : `confidence ${grounded.confidence}/100`;
+  const provenance = `_${confidenceNote} · established in phase \`${grounded.phaseKey}\` · fact \`${grounded.key}\`_`;
   const warning =
     grounded.band === "low"
       ? `\n\n> ${LOW_CONFIDENCE_MARKER} — the extractor was unsure of this. Treat it as an open question, not a finding.`
@@ -444,8 +547,19 @@ export type DocumentContext = {
   generatedOn: string;
   /** Workflow fact keys with no established value, in phase order. */
   notEstablishedKeys: readonly string[];
-  /** Established keys below LOW_CONFIDENCE_CEILING, in phase order. */
+  /**
+   * Established EXTRACTED keys below LOW_CONFIDENCE_CEILING, in phase order.
+   * Never holds a founder-origin key: see `Grounded.band`.
+   */
   lowConfidenceKeys: readonly string[];
+  /**
+   * Established keys whose origin is `founder` (entered or corrected by hand):
+   * workflow keys in phase order, then any unrecognised keys, sorted. The
+   * roll-up that replaces the accident of these facts landing in
+   * `lowConfidenceKeys` because 40 < 50: they are still listed as
+   * not-extracted, for the right reason.
+   */
+  founderAssertedKeys: readonly string[];
   /** Stored keys belonging to no phase vocabulary, sorted. */
   unrecognizedKeys: readonly string[];
 };
@@ -477,10 +591,15 @@ export function buildDocumentContext(input: {
 
   const notEstablishedKeys: string[] = [];
   const lowConfidenceKeys: string[] = [];
+  const founderAssertedKeys: string[] = [];
   for (const key of workflowKeys) {
     const grounded = groundFact(index, key);
     if (grounded.status === "not-established") {
       notEstablishedKeys.push(key);
+      continue;
+    }
+    if (grounded.origin === "founder") {
+      founderAssertedKeys.push(key);
       continue;
     }
     if (grounded.band === "low") {
@@ -492,6 +611,16 @@ export function buildDocumentContext(input: {
   const unrecognizedKeys = [...index.keys()]
     .filter((key) => !workflowKeySet.has(key))
     .sort();
+
+  // A founder's fact under a key no phase defines is still the founder's claim,
+  // and the appendix prints it: the roll-up has to count it too, or "none"
+  // would be false. Appended after the workflow keys, so phase order is kept.
+  for (const key of unrecognizedKeys) {
+    const grounded = groundFact(index, key);
+    if (grounded.status === "established" && grounded.origin === "founder") {
+      founderAssertedKeys.push(key);
+    }
+  }
 
   return {
     project: input.project,
@@ -506,6 +635,7 @@ export function buildDocumentContext(input: {
     generatedOn: formatUtcDate(input.generatedAt),
     notEstablishedKeys,
     lowConfidenceKeys,
+    founderAssertedKeys,
     unrecognizedKeys,
   };
 }

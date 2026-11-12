@@ -111,7 +111,7 @@ function renderReadme(context: DocumentContext): string {
       "",
       "| File | What it is |",
       "| --- | --- |",
-      "| `PRD.md` | Every established fact, with its confidence and the phase that produced it. |",
+      "| `PRD.md` | Every established fact, with who asserted it (extracted or founder), its confidence and the phase that produced it. |",
       "| `CLAUDE.md` | The operating contract for any AI agent working here. Read it first. |",
       "| `AGENTS.md` | The same contract, for tools that read AGENTS.md instead. |",
       `| \`${ROADMAP_PATH}\` | The eight phases, their gate status, and what to do next. |`,

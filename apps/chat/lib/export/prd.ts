@@ -1,6 +1,8 @@
 import {
   type DocumentContext,
   type ExportSection,
+  FOUNDER_ASSERTED_MARKER,
+  FOUNDER_CONFIDENCE_MEANING,
   groundFact,
   LOW_CONFIDENCE_CEILING,
   LOW_CONFIDENCE_MARKER,
@@ -35,7 +37,9 @@ import { blockquote, joinSections, singleLine, tableCell } from "./markdown";
  *
  *  • PROVENANCE IS ON EVERY CLAIM. Confidence, originating phase and the raw
  *    fact key sit under each value, so any statement can be traced back to the
- *    row that produced it and argued with.
+ *    row that produced it and argued with. A value the founder typed or
+ *    corrected by hand says so there, and is listed in its own roll-up: the
+ *    extractor never judged it, so its confidence figure is not a certainty.
  *
  * PURE. Takes a DocumentContext, returns a string. No I/O, no clock.
  */
@@ -67,8 +71,9 @@ function renderLegend(): string {
     "",
     "| Marker | Meaning |",
     "| --- | --- |",
-    "| _confidence N/100_ | How sure the extractor was when it recorded the fact. |",
-    `| ${LOW_CONFIDENCE_MARKER} | Recorded below ${LOW_CONFIDENCE_CEILING}/100. Treat as an open question. |`,
+    "| _confidence N/100_ | On an extracted fact: how sure the extractor was when it recorded it. |",
+    `| ${LOW_CONFIDENCE_MARKER} | An extracted fact recorded below ${LOW_CONFIDENCE_CEILING}/100. Treat as an open question. |`,
+    `| ${FOUNDER_ASSERTED_MARKER} | The founder entered or corrected this value by hand; the extractor never judged this wording. Its confidence figure is ${FOUNDER_CONFIDENCE_MEANING}. |`,
     "| _not established_ | No fact was ever recorded. This document makes no claim. |",
     "",
     "Quoted blocks are the recorded value, unedited. Everything outside a quote is",
@@ -77,7 +82,12 @@ function renderLegend(): string {
 }
 
 function renderEvidenceStatus(context: DocumentContext): string {
-  const { readiness, notEstablishedKeys, lowConfidenceKeys } = context;
+  const {
+    readiness,
+    notEstablishedKeys,
+    lowConfidenceKeys,
+    founderAssertedKeys,
+  } = context;
   const established = readiness.factCount;
 
   return [
@@ -88,7 +98,8 @@ function renderEvidenceStatus(context: DocumentContext): string {
     `| Phases passed | ${readiness.passedPhaseKeys.length} of ${readiness.phaseCount} |`,
     `| Facts established | ${established} |`,
     `| Questions still unanswered | ${notEstablishedKeys.length} (listed in \`${OPEN_QUESTIONS_PATH}\`) |`,
-    `| Established but low confidence | ${lowConfidenceKeys.length} |`,
+    `| Established but low confidence (extracted) | ${lowConfidenceKeys.length} |`,
+    `| Asserted by the founder, not extracted | ${founderAssertedKeys.length} |`,
     "",
     tableCell(readiness.reason),
   ].join("\n");
@@ -107,7 +118,7 @@ function renderUnverified(context: DocumentContext): string {
     return [
       head,
       "",
-      `None. Every established fact was recorded at ${LOW_CONFIDENCE_CEILING}/100 confidence or above.`,
+      `None. Every extracted fact was recorded at ${LOW_CONFIDENCE_CEILING}/100 confidence or above.`,
     ].join("\n");
   }
 
@@ -123,12 +134,54 @@ function renderUnverified(context: DocumentContext): string {
   return [
     head,
     "",
-    `These were recorded below ${LOW_CONFIDENCE_CEILING}/100. They appear in full in`,
+    `These extracted facts were recorded below ${LOW_CONFIDENCE_CEILING}/100. They appear in full in`,
     "their sections below, marked. **Do not build, price or pitch on any of them",
     "without re-evidencing it first.**",
     "",
     "| What | Confidence | Recorded value |",
     "| --- | --- | --- |",
+    ...rows,
+  ].join("\n");
+}
+
+/**
+ * The founder-assertion roll-up.
+ *
+ * Same reasoning as the low-confidence roll-up above, and rendered even when
+ * empty for the same reason. It exists separately because the two lists answer
+ * different questions: "the extractor doubted this" is not "the founder said
+ * this", and a reader deciding what to trust needs to know which one it is.
+ * No confidence column: for these facts the number is not a certainty (see the
+ * legend), and a column of numbers beside a founder's own claim invites exactly
+ * the reading the legend rules out.
+ */
+function renderFounderAsserted(context: DocumentContext): string {
+  const head = "## Claims the founder asserted directly";
+  if (context.founderAssertedKeys.length === 0) {
+    return [
+      head,
+      "",
+      "None. Every established fact was extracted from the conversation.",
+    ].join("\n");
+  }
+
+  const rows = context.founderAssertedKeys.map((key) => {
+    const grounded = groundFact(context.index, key);
+    const value =
+      grounded.status === "established" ? tableCell(grounded.value) : "";
+    return `| ${tableCell(labelFor(key))} | ${value} |`;
+  });
+
+  return [
+    head,
+    "",
+    "The founder entered or corrected these by hand, so no extractor judged",
+    "their wording. They appear in full in their sections below, marked. **They",
+    "are the founder's own claims: weigh them as such, and re-evidence any you",
+    "build, price or pitch on.**",
+    "",
+    "| What | Recorded value |",
+    "| --- | --- |",
     ...rows,
   ].join("\n");
 }
@@ -192,7 +245,8 @@ function renderUnrecognized(context: DocumentContext): string {
       grounded.status === "established" ? tableCell(grounded.value) : "—";
     const confidence =
       grounded.status === "established" ? `${grounded.confidence}/100` : "—";
-    return `| \`${tableCell(key)}\` | ${confidence} | ${value} |`;
+    const origin = grounded.status === "established" ? grounded.origin : "—";
+    return `| \`${tableCell(key)}\` | ${origin} | ${confidence} | ${value} |`;
   });
 
   return [
@@ -202,8 +256,8 @@ function renderUnrecognized(context: DocumentContext): string {
     "so no exit criterion ever checked them. They are reproduced for completeness",
     "and carry no certification at all.",
     "",
-    "| Key | Confidence | Recorded value |",
-    "| --- | --- | --- |",
+    "| Key | Origin | Confidence | Recorded value |",
+    "| --- | --- | --- | --- |",
     ...rows,
   ].join("\n");
 }
@@ -240,6 +294,7 @@ export function renderPrd(context: DocumentContext): string {
     renderLegend(),
     renderEvidenceStatus(context),
     renderUnverified(context),
+    renderFounderAsserted(context),
     renderInstructions(context),
     ...context.sections.map((section) => renderSection(context, section)),
     renderUnrecognized(context),

@@ -1,9 +1,11 @@
 import {
   type DocumentContext,
   type ExportSection,
+  FOUNDER_CONFIDENCE_MEANING,
   groundFact,
   LOW_CONFIDENCE_CEILING,
   labelFor,
+  originOf,
   phaseStateFor,
   phaseStatusLabel,
   renderGrounded,
@@ -263,7 +265,7 @@ export function renderFactsLedger(context: DocumentContext): string {
       continue;
     }
     rows.push(
-      `| \`${tableCell(key)}\` | ${tableCell(labelFor(key))} | ${fact.confidence} | \`${tableCell(fact.phaseKey)}\` | ${fact.updatedAt.toISOString()} | ${tableCell(fact.value)} |`
+      `| \`${tableCell(key)}\` | ${tableCell(labelFor(key))} | ${originOf(fact)} | ${fact.confidence} | \`${tableCell(fact.phaseKey)}\` | ${fact.updatedAt.toISOString()} | ${tableCell(fact.value)} |`
     );
   }
 
@@ -271,8 +273,8 @@ export function renderFactsLedger(context: DocumentContext): string {
     rows.length === 0
       ? "_No facts were established._"
       : [
-          "| Key | What it is | Confidence | Phase | Last updated (UTC) | Value |",
-          "| --- | --- | --- | --- | --- | --- |",
+          "| Key | What it is | Origin | Confidence | Phase | Last updated (UTC) | Value |",
+          "| --- | --- | --- | --- | --- | --- | --- |",
           ...rows,
         ].join("\n");
 
@@ -281,9 +283,12 @@ export function renderFactsLedger(context: DocumentContext): string {
     `_Every fact recorded for this project, as of ${context.generatedOn}._`,
     [
       "> This is the evidence base. Every claim in `PRD.md` traces to a row here,",
-      "> and anything not here was never established. Confidence is the",
-      "> extractor's own certainty at the moment it recorded the fact — it is not",
-      "> a quality score and it was never revised upwards by anything.",
+      "> and anything not here was never established. The Origin column says who",
+      "> asserted each row. For an `extracted` row, Confidence is the extractor's",
+      "> own certainty at the moment it recorded the fact. For a `founder` row,",
+      `> the founder entered or corrected the value by hand, so Confidence is ${FOUNDER_CONFIDENCE_MEANING}.`,
+      "> Confidence is not a quality score and it was never revised upwards by",
+      "> anything.",
     ].join("\n"),
     table,
   ]);
@@ -309,6 +314,10 @@ export function renderOpenQuestions(context: DocumentContext): string {
           grounded.status === "established" ? grounded.confidence : 0;
         return `\`${key}\` — ${labelFor(key)} (recorded at ${confidence}/100)`;
       });
+    // Same filter as `context.founderAssertedKeys`, narrowed to this phase.
+    const asserted = section.factKeys
+      .filter((key) => context.founderAssertedKeys.includes(key))
+      .map((key) => `\`${key}\` — ${labelFor(key)}`);
 
     const body = [
       `## Phase ${section.order} — ${singleLine(section.title)}`,
@@ -322,9 +331,13 @@ export function renderOpenQuestions(context: DocumentContext): string {
         "_(nothing — every question in this phase was answered)_"
       ),
       "",
-      `**Answered but below ${LOW_CONFIDENCE_CEILING}/100 confidence:**`,
+      `**Answered but below ${LOW_CONFIDENCE_CEILING}/100 confidence (extracted):**`,
       "",
       bulletList(shaky, "_(nothing)_"),
+      "",
+      "**Asserted by the founder, not extracted:**",
+      "",
+      bulletList(asserted, "_(nothing)_"),
     ];
 
     if (state.missing.length > 0) {
@@ -341,7 +354,7 @@ export function renderOpenQuestions(context: DocumentContext): string {
 
   return joinSections([
     "# Open questions",
-    `_As of ${context.generatedOn}. ${context.notEstablishedKeys.length} never answered, ${context.lowConfidenceKeys.length} answered with low confidence._`,
+    `_As of ${context.generatedOn}. ${context.notEstablishedKeys.length} never answered, ${context.lowConfidenceKeys.length} answered with low confidence, ${context.founderAssertedKeys.length} asserted by the founder rather than extracted._`,
     [
       "> Each item is a question the workflow asked and did not get an evidenced",
       "> answer to. None of them has been guessed at anywhere in this repository.",

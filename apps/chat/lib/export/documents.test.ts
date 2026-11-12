@@ -125,7 +125,7 @@ describe("PRD.md — absence is rendered, never omitted", () => {
     );
     expect(clean).toContain("## Claims that are NOT yet verified");
     expect(clean).toContain(
-      `None. Every established fact was recorded at ${LOW_CONFIDENCE_CEILING}/100 confidence or above.`
+      `None. Every extracted fact was recorded at ${LOW_CONFIDENCE_CEILING}/100 confidence or above.`
     );
   });
 

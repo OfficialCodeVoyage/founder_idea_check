@@ -672,9 +672,14 @@ export type FactBlock = {
  * PURE. Renders one fact line. Byte-identical to what gate.renderFacts emits
  * for a single fact — a test asserts the two cannot drift, because the gate and
  * extraction prompts depend on that exact shape.
+ *
+ * DELEGATES instead of restating the template. A second copy of the template
+ * lost the founder marker once (it printed `(confidence 40)` for a fact the
+ * founder asserted, while the judge saw `asserted by the founder, not
+ * extracted`), and the exported CLAUDE.md ledger is built from this function.
  */
 export function renderFactLine(fact: StoredFact): string {
-  return `- ${fact.key}: ${fact.value} (confidence ${fact.confidence})`;
+  return renderFacts([toKnownFact(fact)]);
 }
 
 function assemble(heading: string, facts: StoredFact[]): string {

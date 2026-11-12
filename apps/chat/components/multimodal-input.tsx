@@ -695,7 +695,16 @@ function PureMultimodalInput({
         />
       )}
 
-      <div aria-hidden={!isActive} className="relative" inert={!isActive}>
+      {/*
+        `inert` ALONE, NOT `aria-hidden` TOO. `inert` already removes the
+        subtree from the accessibility tree, from tab order and from clicks, and
+        the pane that owns an inactive composer is `hidden` (display: none) as
+        well. The welcome composer goes inactive on the first send while its
+        editor still holds focus, and the browser logs "Blocked aria-hidden on
+        an element because its descendant retained focus" for an `aria-hidden`
+        ancestor of the focused element, once per first send.
+      */}
+      <div className="relative" inert={!isActive}>
         <PromptInput
           className={cn(
             "@container relative transition-colors",

@@ -688,6 +688,101 @@ describe("runPostTurnPhasePass / the exchange handed to the extractor", () => {
   });
 });
 
+// ─── documents in the transcript ─────────────────────────────────────────────
+
+describe("runPostTurnPhasePass / documents the judge can see", () => {
+  const PROTOCOL_BODY = "Q1 VERBATIM: walk me through the last time you";
+
+  function documentReply(
+    id: string,
+    part: Record<string, unknown>
+  ): Record<string, unknown> {
+    return {
+      id,
+      role: "assistant",
+      parts: [{ type: "text", text: "Here is the protocol." }, part],
+      metadata: { createdAt: new Date(9000), parentMessageId: "u2" },
+    };
+  }
+
+  it("shows a written document to the judge as a one-line marker, not its body", async () => {
+    // The fieldwork instrument the gate asks for is usually written as a
+    // document. Only text parts used to survive, so the judge could not see
+    // that the instrument existed at all.
+    getAllMessagesByProjectId.mockResolvedValue([
+      message("u2", "user", "write the interview protocol", null),
+      documentReply("a2", {
+        type: "tool-createTextDocument",
+        toolCallId: "call-1",
+        state: "output-available",
+        input: { title: "Interview protocol", content: PROTOCOL_BODY },
+        output: {
+          status: "success",
+          documentId: "doc-1",
+          result: "A document was created and is now visible to the user.",
+          date: "2026-01-01T00:00:00.000Z",
+        },
+      }),
+    ]);
+
+    await runPostTurnPhasePass({
+      projectId: PROJECT_ID,
+      chatId: CHAT_ID,
+      assistantMessageId: "a2",
+    });
+
+    const shown = judgePrompt();
+    expect(shown).toContain("Here is the protocol.");
+    // judgePrompt() is JSON, so the marker's own quotes arrive escaped.
+    expect(shown).toContain(
+      `[document: \\"Interview protocol\\", ${PROTOCOL_BODY.length} chars]`
+    );
+    expect(shown).not.toContain(PROTOCOL_BODY);
+  });
+
+  it("shows no marker for a document call that failed or never finished", async () => {
+    getAllMessagesByProjectId.mockResolvedValue([
+      message("u2", "user", "write the interview protocol", null),
+      documentReply("a2", {
+        type: "tool-createTextDocument",
+        toolCallId: "call-1",
+        state: "input-streaming",
+        input: { title: "FROZEN DOC", content: PROTOCOL_BODY },
+      }),
+      documentReply("a3", {
+        type: "tool-editTextDocument",
+        toolCallId: "call-2",
+        state: "output-available",
+        input: {
+          documentId: "missing",
+          title: "ERRORED DOC",
+          content: PROTOCOL_BODY,
+        },
+        output: { status: "error", error: "Document not found" },
+      }),
+      documentReply("a4", {
+        type: "tool-generateImage",
+        toolCallId: "call-3",
+        state: "output-available",
+        input: { prompt: "AN IMAGE PROMPT" },
+      }),
+    ]);
+
+    await runPostTurnPhasePass({
+      projectId: PROJECT_ID,
+      chatId: CHAT_ID,
+      assistantMessageId: "a4",
+    });
+
+    const shown = judgePrompt();
+    expect(shown).toContain("Here is the protocol.");
+    expect(shown).not.toContain("[document:");
+    expect(shown).not.toContain("FROZEN DOC");
+    expect(shown).not.toContain("ERRORED DOC");
+    expect(shown).not.toContain("AN IMAGE PROMPT");
+  });
+});
+
 // ─── budgets ─────────────────────────────────────────────────────────────────
 
 /**

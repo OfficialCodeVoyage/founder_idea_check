@@ -20,6 +20,10 @@ import {
 import { getEmbeddingProvider } from "@/lib/embeddings/provider";
 import { createModuleLogger } from "@/lib/logger";
 import { selectActiveThread } from "@/lib/thread-utils";
+import {
+  type DocumentToolType,
+  documentToolTypes,
+} from "@/tools/platform/documents/types";
 import { planPhaseAdvance, resolveCurrentPhase } from "./advance";
 import {
   budgetTranscript,
@@ -135,18 +139,80 @@ export function loadPersonaPrompt(): string {
     .join("\n\n---\n\n");
 }
 
-function toTranscript(messages: ChatMessage[]): TranscriptTurn[] {
-  return messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      text: m.parts
-        .filter((p) => p.type === "text")
-        .map((p) => (p as { text: string }).text)
-        .join("\n")
-        .trim(),
-    }))
-    .filter((t) => t.text.length > 0);
+type MessagePart = ChatMessage["parts"][number];
+type DocumentToolPart = Extract<MessagePart, { type: DocumentToolType }>;
+
+const DOCUMENT_TOOL_TYPES: ReadonlySet<string> = new Set(documentToolTypes);
+
+function isDocumentToolPart(part: MessagePart): part is DocumentToolPart {
+  return DOCUMENT_TOOL_TYPES.has(part.type);
+}
+
+/**
+ * What a message part contributes to a transcript line, or null for nothing.
+ *
+ * A DOCUMENT IS EVIDENCE, AND IT USED TO BE INVISIBLE. Only text parts were
+ * kept, so a document the assistant wrote — the phase-1 interview protocol,
+ * the pre-registered threshold that FIELDWORK_INSTRUCTION in directive.ts asks
+ * the interviewer to help build — never reached the gate judge or the persona
+ * pass. The founder did the work the gate asked for and the gate could not see
+ * it: the deadlock the fieldwork instruction exists to end, moved one step
+ * along.
+ *
+ * A ONE-LINE MARKER, NOT THE BODY. One document can be 26KB, and every turn
+ * here competes for GATE_TRANSCRIPT_BUDGET_TOKENS; inlining bodies would push
+ * the founder's own words out of the window to make room for the assistant's.
+ * The marker says that the document exists, what it is called and how big it
+ * is — enough for the judge to know the instrument was built, not enough for
+ * it to grade the instrument's contents.
+ *
+ * ONLY A DOCUMENT THAT EXISTS. A document tool part counts once its call
+ * completed and reported success (`output-available` with `status:
+ * "success"`): a call whose input stream froze, or that errored, saved nothing,
+ * and a marker for it would tell the judge about a document nobody can open.
+ * Image and video turns and every other tool part stay dropped — they are tool
+ * noise, not something the founder established.
+ */
+function transcriptPartText(part: MessagePart): string | null {
+  if (part.type === "text") {
+    return part.text;
+  }
+  if (
+    isDocumentToolPart(part) &&
+    part.state === "output-available" &&
+    part.output.status === "success"
+  ) {
+    return `[document: ${JSON.stringify(part.input.title)}, ${part.input.content.length} chars]`;
+  }
+  return null;
+}
+
+/**
+ * Messages → the turns the gate judge, the extractor and the persona pass read.
+ * Exported because lib/personas/runtime.ts reads the same transcript. It kept
+ * its own copy of this projection, which meant the document blind spot had to
+ * be found and fixed twice; one function means the judge and the persona pass
+ * cannot disagree about what the conversation contained.
+ *
+ * A turn with nothing to contribute (no text, no document) is dropped, which
+ * is what lastExchange's "anchored on the user turn" rule is written against.
+ */
+export function toTranscript(messages: ChatMessage[]): TranscriptTurn[] {
+  const turns: TranscriptTurn[] = [];
+  for (const m of messages) {
+    if (m.role !== "user" && m.role !== "assistant") {
+      continue;
+    }
+    const text = m.parts
+      .map(transcriptPartText)
+      .filter((t): t is string => t !== null)
+      .join("\n")
+      .trim();
+    if (text.length > 0) {
+      turns.push({ role: m.role, text });
+    }
+  }
+  return turns;
 }
 
 /**

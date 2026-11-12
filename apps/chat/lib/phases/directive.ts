@@ -213,14 +213,24 @@ const VERDICT_VINTAGE =
   "VINTAGE: this verdict predates the message you are answering and has not seen it. Read that message first. If it supplies what the gap asks for, build on it — do not restate the gap as open, and do not re-ask what it answered.";
 
 /**
- * The base system prompt (lib/ai/prompts.ts) mandates answers that are
- * "informative, long and very detailed" with "markdown format and tables too".
- * The phase brief mandates one question at a time. Both are in the same prompt,
- * and the base one comes first. Without this line a refusal arrives as a
- * 600-word markdown table about why the assistant is refusing.
+ * The phase brief mandates one question at a time, and the base system prompt
+ * (lib/ai/prompts.ts) comes first in the same prompt. That base prompt used to
+ * demand answers that were "informative, long and very detailed" with
+ * "markdown format and tables too"; without this line a refusal arrived as a
+ * 600-word markdown table about why the assistant was refusing. Those two lines
+ * are gone from the base prompt, but this override stays: the base prompt is
+ * shared with every non-phase chat and can grow again, and this is the line
+ * that holds the interviewer's voice whatever is said above it.
+ *
+ * TOOL CALLS ARE COVERED EXPLICITLY. The override used to speak only about the
+ * reply, so the long-form mandate was obeyed through createTextDocument
+ * instead: a 296-character reply next to a 26KB unrequested document, one
+ * instruction obeyed twice. A document is still allowed when the founder asks
+ * for one — the fieldwork instrument is a legitimate thing to write down — but
+ * not as a way round the brevity rule.
  */
 const STYLE_OVERRIDE =
-  "Formatting override, and it outranks anything said earlier in this prompt: no tables, no headings, no bulleted essays, no long answers. A few sentences and then one question. Never ask two questions in one turn.";
+  "Formatting override, and it outranks anything said earlier in this prompt: no tables, no headings, no bulleted essays, no long answers, in replies and tool calls alike. A few sentences and then one question. Never ask two questions in one turn. Write a document only when the founder asks for one, never to deliver the long answer this rule forbids.";
 
 export type PhaseDirectiveInput = {
   /** The phase the founder is in right now. */

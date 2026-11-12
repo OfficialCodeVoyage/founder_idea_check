@@ -1,15 +1,17 @@
 import "server-only";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { countTextTokens } from "@/lib/ai/token-utils";
-import type { ChatMessage } from "@/lib/ai/types";
 import { config } from "@/lib/config";
 import { getProjectFacts } from "@/lib/db/phase-queries";
 import { getAllMessagesByProjectId } from "@/lib/db/queries";
 import { createModuleLogger } from "@/lib/logger";
 import type { StoredFact } from "@/lib/phases/context";
 import { PHASE_THREE } from "@/lib/phases/definitions-discovery";
-import { loadPersonaPrompt, loadPrompt } from "@/lib/phases/runtime";
-import type { TranscriptTurn } from "@/lib/phases/types";
+import {
+  loadPersonaPrompt,
+  loadPrompt,
+  toTranscript,
+} from "@/lib/phases/runtime";
 import {
   describePersonaWriteFailure,
   type PersonaPersistence,
@@ -31,20 +33,6 @@ import type { PersonaArtifact } from "./types";
  */
 
 const log = createModuleLogger("personas:runtime");
-
-function toTranscript(messages: ChatMessage[]): TranscriptTurn[] {
-  return messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      text: m.parts
-        .filter((p) => p.type === "text")
-        .map((p) => (p as { text: string }).text)
-        .join("\n")
-        .trim(),
-    }))
-    .filter((t) => t.text.length > 0);
-}
 
 function toStoredFacts(
   rows: {

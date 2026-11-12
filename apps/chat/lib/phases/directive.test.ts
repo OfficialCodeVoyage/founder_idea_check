@@ -259,13 +259,25 @@ describe("buildPhaseDirective — always", () => {
     ["PASS", state({ decision: "PASS", nextQuestion: null })],
   ];
 
-  it.each(cases)("overrides the verbose base prompt (%s)", (_name, s) => {
-    // lib/ai/prompts.ts mandates long, detailed, table-formatted answers and is
-    // prepended BEFORE this block. Without the override a refusal arrives as an
-    // essay.
+  it.each(cases)("overrides the base prompt's style (%s)", (_name, s) => {
+    // lib/ai/prompts.ts is prepended BEFORE this block and used to mandate
+    // long, detailed, table-formatted answers; without the override a refusal
+    // arrived as an essay. The override still has to win whatever the base
+    // prompt says.
     const text = directive(s);
     expect(text).toContain("no tables");
     expect(text).toContain("Never ask two questions in one turn.");
+  });
+
+  it.each(cases)("extends the brevity rule to tool calls (%s)", (_name, s) => {
+    // The override once spoke only about the reply, so the long-form answer
+    // went out through a document tool instead: a short reply beside a 26KB
+    // document nobody asked for.
+    const text = directive(s);
+    expect(text).toContain("in replies and tool calls alike");
+    expect(text).toContain(
+      "Write a document only when the founder asks for one, never to deliver the long answer this rule forbids."
+    );
   });
 
   it.each(cases)("starts with the gate-status heading (%s)", (_name, s) => {
@@ -412,8 +424,13 @@ describe("buildPhaseDirective — always", () => {
   it("stays well under the phase brief's own token budget", () => {
     // ~4 chars per token, the repo heuristic. The brief is ~800 tokens; the
     // directive is paid on every turn on top of it.
+    //
+    // Was 400. The largest case sat at ~392 when STYLE_OVERRIDE gained its
+    // tool-call sentence (~35 tokens), which no rewording fits under 400. The
+    // same change deleted two lines (~54 tokens) from lib/ai/prompts.ts, which
+    // is also paid on every phase turn, so the prompt as a whole got shorter.
     for (const [, s] of cases) {
-      expect(directive(s).length / 4).toBeLessThan(400);
+      expect(directive(s).length / 4).toBeLessThan(440);
     }
   });
 });

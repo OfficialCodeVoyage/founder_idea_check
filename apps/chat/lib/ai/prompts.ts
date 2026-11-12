@@ -10,8 +10,6 @@ export const systemPrompt = () => `You are a friendly assistant!
 - Do not use $ for currency, use USD instead always.
 
 ## Content Rules:
-  - Responses must be informative, long and very detailed which address the question's answer straight forward instead of taking it to the conclusion.
-  - Use structured answers with markdown format and tables too.
   - If a diagram is needed, return it in a fenced mermaid code block.
 
 ### Citation rules:

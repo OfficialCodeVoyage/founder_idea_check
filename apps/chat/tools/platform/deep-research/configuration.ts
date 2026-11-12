@@ -71,6 +71,34 @@ function getSearchApi(): SearchAPI {
   return "none";
 }
 
+/** The `gpt-5.6-*` family, with or without a gateway's provider prefix. */
+const GPT_5_6_MODEL = /^(?:openai\/)?gpt-5\.6-/;
+
+/**
+ * Provider options for the COMPRESSION call, and for no other: the lowest
+ * reasoning effort the model takes, so its reasoning does not eat the output
+ * cap. Compression condenses text it is handed, and a model left at its default
+ * effort spent part of the 4,000-token cap on reasoning that nothing reads: live
+ * QA (re-check 5) saw calls of 3,730, 3,300 and 1,931 output tokens of which
+ * 1,459, 516 and 375 were reasoning, one ending 270 short of the cap, and an
+ * earlier run ended at exactly the cap with a note cut off. The cap is the time
+ * budget (`compression_model_max_tokens`) and is not raised.
+ *
+ * The `gpt-5.6-*` family is the one this repo has established takes `none` (the
+ * sidecar's `RESEARCH_SIM_REASONING_EFFORT` is derived as `none` for it, and
+ * `lib/ai/model-capabilities.ts` records the 400 that names it). Any other model
+ * gets no option: whether it takes the key at all is unknown, and a rejected
+ * option would fail the whole topic's compression, which is worse than reasoning
+ * tokens.
+ */
+export function getCompressionProviderOptions(
+  modelId: string
+): { openai: { reasoningEffort: "none" } } | undefined {
+  return GPT_5_6_MODEL.test(modelId)
+    ? { openai: { reasoningEffort: "none" } }
+    : undefined;
+}
+
 export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
   const {
     researchModel,

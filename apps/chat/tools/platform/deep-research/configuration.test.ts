@@ -33,7 +33,9 @@ vi.mock("@/lib/env", () => ({
   env: {},
 }));
 
-const { getDeepResearchConfig } = await import("./configuration");
+const { getCompressionProviderOptions, getDeepResearchConfig } = await import(
+  "./configuration"
+);
 const { researchSystemPrompt } = await import("./prompts");
 
 describe("deep research threads five DISTINCT model roles", () => {
@@ -110,5 +112,32 @@ describe("a researcher's closing step is short by design", () => {
     });
     expect(prompt).toContain("brief notes only");
     expect(prompt).not.toContain("provide your final findings as text");
+  });
+});
+
+/**
+ * GUARD for the live QA run whose compression calls spent 1,459, 516 and 375 of
+ * their 3,730, 3,300 and 1,931 output tokens on reasoning, one ending 270 short
+ * of the 4,000-token cap. The compression call asks for the lowest effort the
+ * model takes; the cap itself is the time budget and stays.
+ */
+describe("the compression call does not spend its output cap on reasoning", () => {
+  it("asks the gpt-5.6 family for no reasoning, with or without a gateway prefix", () => {
+    const expected = { openai: { reasoningEffort: "none" } };
+    expect(getCompressionProviderOptions("gpt-5.6-terra")).toEqual(expected);
+    expect(getCompressionProviderOptions("gpt-5.6-luna")).toEqual(expected);
+    expect(getCompressionProviderOptions("openai/gpt-5.6-terra")).toEqual(
+      expected
+    );
+  });
+
+  it("sends nothing to a model whose handling of the option is not established", () => {
+    expect(getCompressionProviderOptions("gpt-4o-mini")).toBeUndefined();
+    expect(getCompressionProviderOptions("claude-opus-5")).toBeUndefined();
+    expect(getCompressionProviderOptions("gpt-5.4-mini")).toBeUndefined();
+  });
+
+  it("leaves the output cap where it was", () => {
+    expect(getDeepResearchConfig().compression_model_max_tokens).toBe(4000);
   });
 });

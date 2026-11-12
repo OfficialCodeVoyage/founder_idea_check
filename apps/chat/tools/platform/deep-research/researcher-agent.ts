@@ -8,6 +8,7 @@ import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { truncateMessages } from "@/lib/ai/token-utils";
 import { createModuleLogger } from "@/lib/logger";
+import { getCompressionProviderOptions } from "./configuration";
 import {
   compressResearchSimpleHumanMessage,
   compressResearchSystemPrompt,
@@ -281,6 +282,9 @@ async function compressResearch(
       model,
       messages: truncatedMessages,
       maxOutputTokens: config.compression_model_max_tokens,
+      // The lowest reasoning effort the model takes, so reasoning does not eat
+      // the output cap (see `getCompressionProviderOptions`).
+      providerOptions: getCompressionProviderOptions(config.compression_model),
       experimental_telemetry: createTelemetry("compressResearch", options),
       maxRetries: 3,
       abortSignal: stop.signal,

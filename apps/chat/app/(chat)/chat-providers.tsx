@@ -2,7 +2,6 @@
 
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
-import { AnonymousSessionInit } from "@/components/anonymous-session-init";
 import { AppRuntimeSlot } from "@/components/chat-runtime-controller";
 import {
   type AppRuntimeData,
@@ -51,16 +50,13 @@ export function ChatProviders({ children }: ChatProvidersProps) {
   }, [provisionalRuntime]);
 
   return (
-    <>
-      <AnonymousSessionInit />
-      <RuntimeRegistryProvider initialRuntimes={initialRuntimes}>
-        <ProvisionalAppRuntimeIdentityProvider identity={provisionalRuntime}>
-          <RuntimeSlots<AppRuntimeData>>
-            {(runtime) => <AppRuntimeSlot runtime={runtime} />}
-          </RuntimeSlots>
-          {children}
-        </ProvisionalAppRuntimeIdentityProvider>
-      </RuntimeRegistryProvider>
-    </>
+    <RuntimeRegistryProvider initialRuntimes={initialRuntimes}>
+      <ProvisionalAppRuntimeIdentityProvider identity={provisionalRuntime}>
+        <RuntimeSlots<AppRuntimeData>>
+          {(runtime) => <AppRuntimeSlot runtime={runtime} />}
+        </RuntimeSlots>
+        {children}
+      </ProvisionalAppRuntimeIdentityProvider>
+    </RuntimeRegistryProvider>
   );
 }

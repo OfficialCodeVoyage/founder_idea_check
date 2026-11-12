@@ -7,6 +7,7 @@ import {
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { truncateMessages } from "@/lib/ai/token-utils";
+import { createModuleLogger } from "@/lib/logger";
 import {
   compressResearchSimpleHumanMessage,
   compressResearchSystemPrompt,
@@ -15,6 +16,8 @@ import {
 import { recordCut, stopAt } from "./research-clock";
 import { type AgentOptions, createTelemetry } from "./types";
 import { getAllTools, getModelContextWindow, getTodayStr } from "./utils";
+
+const log = createModuleLogger("tools/deep-research/researcher-agent");
 
 export async function runResearcher(
   topic: string,
@@ -54,6 +57,9 @@ export async function runResearcher(
   });
 
   let finishedMessages: ModelMessage[] = [];
+  // Timing of this researcher's own steps, for the log (see `onStepFinish`).
+  let stepsFinished = 0;
+  let lastStepFinishedAt = clock.now();
 
   const researcherAgent = new ToolLoopAgent({
     model,
@@ -87,11 +93,36 @@ export async function runResearcher(
     ],
     maxOutputTokens: config.research_model_max_tokens,
     experimental_telemetry: createTelemetry("researcher", options),
-    onStepFinish: ({ usage, response }) => {
+    onStepFinish: ({ usage, response, toolCalls, finishReason }) => {
       // Cumulative: each step's response carries every message so far, with
       // each tool call next to its result. Kept so a researcher stopped at
       // the deadline still hands its finished steps to compression.
       finishedMessages = response.messages;
+
+      // WHERE THE SEARCH WINDOW GOES, per model step. Live QA (2026-11-12)
+      // saw every search finish within about 12 s of the researchers starting
+      // and then each researcher sit in ONE model step until the search stop,
+      // 82 s later, with nothing to say which step it was or how long it had
+      // been running. A step that finishes is logged here with its length and
+      // what it did; one that is cut mid-step is logged by `recordCut` below,
+      // with how long it had been running.
+      const finishedAt = clock.now();
+      stepsFinished += 1;
+      log.info(
+        {
+          step: stepsFinished,
+          stepSeconds: Math.round((finishedAt - lastStepFinishedAt) / 100) / 10,
+          toolCalls: toolCalls.map((call) => call.toolName),
+          finishReason,
+          outputTokens: usage?.outputTokens,
+          reasoningTokens: usage?.outputTokenDetails?.reasoningTokens,
+          secondsUntilSearchStop:
+            Math.round(Math.max(0, clock.searchStopAt - finishedAt) / 100) / 10,
+        },
+        "researcher step finished"
+      );
+      lastStepFinishedAt = finishedAt;
+
       if (usage) {
         options.costAccumulator?.addLLMCost(
           config.research_model as AppModelId,
@@ -119,7 +150,13 @@ export async function runResearcher(
     }
     recordCut(
       clock,
-      "a researcher was stopped mid-step at the search deadline"
+      "a researcher was stopped mid-step at the search deadline",
+      {
+        stepsFinished,
+        // How long the step that was cut had been running.
+        unfinishedStepSeconds:
+          Math.round((clock.now() - lastStepFinishedAt) / 100) / 10,
+      }
     );
     researchMessages = finishedMessages;
   }

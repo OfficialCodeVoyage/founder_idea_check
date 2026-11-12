@@ -1,10 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CHAT_REQUEST_BUDGET_MS } from "@/lib/ai/request-budget";
+
+const warn = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/logger", () => ({
+  createModuleLogger: () => ({ warn }),
+}));
+
 import {
   canStartSearchStep,
   MIN_SEARCH_STEP_MS,
   planResearchClock,
   REPORT_ALLOWANCE_MS,
+  recordCut,
   reportWordBudget,
   SEARCH_STEP_TIMEOUT_MS,
   searchStepTimeoutMs,
@@ -56,5 +63,37 @@ describe("planResearchClock", () => {
     );
     // Never more than the model's own output ceiling allows.
     expect(reportWordBudget(onTime, 1000)).toBeLessThanOrEqual(750);
+  });
+});
+
+/**
+ * GUARD for the live QA run whose report said it was cut short while nothing
+ * said which cut had fired: a cut is logged, once, with the reason and where in
+ * the request it happened.
+ */
+describe("recordCut", () => {
+  const start = 1_000_000;
+
+  beforeEach(() => warn.mockClear());
+
+  it("logs which cut fired and how far into the request it was, once", () => {
+    const clock = planResearchClock(
+      start + CHAT_REQUEST_BUDGET_MS,
+      () => start + 119_000
+    );
+    const reason = "a researcher was stopped mid-step at the search deadline";
+
+    recordCut(clock, reason, { stepsFinished: 2 });
+    recordCut(clock, reason, { stepsFinished: 2 });
+
+    expect(clock.cuts).toEqual([reason]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [fields] = warn.mock.calls[0];
+    expect(fields).toMatchObject({
+      reason,
+      stepsFinished: 2,
+      secondsIntoRequest: 119,
+      searchStopDueAtSeconds: 120,
+    });
   });
 });

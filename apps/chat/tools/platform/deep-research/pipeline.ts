@@ -450,7 +450,7 @@ function reportTimeInstructions(
 
 <Search cut short for time>
 The research stopped searching early to leave time for this report: ${clock.cuts.join("; ")}.
-Say so near the top of the report, in a short section titled "Research cut short", in plain words: the search was cut short for time and some planned searches did not run. Do not present a topic that was not searched as a topic with no evidence.
+Say so near the top of the report, in a short section titled "Research cut short", in plain words: name what was cut, in your own words, from the list above and nothing more. Say that a search or a topic did not run only if the list says so; a researcher stopped mid-step lost its last step, which is not the same as a search that never ran. Do not present a topic that was not searched as a topic with no evidence.
 </Search cut short for time>`;
 }
 

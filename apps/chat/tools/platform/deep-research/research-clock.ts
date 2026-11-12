@@ -1,4 +1,7 @@
 import { CHAT_REQUEST_BUDGET_MS } from "@/lib/ai/request-budget";
+import { createModuleLogger } from "@/lib/logger";
+
+const log = createModuleLogger("tools/deep-research/research-clock");
 
 /**
  * THE DEADLINES OF ONE DEEP-RESEARCH RUN, all derived from the route's budget.
@@ -122,11 +125,41 @@ export function searchStepTimeoutMs(clock: ResearchClock): number {
   return Math.min(SEARCH_STEP_TIMEOUT_MS, msUntil(clock, clock.searchStopAt));
 }
 
-/** Notes a cut once; the same reason twice is one fact. */
-export function recordCut(clock: ResearchClock, reason: string): void {
-  if (!clock.cuts.includes(reason)) {
-    clock.cuts.push(reason);
+/**
+ * Notes a cut once; the same reason twice is one fact.
+ *
+ * LOGGED, WITH WHERE IN THE REQUEST IT HAPPENED. A cut used to reach the report
+ * prompt and nothing else, so when a run was cut short nobody could say which
+ * of the cuts had fired or how far into the request it was. The log
+ * line carries the reason, the seconds since the request arrived and the second
+ * the search stop was due (both on the request's own clock, the same one the
+ * arithmetic at the top of this file counts on), and whatever the caller knows
+ * about what was in flight (`detail`). The reasons are the strings the callers
+ * in the researcher, the supervisor and the search tool pass.
+ */
+export function recordCut(
+  clock: ResearchClock,
+  reason: string,
+  detail: Record<string, number | string> = {}
+): void {
+  if (clock.cuts.includes(reason)) {
+    return;
   }
+  clock.cuts.push(reason);
+  const requestStartedAt = clock.requestDeadlineAt - CHAT_REQUEST_BUDGET_MS;
+  log.warn(
+    {
+      reason,
+      ...detail,
+      secondsIntoRequest: toSeconds(clock.now() - requestStartedAt),
+      searchStopDueAtSeconds: toSeconds(clock.searchStopAt - requestStartedAt),
+    },
+    "deep research was cut short for time"
+  );
+}
+
+function toSeconds(ms: number): number {
+  return Math.round(ms / 100) / 10;
 }
 
 /**

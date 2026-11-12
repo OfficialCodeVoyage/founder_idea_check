@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { StoredFact } from "@/lib/phases/context";
 import { PHASE_THREE } from "@/lib/phases/definitions-discovery";
+import { DOCUMENT_MARKER_NOTE } from "@/lib/phases/gate";
 import { EMPTY_FACT_STORE, emptyPersona, normalizePersona } from "./normalize";
 import {
   type BuildPersonaPromptInput,
@@ -127,6 +128,13 @@ describe("buildPersonaPrompt — the system prompt", () => {
     const { system } = buildPersonaPrompt(input()).request;
     expect(system).toContain("PERSONA BRIEF");
     expect(system).toContain("PHASE 3 BRIEF");
+  });
+
+  it("tells the model a document marker is not founder evidence", () => {
+    // The transcript carries runtime.ts::toTranscript's document markers; an
+    // assistant-written document must not source a persona attribute.
+    const { system } = buildPersonaPrompt(input()).request;
+    expect(system).toContain(DOCUMENT_MARKER_NOTE);
   });
 
   it("drops an empty brief instead of emitting a stray separator", () => {

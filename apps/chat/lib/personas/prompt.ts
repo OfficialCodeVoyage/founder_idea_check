@@ -7,7 +7,11 @@ import {
   type TokenCounter,
 } from "@/lib/phases/context";
 import { PHASE_THREE } from "@/lib/phases/definitions-discovery";
-import { describeCriterion, renderTranscript } from "@/lib/phases/gate";
+import {
+  DOCUMENT_MARKER_NOTE,
+  describeCriterion,
+  renderTranscript,
+} from "@/lib/phases/gate";
 import type { TranscriptTurn } from "@/lib/phases/types";
 import { EMPTY_FACT_STORE, personaAttributeEntries } from "./normalize";
 import {
@@ -203,6 +207,7 @@ ${PHASE_THREE.order} ("${PHASE_THREE.title}") as a structured artifact.
 Use ONLY the established facts and the transcript below. Do not infer, do not
 generalise from what is typical of this market, and do not fill a gap because the
 shape of a persona has a slot for it.
+${DOCUMENT_MARKER_NOTE}
 
 ## The attributes you may emit
 

@@ -561,7 +561,8 @@ export const TRANSCRIPT_SEPARATOR = "\n\n";
  * They live side by side so the format and its explanation cannot drift:
  * runtime.ts::toTranscript writes the marker, and every prompt that renders a
  * transcript containing one (buildGatePrompt here, extract.ts's
- * buildExtractionPrompt) states DOCUMENT_MARKER_NOTE.
+ * buildExtractionPrompt, lib/personas/prompt.ts's buildPersonaPrompt) states
+ * DOCUMENT_MARKER_NOTE.
  *
  * WHY THE NOTE IS NEEDED. Without it a judge reads `[document: "Interview
  * protocol", 4200 chars]` as an artefact and may credit it as evidence — but

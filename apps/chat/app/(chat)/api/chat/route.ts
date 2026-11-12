@@ -70,6 +70,7 @@ import type { McpConnector } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { MAX_INPUT_TOKENS } from "@/lib/limits/tokens";
 import { createModuleLogger } from "@/lib/logger";
+import { isTargetCriterionId } from "@/lib/message-conversion";
 import { runPostTurnPersonaPass } from "@/lib/personas/post-turn";
 import {
   buildPhaseSystemBlock,
@@ -1833,17 +1834,12 @@ function normalizeChatMessage(value: unknown): ChatMessage | null {
   // `lib/phases/runtime.ts::buildPhaseSystemBlock`.
   if (
     "targetCriterionId" in metadata &&
-    !(
-      typeof metadata.targetCriterionId === "string" &&
-      TARGET_CRITERION_ID_SHAPE.test(metadata.targetCriterionId)
-    )
+    !isTargetCriterionId(metadata.targetCriterionId)
   ) {
     Reflect.deleteProperty(normalized.metadata, "targetCriterionId");
   }
   return normalized;
 }
-
-const TARGET_CRITERION_ID_SHAPE = /^[a-z0-9-]{1,64}$/;
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;

@@ -21,6 +21,29 @@ export function dbChatToUIChat(chat: Chat): UIChat {
   };
 }
 
+/**
+ * The shape a criterion mark must have to be stored on a message: what the chat
+ * route keeps (`normalizeChatMessage`) and what the `Message_target_criterion_shape`
+ * CHECK allows. One definition, so the route can never let through a value the
+ * database would then refuse mid-save.
+ */
+const TARGET_CRITERION_ID_SHAPE = /^[a-z0-9-]{1,64}$/;
+
+export function isTargetCriterionId(value: unknown): value is string {
+  return typeof value === "string" && TARGET_CRITERION_ID_SHAPE.test(value);
+}
+
+/**
+ * The founder's criterion mark, read back into metadata only when one is
+ * stored. Spread rather than assigned so a message with no mark carries no key
+ * at all, exactly as the client sent it.
+ */
+export function targetMetadata(
+  targetCriterionId: string | null
+): { targetCriterionId: string } | Record<string, never> {
+  return targetCriterionId ? { targetCriterionId } : {};
+}
+
 function _dbMessageToChatMessage(message: DBMessage): ChatMessage {
   // Note: This function should not be used directly for messages with parts
   // Use getAllMessagesByChatId which reconstructs parts from Part table
@@ -41,6 +64,7 @@ function _dbMessageToChatMessage(message: DBMessage): ChatMessage {
         : ("" as ModelId),
       selectedTool: (message.selectedTool as UiToolName | null) || undefined,
       usage: message.lastContext as ChatMessage["metadata"]["usage"],
+      ...targetMetadata(message.targetCriterionId),
     },
   };
 }
@@ -63,6 +87,12 @@ export function chatMessageToDbMessage(
     createdAt = new Date();
   }
 
+  // Read as unknown and re-checked: this mapping also saves assistant turns
+  // and cloned chats, not only what the chat route already normalised, and a
+  // value the CHECK refuses would fail the whole save instead of losing a hint.
+  const target = (message.metadata as Record<string, unknown>)
+    .targetCriterionId;
+
   // Parts are stored in Part table, not in Message.parts
   return {
     id: message.id,
@@ -80,5 +110,6 @@ export function chatMessageToDbMessage(
     isPrimaryParallel: message.metadata?.isPrimaryParallel ?? null,
     activeStreamId: message.metadata?.activeStreamId || null,
     canceledAt: null,
+    targetCriterionId: isTargetCriterionId(target) ? target : null,
   };
 }

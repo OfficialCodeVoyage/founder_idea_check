@@ -28,7 +28,7 @@ import {
 } from "@/lib/ai/followup-suggestions";
 import { systemPrompt } from "@/lib/ai/prompts";
 import { CHAT_REQUEST_BUDGET_MS } from "@/lib/ai/request-budget";
-import { getStreamErrorMessage } from "@/lib/ai/stream-errors";
+import { getStreamErrorMessage, isAbortError } from "@/lib/ai/stream-errors";
 import { calculateMessagesTokens } from "@/lib/ai/token-utils";
 import {
   type ChatMessage,
@@ -461,6 +461,38 @@ async function getSystemPrompt({
   return system;
 }
 
+/**
+ * WHO ENDED THE TURN EARLY. `abortController` has exactly two callers: the
+ * cancel check in `executeChatRequest` (the founder pressed Stop and
+ * `chat.stopStream` set `canceledAt`) and the deadline timer in `POST`. A turn
+ * stopped either way is not a failure, and its leftovers (the `AbortError` the
+ * SDK throws out of `execute`, a tool input cut off mid-stream) used to be
+ * logged at ERROR with an empty error object (live QA, re-check 5), which reads
+ * as an incident in a log search. The timer fires at the deadline and never
+ * earlier, so a controller that fired at or after it is the deadline's; any
+ * other firing is the founder's Stop.
+ */
+type TurnStopCause = "user" | "deadline";
+
+const TURN_DEADLINE_SLACK_MS = 1000;
+
+const TURN_STOP_MESSAGES: Record<TurnStopCause, string> = {
+  user: "turn stopped by the user",
+  deadline: "turn stopped at the request deadline",
+};
+
+function turnStopCause(
+  abortController: AbortController,
+  requestDeadlineAt: number
+): TurnStopCause | null {
+  if (!abortController.signal.aborted) {
+    return null;
+  }
+  return Date.now() >= requestDeadlineAt - TURN_DEADLINE_SLACK_MS
+    ? "deadline"
+    : "user";
+}
+
 async function createChatStream({
   messageId,
   chatId,
@@ -513,6 +545,11 @@ async function createChatStream({
 }> {
   const log = createModuleLogger("api:chat:stream");
   const costAccumulator = turnCost.accumulator;
+  // The text `onError` returned for the error that was a stop. The SDK hands
+  // that text back to `onError` as a second, plain `Error` (verified with a mock
+  // model on ai@6.0.219: an AbortError out of `execute`, then `Error(<the text>)`),
+  // and that echo is part of the same stop.
+  let stopEchoMessage: string | null = null;
 
   // WHEN THE TURN'S SPENDING IS ALL RECORDED. The model's "main-chat" usage is
   // recorded step by step by a transform inside `streamText`
@@ -653,6 +690,7 @@ async function createChatStream({
     onFinish: async ({ isAborted, messages }) => {
       await finalizeMessageAndCredits({
         messages,
+        stopCause: turnStopCause(abortController, requestDeadlineAt),
         userId,
         isAnonymous,
         chatId,
@@ -765,8 +803,44 @@ async function createChatStream({
         );
       }
 
-      log.error({ error }, "onError");
-      return getStreamErrorMessage(error);
+      const returnedMessage = getStreamErrorMessage(error);
+      const stopCause = turnStopCause(abortController, requestDeadlineAt);
+      if (stopCause) {
+        const isEcho =
+          error instanceof Error && error.message === stopEchoMessage;
+        if (isEcho) {
+          log.debug(
+            { chatId, messageId },
+            "turn stopped: the stream reported the stop again"
+          );
+          return returnedMessage;
+        }
+        if (isAbortError(error)) {
+          stopEchoMessage = returnedMessage;
+          const stopLog = { chatId, messageId, stopCause };
+          if (stopCause === "user") {
+            log.info(stopLog, TURN_STOP_MESSAGES.user);
+          } else {
+            log.warn(stopLog, TURN_STOP_MESSAGES.deadline);
+          }
+          return returnedMessage;
+        }
+      }
+
+      // An Error under `error` prints as `{}`: name the failure.
+      log.error(
+        error instanceof Error
+          ? {
+              err: {
+                name: error.name,
+                message: error.message,
+                stack: error.stack,
+              },
+            }
+          : { error },
+        "onError"
+      );
+      return returnedMessage;
     },
   });
 
@@ -1216,10 +1290,17 @@ async function prepareRequestContext({
  */
 async function rescueDeadToolInputStreams({
   assistantMessage,
+  stopCause,
   userId,
   chatId,
 }: {
   assistantMessage: ChatMessage;
+  /**
+   * Why the turn ended early, or null. A tool input still streaming when the
+   * founder pressed Stop, or the deadline fired, is cut off on purpose: it is
+   * salvaged and marked exactly the same, but the log line is not an ERROR.
+   */
+  stopCause: TurnStopCause | null;
   userId: string | null;
   chatId: string;
 }): Promise<ChatMessage> {
@@ -1229,6 +1310,12 @@ async function rescueDeadToolInputStreams({
   if (dead.length === 0) {
     return assistantMessage;
   }
+
+  // The founder's Stop reaches the server as the client closing the stream and
+  // then `chat.stopStream` setting `canceledAt`; this can run in between, before
+  // `abortController` has fired, so the stored mark settles a turn the
+  // controller does not show as stopped yet.
+  const cause = stopCause ?? (await storedUserStop(assistantMessage.id));
 
   // Written BEFORE the parts are marked and the announcement is composed:
   // both say whether a document was saved, and only the write knows.
@@ -1249,20 +1336,29 @@ async function rescueDeadToolInputStreams({
   const swept = sweepDeadInputStreams(assistantMessage.parts, saved);
 
   for (const death of swept.deaths) {
-    log.error(
-      {
-        chatId,
-        messageId: assistantMessage.id,
-        toolType: death.toolType,
-        toolCallId: death.toolCallId,
-        salvaged: death.verdict.salvage.salvaged,
-        contentChars: death.verdict.salvage.salvaged
-          ? death.verdict.salvage.contentChars
-          : null,
-        documentId: saved.get(death.toolCallId)?.documentId ?? null,
-      },
-      "tool input stream ended while still streaming — marking the call failed"
-    );
+    const deathLog = {
+      chatId,
+      messageId: assistantMessage.id,
+      toolType: death.toolType,
+      toolCallId: death.toolCallId,
+      salvaged: death.verdict.salvage.salvaged,
+      contentChars: death.verdict.salvage.salvaged
+        ? death.verdict.salvage.contentChars
+        : null,
+      documentId: saved.get(death.toolCallId)?.documentId ?? null,
+    };
+    if (cause) {
+      // Expected: the turn was stopped while this input was still arriving.
+      log.warn(
+        { ...deathLog, stopCause: cause },
+        `${TURN_STOP_MESSAGES[cause]} while a tool input was still streaming — marking the call stopped`
+      );
+    } else {
+      log.error(
+        deathLog,
+        "tool input stream ended while still streaming — marking the call failed"
+      );
+    }
   }
 
   if (swept.announcement === null) {
@@ -1276,6 +1372,18 @@ async function rescueDeadToolInputStreams({
       { type: "text", text: swept.announcement },
     ],
   };
+}
+
+/** "user" when the founder's Stop is stored on the message, else null. A read
+ * that fails is "not known", never a reason to skip the rescue. */
+async function storedUserStop(
+  messageId: string
+): Promise<TurnStopCause | null> {
+  try {
+    return (await getMessageCanceledAt({ messageId })) ? "user" : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1466,6 +1574,7 @@ async function chargeTurnOnce({
 
 async function finalizeMessageAndCredits({
   messages,
+  stopCause,
   userId,
   isAnonymous,
   chatId,
@@ -1477,6 +1586,8 @@ async function finalizeMessageAndCredits({
   isPrimaryParallel,
 }: {
   messages: ChatMessage[];
+  /** Why the turn ended early, or null when it ran to its end or failed. */
+  stopCause: TurnStopCause | null;
   userId: string | null;
   isAnonymous: boolean;
   chatId: string;
@@ -1512,6 +1623,7 @@ async function finalizeMessageAndCredits({
   try {
     await persistFinishedAssistantMessage({
       messages,
+      stopCause,
       userId,
       isAnonymous,
       chatId,
@@ -1545,6 +1657,7 @@ async function finalizeMessageAndCredits({
  */
 async function persistFinishedAssistantMessage({
   messages,
+  stopCause,
   userId,
   isAnonymous,
   chatId,
@@ -1554,6 +1667,7 @@ async function persistFinishedAssistantMessage({
   isPrimaryParallel,
 }: {
   messages: ChatMessage[];
+  stopCause: TurnStopCause | null;
   userId: string | null;
   isAnonymous: boolean;
   chatId: string;
@@ -1575,6 +1689,7 @@ async function persistFinishedAssistantMessage({
   // sat silently in the database for a whole session.
   const assistantMessage = await rescueDeadToolInputStreams({
     assistantMessage: streamed,
+    stopCause,
     userId,
     chatId,
   });

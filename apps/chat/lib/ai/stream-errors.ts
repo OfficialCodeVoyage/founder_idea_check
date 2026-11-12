@@ -64,6 +64,22 @@ function mapKnownStreamErrorMessage(message: string): string {
   return FALLBACK_STREAM_ERROR_MESSAGE;
 }
 
+const MAX_CAUSE_DEPTH = 3;
+
+/**
+ * True for the error an aborted signal raises (`AbortError`), also when it
+ * arrives wrapped one or two levels down in `cause`. The chat route reads it
+ * together with its own `AbortController` having fired, so a stop is told from a
+ * failure; an `AbortError` while that controller has NOT fired is somebody
+ * else's signal and stays a failure.
+ */
+export function isAbortError(error: unknown, depth = 0): boolean {
+  if (!(error instanceof Error) || depth > MAX_CAUSE_DEPTH) {
+    return false;
+  }
+  return error.name === "AbortError" || isAbortError(error.cause, depth + 1);
+}
+
 export function getStreamErrorMessage(error: unknown): string {
   return mapKnownStreamErrorMessage(
     getErrorText(error) ?? FALLBACK_STREAM_ERROR_MESSAGE

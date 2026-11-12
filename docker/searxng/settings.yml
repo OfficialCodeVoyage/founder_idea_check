@@ -1,4 +1,6 @@
-# SearXNG configuration for the LOCAL dev stack only.
+# SearXNG configuration for the LOCAL dev stack only. SearXNG is opt-in (AGPL-3.0):
+# it starts from docker-compose.searxng.yml, never from the default stack. This file
+# is our configuration, not SearXNG code.
 #
 # Two settings here are load-bearing and neither is the default:
 #
@@ -12,8 +14,8 @@
 #   sidecar arrives from the same IP, so the sidecar is indistinguishable from
 #   an abuser and gets throttled within a few queries.
 #
-# The secret is supplied by SEARXNG_SECRET from docker-compose.yml, not stored
-# here.
+# The secret is supplied by SEARXNG_SECRET from docker-compose.searxng.yml, not
+# stored here.
 use_default_settings: true
 
 general:

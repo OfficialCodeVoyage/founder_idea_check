@@ -32,7 +32,8 @@ validated project to a coding agent. It is a fork of ChatJS (Apache-2.0, see `NO
 
 ### Commands
 ```bash
-docker compose up -d postgres redis searxng   # dev services: ic-pg :5433, ic-redis :6380, ic-searxng :8888
+docker compose up -d postgres redis   # dev services: ic-pg :5433, ic-redis :6380 (Valkey)
+docker compose -f docker-compose.yml -f docker-compose.searxng.yml up -d searxng   # optional, AGPL, off by default: ic-searxng :8888
 PORT=3100 bun run dev:local      # app on http://localhost:3100, sign in at /api/dev-login (use localhost, not 127.0.0.1)
 bun run verify                   # lint + type-check + ruff. Run before saying work is done. Safe beside a dev server.
 bun run test:unit                # TypeScript unit tests (vitest in apps/chat, bun test in packages)

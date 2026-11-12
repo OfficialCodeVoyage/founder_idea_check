@@ -1,0 +1,58 @@
+# OPT-IN overlay: a local SearXNG metasearch for the research sidecar's
+# `web-keyless` source. It is NOT part of the default stack.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.searxng.yml up -d searxng
+#
+# then give the sidecar the URL (host process, see apps/research/README.md):
+#
+#   RESEARCH_SEARXNG_URL=http://127.0.0.1:8888
+#
+# Stop it with `docker compose -f docker-compose.yml -f docker-compose.searxng.yml
+# stop searxng`. Plain `docker compose up -d` never starts it.
+#
+# WHY IT IS AN OVERLAY. SearXNG is AGPL-3.0 (its source files say
+# AGPL-3.0-or-later). This repository copies none of its code. This file only
+# names the image SearXNG publishes and mounts our own configuration file,
+# docker/searxng/settings.yml. Keeping it out of docker-compose.yml means a
+# default clone neither pulls nor runs AGPL software; whoever runs this overlay
+# chooses to. If you modify SearXNG, or run it for other people, read AGPL-3.0
+# section 13 first. Never patch the image: a patched build forfeits upstream
+# security fixes whatever the licence says.
+#
+# The project name is repeated so this file also lands in the `ideacheck` project
+# when used on its own; with the base file it is the same value merged twice.
+name: ideacheck
+
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: ic-searxng
+    ports:
+      # Loopback only, like everything else here. 8888 rather than 8080 because
+      # 8080 collides with half the tooling on a dev box.
+      - "127.0.0.1:8888:8080"
+    volumes:
+      # Read-only: the container must not rewrite our settings on boot. SearXNG
+      # merges this over its defaults because the file sets
+      # `use_default_settings: true`.
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      # Bound at 127.0.0.1 so this URL is only ever right from the host.
+      SEARXNG_BASE_URL: "http://localhost:8888/"
+      # Overrides `server.secret_key` in settings.yml. The default below is fine
+      # for a loopback-only dev instance: this secret signs the image proxy and
+      # the limiter, and both are disabled.
+      SEARXNG_SECRET: "${SEARXNG_SECRET:-idea-check-local-dev-not-a-real-secret}"
+    healthcheck:
+      # /healthz is SearXNG's own endpoint and does NOT hit a search engine, so
+      # this stays green when the upstream engines are rate-limiting.
+      test:
+        - CMD
+        - wget
+        - -qO-
+        - http://127.0.0.1:8080/healthz
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped

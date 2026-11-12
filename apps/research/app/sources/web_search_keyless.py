@@ -21,15 +21,17 @@ query from such a host, forever, which is the exact failure mode
 `app/errors.py` exists to prevent. A ladder that runs out of rungs therefore
 raises `SourceBlocked` naming every rung it tried.
 
-WHY SEARXNG IS FIRST. It runs on this machine (`docker-compose.yml`), so it has
-no rate limit we can trip and no anomaly detection to fall foul of, and it fans
-out across roughly a dozen upstream engines internally — including the ones a
-single scraper cannot reach. Its own JSON reports which of those engines failed,
-so a partial upstream outage degrades instead of disappearing.
+WHY SEARXNG IS FIRST. When the operator runs one and sets `RESEARCH_SEARXNG_URL`
+(the opt-in `docker-compose.searxng.yml` starts one on this machine), it has no
+rate limit we can trip and no anomaly detection to fall foul of, and it fans out
+across roughly a dozen upstream engines internally — including the ones a single
+scraper cannot reach. Its own JSON reports which of those engines failed, so a
+partial upstream outage degrades instead of disappearing.
 
-WHY DUCKDUCKGO IS STILL HERE. SearXNG is a container, and the sidecar can run
-without one. If the ladder were a single local rung, `docker compose up` would
-become a hard requirement for keyless search rather than a convenience.
+WHY DUCKDUCKGO IS STILL HERE. SearXNG is AGPL-3.0, so it is opt-in and not part
+of the default compose stack, and the sidecar has to work without one. If the
+ladder were a single local rung, starting that container would become a hard
+requirement for keyless search rather than a convenience.
 
 STARTPAGE WAS THE THIRD RUNG AND WAS REMOVED 2026-08-20, on measurement rather
 than on taste: it answered HTTP 200 and parsed to ZERO results, which is the
@@ -162,11 +164,11 @@ class KeylessWebSearchSource:
         # service name: the sidecar runs on the HOST in dev, where a compose
         # service name would not resolve.
         #
-        # This used to carry a note that SearXNG is AGPL-3.0 and therefore had
-        # to stay out of docker-compose.yml. That bar was lifted on 2026-08-20
-        # for local-only use — see THIRD_PARTY.md. What survives the reversal:
-        # never vendor and never patch it, because a patched build forfeits
-        # upstream security fixes, which was never a licence argument.
+        # SearXNG is AGPL-3.0, so it is not in the default docker-compose.yml:
+        # it is the opt-in overlay docker-compose.searxng.yml, and this class only
+        # ever talks to it over HTTP. Never vendor and never patch it, because a
+        # patched build forfeits upstream security fixes, which was never a
+        # licence argument.
         self._searxng_url = (searxng_url or "").strip().rstrip("/")
 
     def fetch(self, query: SourceQuery) -> list[SourceItem]:

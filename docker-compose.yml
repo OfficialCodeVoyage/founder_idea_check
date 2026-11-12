@@ -3,9 +3,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # WHAT THIS FILE OWNS
 #
-#   postgres  ic-pg     pgvector/pgvector:pg17   host :5433  <- apps/chat data
-#   redis     ic-redis  redis:7-alpine           host :6380  <- apps/chat cache
-#   research  (built)   apps/research            host :8099  <- signals sidecar
+#   postgres  ic-pg     pgvector/pgvector:pg17           host :5433  <- apps/chat data
+#   redis     ic-redis  valkey/valkey:8.1.11-alpine3.24  host :6380  <- apps/chat cache
+#   research  (built)   apps/research                    host :8099  <- signals sidecar
+#
+# NOT in this file, on purpose: SearXNG (AGPL-3.0). It is an opt-in overlay,
+# docker-compose.searxng.yml, so that a default `docker compose up` pulls and
+# runs no AGPL software. See "SEARXNG IS OPT-IN" below.
 #
 # Postgres and Redis were previously started by hand with bare `docker run`
 # (see git history of README-DEV.md). They are adopted here so that ONE command
@@ -32,6 +36,38 @@
 # postgres` incantation in README-DEV.md depend on those values, and rotating
 # them buys nothing on an interface no other host can reach. If you ever bind
 # these to a routable address, set a real password in the SAME commit.
+#
+# REDIS IS VALKEY. The `redis` service runs Valkey (BSD-3-Clause), the Linux
+# Foundation fork of Redis 7.2, pinned to an exact tag. It replaced
+# `redis:7-alpine`: that tag moves, and it now resolves to Redis 7.4.x, which has
+# been source-available (RSALv2 / SSPLv1) rather than open source since 7.4.
+# Valkey speaks the same protocol, so `REDIS_URL` (redis://localhost:6380) and the
+# app's `redis` npm client are unchanged, and so are the container name, the port
+# and the volume.
+#
+# ONE-TIME CLEAN-UP if you ran the old stack. A `redisdata` volume written by
+# Redis 7.4 holds a `dump.rdb` in RDB format 12, which Valkey 8.1 cannot load
+# ("Can't handle RDB format version 12"; its source rejects any foreign RDB from
+# version 12 up whatever `rdb-version-check` says), so `ic-redis` exits at start
+# and restarts in a loop. This Redis only carries resumable-stream buffers and
+# rate-limit counters, nothing worth keeping, so drop the volume once:
+#
+#     docker compose down && docker volume rm ideacheck_redisdata
+#
+# SEARXNG IS OPT-IN. SearXNG is AGPL-3.0 (its source files say AGPL-3.0-or-later).
+# This repository copies none of its code: the overlay only names its published
+# image and mounts our own `docker/searxng/settings.yml`. It lives in
+# docker-compose.searxng.yml so that cloning the project and running
+# `docker compose up` neither pulls nor runs it. To use it:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.searxng.yml up -d searxng
+#     RESEARCH_SEARXNG_URL=http://127.0.0.1:8888     # in the sidecar's environment
+#
+# Without it the `web-keyless` source asks DuckDuckGo's HTML endpoint alone, which
+# many networks answer with a challenge page; the sidecar then reports `blocked`
+# instead of an empty result. If you modify SearXNG, or run it for other people,
+# read AGPL-3.0 section 13 first. Never patch the image: a patched build forfeits
+# upstream security fixes whatever the licence says.
 #
 # NEO4J is still absent, and that is unrelated to licensing: OASIS defaults to
 # the igraph IN-MEMORY backend (`oasis/social_agent/agent_graph.py:178-190` @
@@ -74,7 +110,10 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    # Valkey, not Redis: see "REDIS IS VALKEY" at the top. An exact tag on purpose;
+    # bump it deliberately (look the tag up on Docker Hub: valkey/valkey) rather
+    # than by following a moving one.
+    image: valkey/valkey:8.1.11-alpine3.24
     container_name: ic-redis
     ports:
       # 6380, not 6379, for the same reason as above. Loopback-bound for the
@@ -85,7 +124,7 @@ services:
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -97,6 +136,9 @@ services:
       # Default target: signals only. For Step 8, build with
       #   target: simulation
       # and expect a multi-gigabyte image (torch + sentence-transformers).
+      # That image also contains igraph (GPL-2.0-or-later, pulled in by OASIS).
+      # Build it for yourself if you like, but do not publish it: no simulation
+      # image is published by this project. See THIRD_PARTY-research.md.
       target: base
     ports:
       # Loopback-bound like the other two. This API takes no auth and its
@@ -125,7 +167,9 @@ services:
       # Optional, and passed through rather than defaulted:
       #   GITHUB_TOKEN         — required by the `github` source
       #   REDDIT_ENABLED_ACK   — required by both Reddit sources
-      #   RESEARCH_SEARXNG_URL — your own instance; see note 1 above
+      #   RESEARCH_SEARXNG_URL — a SearXNG you run yourself, for example the
+      #                          opt-in docker-compose.searxng.yml (reachable
+      #                          from the host at http://127.0.0.1:8888)
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
       REDDIT_ENABLED_ACK: "${REDDIT_ENABLED_ACK:-}"
       RESEARCH_SEARXNG_URL: "${RESEARCH_SEARXNG_URL:-}"
@@ -147,39 +191,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    restart: unless-stopped
-
-  searxng:
-    image: searxng/searxng:latest
-    container_name: ic-searxng
-    ports:
-      # Loopback only, like everything else here. 8888 rather than 8080 because
-      # 8080 collides with half the tooling on a dev box.
-      - "127.0.0.1:8888:8080"
-    volumes:
-      # Read-only: the container must not rewrite our settings on boot. SearXNG
-      # merges this over its defaults because the file sets
-      # `use_default_settings: true`.
-      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
-    environment:
-      # Bound at 127.0.0.1 so this URL is only ever right from the host.
-      SEARXNG_BASE_URL: "http://localhost:8888/"
-      # Overrides `server.secret_key` in settings.yml. The default below is fine
-      # for a loopback-only dev instance: this secret signs the image proxy and
-      # the limiter, and both are disabled.
-      SEARXNG_SECRET: "${SEARXNG_SECRET:-idea-check-local-dev-not-a-real-secret}"
-    healthcheck:
-      # /healthz is SearXNG's own endpoint and does NOT hit a search engine, so
-      # this stays green when the upstream engines are rate-limiting.
-      test:
-        - CMD
-        - wget
-        - -qO-
-        - http://127.0.0.1:8080/healthz
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
     restart: unless-stopped
 
 volumes:

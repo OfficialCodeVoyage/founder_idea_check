@@ -41,6 +41,11 @@ named condition until you install it:
 VIRTUAL_ENV="$PWD/.venv" uv pip install -e ".[simulation]"
 ```
 
+That extra installs `igraph` (GPL-2.0-or-later) through OASIS, on your machine,
+from PyPI. This project ships no `igraph` and publishes no simulation image; if
+you build one with `docker build --target simulation`, keep it to yourself or
+meet the GPL's terms for it. Details are in `THIRD_PARTY-research.md`.
+
 ## Tests
 
 Every test runs with **no network and no API key**. A test that needs either
@@ -150,7 +155,7 @@ tells the founder that naming their buyer is what unlocks the Reddit lane.
 | `RESEARCH_ENABLED_SOURCES` | `hackernews,web-keyless` | Comma-separated ids. Unknown ids are reported at `/v1/health`, not ignored. **Read by the app too** — `parseOperatorEnabledSources` in `apps/chat/lib/signals/providers.ts` parses it the same way, because the app also declines to ask for a source the operator did not enable. |
 | `GITHUB_TOKEN` | — | Required by the `github` source. |
 | `REDDIT_ENABLED_ACK` | — | Required by both Reddit sources, in addition to enabling the id. |
-| `RESEARCH_SEARXNG_URL` | — | **Set it.** Last rung of the keyless ladder, and on a residential connection the only rung that answers: DuckDuckGo serves the sidecar a challenge page, so with this unset `web-keyless` reports `blocked` and Hacker News becomes the only working source — which is how a consumer-parenting idea got researched against Hacker News. Stays a URL because the sidecar runs on the host in dev, where a compose service name would not resolve. |
+| `RESEARCH_SEARXNG_URL` | — | **Set it for usable web search.** First rung of the keyless ladder, and on a residential connection the only rung that answers: DuckDuckGo serves the sidecar a challenge page, so with this unset `web-keyless` reports `blocked` and Hacker News becomes the only working source — which is how a consumer-parenting idea got researched against Hacker News. SearXNG is AGPL-3.0, so the default compose stack does not run it: start the opt-in overlay with `docker compose -f docker-compose.yml -f docker-compose.searxng.yml up -d searxng` and set this to `http://127.0.0.1:8888`, or point it at an instance you already run. Stays a URL because the sidecar runs on the host in dev, where a compose service name would not resolve. |
 | `OPENAI_API_KEY` | — | **Required by the simulation lane, in THIS process's own environment.** The Next.js app having it is irrelevant — `/v1/simulate` calls the model from here. Without it every agent fails at call time and the run returns zero reactions. Cost one failed run to discover, which is why it is now first in this table. In dev, start the sidecar through `bunx dotenv-cli -e <repo>/.env.local -- …` so it inherits the repo-root key. |
 | `RESEARCH_SIM_MODEL` | `gpt-5.6-luna` | CAMEL model type for the simulation. Moved off `gpt-4o-mini` on 2026-08-21: TAU-Bench measures agentic tool use in multi-turn conversation, which is exactly what an OASIS agent does, and 4o-mini scores 26.7% against luna's 70.7% for about +0.1¢ per run. Checked against `GET {base}/models/{id}` before a run starts: a typo is refused as `unknown-simulation-model` instead of failing per-agent at call time. CAMEL itself accepts any string, so this check is the only thing standing between a misspelling and a silent empty run. |
 | `RESEARCH_SIM_REASONING_EFFORT` | derived from the model | Sent as `model_config_dict={"reasoning_effort": …}`. **Leave it unset.** Unset means "derive it": `none` for the `gpt-5.6-*` family, omitted for everything else. That split is not cosmetic — every OASIS action is a function tool call, CAMEL posts to `chat/completions`, and that family refuses tools there at any effort above `none`, while `gpt-4o-mini` refuses the key itself. Setting it to the **empty string** is different from leaving it unset: empty means "never send this", and it overrides the derived default. |
@@ -160,4 +165,5 @@ tells the founder that naming their buyer is what unlocks the Reddit lane.
 ## Provenance
 
 Every vendored file carries a banner naming its upstream path, licence and
-commit SHA. The ledger is `THIRD_PARTY-research.md` at the repository root.
+commit SHA. The ledger is `THIRD_PARTY-research.md` at the repository root, and
+the full licence texts are in `LICENSES/`.

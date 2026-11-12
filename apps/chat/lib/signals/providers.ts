@@ -44,19 +44,20 @@ export const HACKERNEWS: ProviderDescriptor = {
 };
 
 /**
- * Keyless web search (DuckDuckGo HTML, then Startpage, then an operator-run
- * SearXNG instance).
+ * Keyless web search: an operator-run SearXNG first (only when the sidecar has
+ * `RESEARCH_SEARXNG_URL`), then DuckDuckGo's HTML endpoint.
  *
- * EXPECT 403s AND 202 CHALLENGE PAGES FROM A DATACENTER IP. Upstream
- * (`web_search_keyless.py`) documents that DuckDuckGo anomaly-blocks datacenter
- * egress with a 202 challenge page and that Startpage still serves organic
- * results there; that is why the ladder exists rather than a single endpoint.
- * The sidecar reports a blocked ladder as `blocked`, never as an empty result.
+ * EXPECT 403s AND 202 CHALLENGE PAGES FROM A DATACENTER IP. The upstream
+ * adapter (`last30days-skill` `web_search_keyless.py`) documents that DuckDuckGo
+ * anomaly-blocks datacenter egress with a 202 challenge page; that is why the
+ * ladder has more than one rung rather than a single endpoint. The sidecar
+ * reports a blocked ladder as `blocked`, never as an empty result. (Startpage was
+ * a third rung until 2026-08-20; it answered 200 and parsed to zero results.)
  *
- * SearXNG is AGPL-3.0. It is referenced BY URL only. It is not vendored, not
- * patched, and deliberately not present in this repo's `docker-compose.yml` —
- * AGPL attaches by packaging, not by calling, and putting it in a shipped
- * compose file would put AGPL work in our distribution artefact.
+ * SearXNG is AGPL-3.0. It is referenced BY URL only: not vendored, not patched,
+ * and not part of this repo's default `docker-compose.yml`, so a default clone
+ * neither pulls nor runs it. The opt-in `docker-compose.searxng.yml` starts the
+ * image SearXNG publishes, for whoever chooses to.
  */
 export const WEB_KEYLESS: ProviderDescriptor = {
   id: "web-keyless",
@@ -65,7 +66,7 @@ export const WEB_KEYLESS: ProviderDescriptor = {
   enabledInSelfHost: true,
   requiredCredentials: [],
   gateReason:
-    "Reads ordinary public search result pages with no credential and no access control to route around. Falls through DuckDuckGo, Startpage and an optional operator-supplied SearXNG URL; a fully blocked ladder is reported as blocked, not as zero results.",
+    "Reads ordinary public search result pages with no credential and no access control to route around. Tries a local SearXNG first, then DuckDuckGo; a fully blocked ladder is reported as blocked, not as zero results.",
 };
 
 /**

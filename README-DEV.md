@@ -22,8 +22,10 @@ docker compose up -d postgres redis
 ```
 
 That brings up `ic-pg` (Postgres 17 + pgvector, host port **5433**) and `ic-redis`
-(host port **6380**). Both use named volumes, so your data survives a recreate.
-Plain `docker compose up -d` also builds and starts the research sidecar.
+(Valkey, a Redis-compatible server, host port **6380**). Both use named volumes, so
+your data survives a recreate. Plain `docker compose up -d` also builds and starts
+the research sidecar. SearXNG (AGPL-3.0) is in neither command; it is an opt-in
+overlay, `docker-compose.searxng.yml`.
 
 > The Postgres image is `pgvector/pgvector:pg17`, not `postgres:17-alpine`. It is
 > plain Postgres 17 plus the `vector` extension, which `ProjectFact.embedding`

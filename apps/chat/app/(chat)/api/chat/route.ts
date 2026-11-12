@@ -247,6 +247,7 @@ async function handleChatValidation({
     isNewChat = true;
     const title = await generateTitleFromUserMessage({
       message: userMessage,
+      userId,
     });
 
     await saveChatIfNotExists({ id: chatId, userId, title, projectId });

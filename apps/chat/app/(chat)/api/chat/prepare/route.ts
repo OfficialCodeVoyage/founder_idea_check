@@ -114,6 +114,7 @@ async function ensurePrepareChat({
 
   const title = await generateTitleFromUserMessage({
     message: userMessage,
+    userId,
   });
 
   await saveChatIfNotExists({

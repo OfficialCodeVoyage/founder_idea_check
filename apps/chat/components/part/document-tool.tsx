@@ -18,7 +18,10 @@ import {
   useChatStatus,
   useChatStoreApi,
 } from "@/lib/stores/base";
-import { useMessageMetadataById } from "@/lib/stores/hooks-base";
+import {
+  useLastMessageId,
+  useMessageMetadataById,
+} from "@/lib/stores/hooks-base";
 import { useIsLastArtifact } from "@/lib/stores/hooks-message-parts";
 import {
   type DocumentToolType,
@@ -184,10 +187,19 @@ function PureDocumentTool({
   // message in a read-only or shared view. Requiring both means a part is
   // called dead only when nothing is running AND this message is not waiting
   // on anything.
-  const streamEnded =
-    status !== "streaming" &&
-    status !== "submitted" &&
-    !metadata.activeStreamId;
+  //
+  // "Nothing is running" is about THIS message. Only the last message can be
+  // receiving a stream, so a chat-wide `submitted`/`streaming` says nothing
+  // about an earlier one. Without this, pressing "Continue" on a dead card
+  // turned it back into the "Creating…" row and let the effect below
+  // overwrite the panel's partial-labelled copy with the raw input, which
+  // nothing restored.
+  const isLastMessage = useLastMessageId() === messageId;
+  const chatIsRunning = status === "streaming" || status === "submitted";
+  const streamEnded = !(
+    (isLastMessage && chatIsRunning) ||
+    metadata.activeStreamId
+  );
 
   const verdict = describeInputStream({
     state: tool.state,

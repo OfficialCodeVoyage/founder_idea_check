@@ -8,7 +8,9 @@ import {
   isToolUIPart,
 } from "ai";
 import { memo } from "react";
+import { isDeadStreamAnnouncement } from "@/lib/artifacts/text/salvage";
 import {
+  useDeadDocumentCardsCoverAnnouncement,
   useMessagePartByPartIdx,
   useMessagePartTypesById,
 } from "@/lib/stores/hooks-message-parts";
@@ -21,6 +23,29 @@ interface MessagePartsProps {
   isLoading: boolean;
   isReadonly: boolean;
   messageId: string;
+}
+
+/**
+ * The text the route stores for a document call that died mid-input. Its
+ * headline and detail are already printed by the call's card, so a message with
+ * such a card leaves it out of the transcript (the stored and model-facing text
+ * is untouched). It is also what an old stored message carries, which is why
+ * this is decided at render time rather than at the source.
+ */
+function DeadStreamAnnouncementPart({
+  messageId,
+  text,
+  isLoading,
+}: {
+  messageId: string;
+  text: string;
+  isLoading: boolean;
+}) {
+  const cardsSayIt = useDeadDocumentCardsCoverAnnouncement(messageId);
+  if (cardsSayIt) {
+    return null;
+  }
+  return <TextMessagePart isLoading={isLoading} text={text} />;
 }
 
 // Render a single part by index with minimal subscriptions
@@ -38,6 +63,15 @@ function PureMessagePart({
   const part = useMessagePartByPartIdx(messageId, partIdx);
 
   if (isTextUIPart(part)) {
+    if (isDeadStreamAnnouncement(part.text)) {
+      return (
+        <DeadStreamAnnouncementPart
+          isLoading={isLoading}
+          messageId={messageId}
+          text={part.text}
+        />
+      );
+    }
     return <TextMessagePart isLoading={isLoading} text={part.text} />;
   }
 

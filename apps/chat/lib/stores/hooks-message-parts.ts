@@ -3,6 +3,7 @@
 import equal from "fast-deep-equal";
 import { shallow } from "zustand/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
+import { isMarkedDeadInputStream } from "@/lib/artifacts/text/salvage";
 import { documentToolTypes } from "@/tools/platform/documents/types";
 import type { ChatMessage } from "../ai/types";
 import {
@@ -55,6 +56,34 @@ export function useMessagePartByPartIdx<
   return part as unknown as T extends ChatMessage["parts"][number]["type"]
     ? Extract<ChatMessage["parts"][number], { type: T }>
     : ChatMessage["parts"][number];
+}
+
+/**
+ * WHETHER THE DEAD-DOCUMENT CARDS IN THIS MESSAGE ALREADY SAY WHAT ITS
+ * ANNOUNCEMENT TEXT SAYS.
+ *
+ * The route appends a text part to a turn whose document call died mid-input,
+ * so the stored transcript says what was lost; the message also renders a card
+ * for each such call (`DeadDocumentStream`) with the same headline and detail
+ * and a button for the "To finish it, ask" line. Printing both put the same
+ * bold sentence under every card. True only when the message has at least one
+ * swept call and EVERY swept call is a document call: a dead call of another
+ * kind has no card, so there the announcement is the only explanation and must
+ * stay.
+ */
+export function useDeadDocumentCardsCoverAnnouncement(
+  messageId: string
+): boolean {
+  return usePartsStore((state) => {
+    const parts = state.getMessageById(messageId)?.parts ?? [];
+    const swept = parts.filter(isMarkedDeadInputStream);
+    return (
+      swept.length > 0 &&
+      swept.every((part) =>
+        (documentToolTypes as readonly string[]).includes(part.type)
+      )
+    );
+  });
 }
 
 export function useMessageResearchUpdatePartByToolCallId(

@@ -374,6 +374,32 @@ export function salvageTextDocumentInput(input: unknown): SalvagedTextDocument {
 const HEADLINE = "This document never finished being written";
 
 /**
+ * The first line of every announcement `sweepDeadInputStreams` writes, and the
+ * only thing that tells a stored text part apart from ordinary assistant prose.
+ * Defined from `HEADLINE` so the composer below and `isDeadStreamAnnouncement`
+ * cannot drift apart.
+ */
+const ANNOUNCEMENT_LEAD = `**${HEADLINE}.**`;
+
+/** Whether a stored text part is the announcement the route appends for a dead call. */
+export function isDeadStreamAnnouncement(text: string): boolean {
+  return text.startsWith(ANNOUNCEMENT_LEAD);
+}
+
+/** Whether a tool part carries DEAD_INPUT_STREAM_MARKER, i.e. the route has swept it. */
+export function isMarkedDeadInputStream(part: {
+  readonly type: string;
+  readonly state?: unknown;
+  readonly errorText?: unknown;
+}): boolean {
+  return (
+    part.state === "output-error" &&
+    typeof part.errorText === "string" &&
+    part.errorText.startsWith(DEAD_INPUT_STREAM_MARKER)
+  );
+}
+
+/**
  * The sentence about where the salvage went. It is only ever as strong as
  * `store`: "has been saved" is said only for a document the route wrote.
  */
@@ -765,7 +791,7 @@ export function sweepDeadInputStreams<P extends PartLike>(
   const announcement = deaths
     .map((death) =>
       [
-        `**${death.verdict.headline}.**`,
+        ANNOUNCEMENT_LEAD,
         death.verdict.detail,
         `To finish it, ask: *${death.verdict.continueRequest}*`,
       ].join("\n\n")

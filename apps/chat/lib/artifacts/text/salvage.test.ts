@@ -4,6 +4,7 @@ import {
   DEAD_INPUT_STREAM_MARKER,
   describeInputStream,
   hasInputStreamEnded,
+  isDeadStreamAnnouncement,
   partialDocumentBody,
   partialDocumentTitle,
   salvageTextDocumentInput,
@@ -412,6 +413,9 @@ describe("sweepDeadInputStreams", () => {
     expect(swept.announcement).not.toBeNull();
     expect(swept.announcement).toContain("never finished");
     expect(swept.announcement).toContain(REAL_LAST_LINE);
+    // The renderer leaves this text out beside a dead-document card by
+    // recognising its first line, so the two must keep agreeing.
+    expect(isDeadStreamAnnouncement(swept.announcement ?? "")).toBe(true);
   });
 
   it("reports every dead call, not just the first", () => {

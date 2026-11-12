@@ -52,7 +52,7 @@ export type PhaseGateState = {
   /**
    * HOW MANY CRITERIA THE JUDGE ACTUALLY SCORED — `perCriterion.length`.
    *
-   * Zero is the signature of `failClosedVerdict` (lib/phases/gate.ts:298),
+   * Zero is the signature of `lib/phases/gate.ts::failClosedVerdict`,
    * which returns `perCriterion: []` and `missing: [reason]`. Without this
    * number, that shape is indistinguishable from a real refusal naming one
    * gap — so a UI listing `missing` would tell a founder that ONE thing is

@@ -434,7 +434,7 @@ describe("describeGateVerdict — the card shows the WHOLE refusal", () => {
 
 describe("describeGateVerdict — a fail-closed BLOCK is not a gap list", () => {
   it("does NOT present a fail-closed verdict as one missing thing", () => {
-    // failClosedVerdict (gate.ts:298) returns perCriterion: [] and
+    // lib/phases/gate.ts::failClosedVerdict returns perCriterion: [] and
     // missing: [reason]. Rendering that as "1 thing is missing" tells a founder
     // the gate found one gap, when the gate never ran and all 8 criteria are
     // still pending. This is the inversion the whole card exists to avoid,

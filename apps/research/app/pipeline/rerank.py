@@ -38,7 +38,9 @@ from .. import schema
 # Upstream's constants, with upstream's reasoning.
 # ─────────────────────────────────────────────────────────────────────────────
 
-#: From lib/rerank.py:780. Upstream's comment, verbatim in substance:
+#: From `OUT_OF_WINDOW_FINAL_MULTIPLIER` in upstream's `lib/rerank.py`
+#: (mvanhorn/last30days-skill @ 9243a32d). Upstream's comment, verbatim in
+#: substance:
 #:
 #:   "The tool's whole promise is the window, so a stale item must not lead the
 #:    ranked clusters however relevant it reads — a 2025-10 video ranked #1 in a

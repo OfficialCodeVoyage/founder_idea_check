@@ -346,7 +346,7 @@ export type GateVerdictView =
        * EVERY named gap, in order — but read `coverage` first.
        *
        * `missing` is NOT the criterion list. `decideGate` fills it per branch,
-       * and `failClosedVerdict` (gate.ts:298) sets `missing: [reason]` with
+       * and `lib/phases/gate.ts::failClosedVerdict` sets `missing: [reason]` with
        * `perCriterion: []`. Rendering that as "1 thing is missing" tells a
        * founder the gate found one gap when it actually never ran and every
        * criterion is still pending.

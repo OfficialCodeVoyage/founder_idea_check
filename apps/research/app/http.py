@@ -240,6 +240,7 @@ def _classify(status: int, url: str, body: str, retry_after: float | None = None
         error = SourceUnavailable(f"HTTP {status} from {url}. Body began: {excerpt!r}")
     error.status = status
     error.retry_after = retry_after
+    error.body = excerpt
     return error
 
 

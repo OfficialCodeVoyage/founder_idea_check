@@ -206,10 +206,11 @@ headers. Those are the only terms found.
 (burst of two, `ARCTIC_SHIFT_LIMITER` in `app/http.py`, retries included) and two
 seconds between subreddits; at most two subreddits per call; at most one retry,
 only for an overload reported in a 200 body (after the wait the archive asks for,
-five seconds or less) or for a 422 whose body says "Timeout" (after two seconds,
-over the last thirty days); no retry for a 429 or for any other 4xx, and after a
-429 the whole lane asks the archive nothing until the pause it named is over
-(thirty seconds when it names none, at most sixty); keywords are sent as `title`,
+five seconds or less); no retry for a 429, for a 422 whose body says "Timeout" or
+for any other 4xx; after a 429 the whole lane asks the archive nothing until the
+pause it named is over (thirty seconds when it names none, at most sixty), and
+after a 422 timeout it asks nothing for twenty seconds and the rest of that call's
+subreddits are not asked; keywords are sent as `title`,
 the parameter the archive's own search example uses (ten live GET requests on
 2026-11-12 in all, generic queries, nothing stored); the whole lane stops at 25
 seconds; never an unscoped search; a field list that excludes `author`, so no username is ever

@@ -37,6 +37,7 @@ from __future__ import annotations
 import datetime
 import logging
 import re
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -110,17 +111,16 @@ _DEFAULT_RETRY_WAIT_SECONDS = 2.0
 # at a time.
 #
 #: At most this many subreddits are asked per call. The app lists them best-fit
-#: first, so the ones left out are the least relevant. Two queries per step make
-#: it at most four requests a step, down from eight.
+#: first, so the ones left out are the least relevant. A timeout and a 429 are
+#: never repeated and each ends the call, so while the archive is failing two
+#: queries per step make at most four requests a step (one per subreddit), down
+#: from eight. The one repeat that exists is the single retry of an overload the
+#: archive reported inside a 200 body (`_get_with_retry`), and a retry that fails
+#: ends the call too.
 _MAX_SUBREDDITS_PER_CALL = 2
 #: A pause between one subreddit's request and the next, on top of the
 #: 1 request/second limiter in `app/http.py`.
 _SUBREDDIT_SPACING_SECONDS = 2.0
-#: An archive search that timed out on its side is asked once more, after this
-#: pause, with a shorter window (`_RETRY_WINDOW_DAYS`).
-_TIMEOUT_BACKOFF_SECONDS = 2.0
-#: The window of that one retry: the most recent days only.
-_RETRY_WINDOW_DAYS = 30
 #: After a 429 the whole lane stays quiet for the wait the archive asked for
 #: (`Retry-After` / `X-RateLimit-Reset`, which it reports per minute), or this
 #: long when it names none, and never longer than the cap: other searches of the
@@ -128,6 +128,18 @@ _RETRY_WINDOW_DAYS = 30
 #: archive that has just said it is receiving too many requests.
 _COOLDOWN_DEFAULT_SECONDS = 30.0
 _COOLDOWN_MAX_SECONDS = 60.0
+#: After a 422 "Timeout" the lane stays quiet for this long, below the cap. The
+#: archive named no wait and a timeout is a slow search, not a refusal, so this is
+#: shorter than the 429 default; it still outlasts the other query of the same
+#: step, which would otherwise ask the next subreddit about two seconds later.
+#: A search that times out is not retried (see `_normalise`): live, the one
+#: retry over the last 30 days timed out again 5 times out of 5.
+_TIMEOUT_COOLDOWN_SECONDS = 20.0
+
+#: The two reasons the lane can be paused, which are also the keys the lane
+#: report uses for them in `_PROBLEM_WORDS`.
+_RATE_LIMITED = "rate-limited"
+_TIMED_OUT = "timed out"
 
 #: Raw URLs and response bodies go HERE, to the sidecar's log, and never into an
 #: error's `detail`: that sentence is shown to the founder in the lane report.
@@ -135,17 +147,30 @@ log = logging.getLogger("research.arctic_shift")
 
 
 class _Cooldown:
-    """When the lane may ask the archive again, on the injected clock."""
+    """When the lane may ask the archive again, on the injected clock, and why.
+
+    SHARED BY THREADS, NOT BY COROUTINES: `app/main.py::fetch_signals` is a plain
+    `def` route, so FastAPI runs each call in its own worker thread and the two
+    queries of one search step really do run at once. `start` reads and then
+    writes `until`, so it holds a lock; a lost update would shorten a pause.
+    """
 
     def __init__(self) -> None:
         self.until = 0.0
+        #: `_RATE_LIMITED` or `_TIMED_OUT`: why the pause that ends last began.
+        self.reason = _RATE_LIMITED
+        self._lock = threading.Lock()
 
     def remaining(self, now: float) -> float:
         return max(0.0, self.until - now)
 
-    def start(self, now: float, seconds: float | None) -> None:
+    def start(self, now: float, seconds: float | None, reason: str) -> None:
         wait = _COOLDOWN_DEFAULT_SECONDS if seconds is None else seconds
-        self.until = max(self.until, now + min(max(wait, 1.0), _COOLDOWN_MAX_SECONDS))
+        ends = now + min(max(wait, 1.0), _COOLDOWN_MAX_SECONDS)
+        with self._lock:
+            if ends > self.until:
+                self.until = ends
+                self.reason = reason
 
 
 ARCTIC_SHIFT_COOLDOWN = _Cooldown()
@@ -197,6 +222,17 @@ _BOILERPLATE = frozenset(
         "surveys", "report", "reports", "pdf", "study", "studies",
         "statistics", "stats", "data", "research", "market", "best", "top",
         "alternative", "alternatives", "guide", "example", "examples",
+        # Research framing: how a researcher words what they want to learn, which
+        # a Reddit title rarely contains. Live QA sent `title=perspectives home`
+        # for "parent perspectives home reading ...": `parent` was dropped, and the
+        # first two words left were one topic word and one piece of framing.
+        "perspective", "perspectives", "insight", "insights", "opinion",
+        "opinions", "view", "views", "attitude", "attitudes", "trend", "trends",
+        "challenge", "challenges", "need", "needs", "solution", "solutions",
+        "option", "options", "tip", "tips", "strategy", "strategies",
+        "approach", "approaches", "way", "ways", "factor", "factors",
+        "behavior", "behaviors", "behaviour", "behaviours", "pattern",
+        "patterns",
         # Words every post in a subreddit chosen for this buyer already shares.
         "people", "person", "parent", "parents", "user", "users", "customer",
         "customers", "struggling", "struggle", "struggles", "problem",
@@ -261,15 +297,20 @@ _MAX_LIMIT = 100
 #   30-day window, 2 s after that                     HTTP 422 in 0.4 s
 #
 # and the run's own requests: 14 of 16 answered 422 with that body (about 6 s
-# each), later ones 429 "Too many requests". So `title` is NOT immune, a shorter
-# window did not rescue it in the one back-to-back test, and the first sample's
+# each), later ones 429 "Too many requests". Then a third live run (2026-11-12,
+# 15 failed requests in about 90 s, 13 of them that 422 body): the lane retried
+# every timed-out search once over the most recent 30 days, and all 5 of those
+# retries timed out again. With the one back-to-back probe above that is 6
+# shorter-window retries, 0 answered, so the retry was REMOVED: it only added
+# load to an archive that was already timing out. So `title` is NOT immune, a
+# shorter window does not rescue it, and the first sample's
 # verdict (query refused, title answered) cannot be separated from WHEN each
 # request was made: the archive sheds keyword searches with this body whatever
 # the parameter. `title` stays because it is the parameter the README's own
 # example uses and it was answered 2 times in 6, `query` 0 times in 4; that is
 # all the evidence there is. What the lane can and does control is how often it
-# asks (`_MAX_SUBREDDITS_PER_CALL`, `_SUBREDDIT_SPACING_SECONDS`, the cool-down
-# after a 429) and what it says when the archive refuses (`_normalise`). The
+# asks (`_MAX_SUBREDDITS_PER_CALL`, `_SUBREDDIT_SPACING_SECONDS`, the pause after
+# a 429 or a timeout) and what it says when the archive refuses (`_normalise`). The
 # archive documents a rate limit as HTTP 429 and says of its own "Query timed
 # out" that the cause is a parameter combination it has not optimised.
 #
@@ -319,9 +360,10 @@ _FIELDS = (
 # answering 200 with {"error": "Timeout. Maybe slow down a bit"}. Removing the
 # retry path would delete the handling for a condition that is still live.
 #
-# The retry is now ONE retry, for a 429 or a body-reported overload only (see
+# The retry is now ONE retry, for a body-reported overload only (see
 # `_get_with_retry`): three retries at 2+5+11 s per subreddit is what let a
-# rate-limited archive eat a minute of every research step.
+# rate-limited archive eat a minute of every research step. A 429 and a 422
+# "Timeout" are not retried at all; each starts a pause of the whole lane.
 _OVERLOAD_MARKERS = ("timeout", "slow down")
 
 
@@ -389,7 +431,7 @@ def _raise_for_payload_error(payload: Any, url: str) -> None:
             "the archive said it was overloaded and asked us to slow down (in the body "
             "of its answer, not as an empty result)"
         )
-    raise SourceUnavailable("the archive reported an error instead of posts")
+    raise _ArchiveReportedError("the archive reported an error instead of posts")
 
 
 def parse_posts(payload: Any, prepared: PreparedQuery, url: str) -> list[SourceItem]:
@@ -466,17 +508,22 @@ class _UpstreamTimeout(SourceUnavailable):
 
     Still `unavailable` on the wire (`errors.py::SourceUnavailable` is documented
     as "network error, DNS failure, timeout, or a 5xx"); its own class so the
-    lane can name it, and so `_normalise` can ask for the one shorter retry.
+    lane can name it, and so `fetch` can end the call and pause the lane.
     """
 
 
-_NO_RETRY = "none"
-_RETRY_SAME_URL = "same"
-_RETRY_SHORTER_WINDOW = "shorter"
+class _ArchiveReportedError(SourceUnavailable):
+    """The archive answered 200 with an `error` string that is not an overload.
+
+    Its own class so `_normalise` can keep what it means (the archive answered,
+    and what it sent was an error, not posts) instead of folding it into "could
+    not be reached", and so the lane report can say so. Its `detail` is already a
+    sentence for the founder: no URL and no body.
+    """
 
 
-def _normalise(error: SourceError, url: str) -> tuple[SourceError, str]:
-    """The failure in plain words, and the one retry that can help (or none).
+def _normalise(error: SourceError, url: str) -> tuple[SourceError, bool]:
+    """The failure in plain words, and whether ONE retry can help.
 
     EVERY `detail` THIS RETURNS IS A SENTENCE FOR THE FOUNDER. The raw error
     from `http.py` carries the request URL and the start of the response body,
@@ -492,16 +539,20 @@ def _normalise(error: SourceError, url: str) -> tuple[SourceError, str]:
       too many requests; the lane starts its cool-down (`fetch`) and stops.
     - Overload reported in a 200 body (no status): RATE-LIMITED, retried once
       after the wait the archive asked for.
-    - 422 whose body says "Timeout": `_UpstreamTimeout`. Live QA (2026-11-12)
-      saw this on 14 of 16 requests in one run (about 6 s each), and four more
-      probes saw it too, after 0.4 to 0.5 s (`_KEYWORD_PARAMETER`): the archive's
-      keyword search is slow or being shed on ITS side. That is neither a bad
-      request (a 422 reads "unprocessable") nor a rate limit (the archive
-      documents that as a 429). Retried ONCE, after a pause, with a shorter
-      window (`_get_with_retry`); in the one back-to-back probe a 30-day window
-      was refused too, so how often this helps is not established.
+    - 422 whose BODY says "Timeout" (the body, `SourceError.body`, and not the
+      whole `detail`: that holds the request URL, and the URL holds the query's
+      words): `_UpstreamTimeout`. Live QA (2026-11-12) saw this on 13 to 14 of
+      every 16 requests in a run (about 6 s each), and probes saw it after 0.4 to
+      0.5 s (`_KEYWORD_PARAMETER`): the archive's keyword search is slow or being
+      shed on ITS side. That is neither a bad request (a 422 reads
+      "unprocessable") nor a rate limit (the archive documents that as a 429).
+      NOT retried: the one retry this used to make, over the last 30 days, timed
+      out again 5 times out of 5 live, so it only added load to an archive that
+      was already struggling. `fetch` ends the call and pauses the whole lane.
     - Any other 4xx, including a 422 that does not say Timeout: REJECTED THE
       QUERY, no retry: the archive has decided about this request.
+    - A 200 body with an error that is not an overload (`_ArchiveReportedError`):
+      kept as what it is, no retry.
     - Anything else (5xx, network, timeout, schema drift): the class it was, in
       plain words, no retry.
     """
@@ -514,7 +565,7 @@ def _normalise(error: SourceError, url: str) -> tuple[SourceError, str]:
             "the sidecar runs, which a different query will not fix"
         )
         blocked.status = status
-        return blocked, _NO_RETRY
+        return blocked, False
     if status == 429:
         asked = error.retry_after
         pause = f", and asked for a pause of {asked:.0f} s" if asked is not None else ""
@@ -522,18 +573,18 @@ def _normalise(error: SourceError, url: str) -> tuple[SourceError, str]:
             f"rate-limited (the archive said it is receiving too many requests{pause})"
         )
         limited.status, limited.retry_after = status, asked
-        return limited, _NO_RETRY
+        return limited, False
     if status is None and isinstance(error, SourceRateLimited):
         limited = SourceRateLimited(f"rate-limited ({error.detail})")
         limited.retry_after = error.retry_after
-        return limited, _RETRY_SAME_URL
-    if status == 422 and _is_overload(error.detail):
+        return limited, True
+    if status == 422 and _is_overload(error.body or ""):
         timed_out = _UpstreamTimeout(
             "the archive could not run the search in time (HTTP 422, a timeout on its side): "
             "it is busy or slowing this server down, which a different query will not fix"
         )
         timed_out.status = status
-        return timed_out, _RETRY_SHORTER_WINDOW
+        return timed_out, False
     if status is not None and 400 <= status < 500:
         why = (
             "the archive could not process this request"
@@ -542,33 +593,20 @@ def _normalise(error: SourceError, url: str) -> tuple[SourceError, str]:
         )
         rejected = SourceUnavailable(f"rejected the query (HTTP {status}): {why}")
         rejected.status = status
-        return rejected, _NO_RETRY
+        return rejected, False
+    if isinstance(error, _ArchiveReportedError):
+        return error, False
     if isinstance(error, SourceSchemaDrift):
-        return SourceSchemaDrift("the archive answered in a shape this adapter does not know"), (
-            _NO_RETRY
-        )
+        return SourceSchemaDrift(
+            "the archive answered in a shape this adapter does not know"
+        ), False
     unavailable = SourceUnavailable(
         f"the archive answered HTTP {status}"
         if status is not None
         else "the archive could not be reached, or did not answer in time"
     )
     unavailable.status = status
-    return unavailable, _NO_RETRY
-
-
-def _shorter_window_start(date_from: str, date_to: str) -> str:
-    """PURE. The start of the retry window: the last `_RETRY_WINDOW_DAYS` days.
-
-    `date_from` unchanged when the window is already that short, or when either
-    date is not an ISO date (the retry then repeats the request).
-    """
-    try:
-        end = datetime.date.fromisoformat(date_to)
-        start = datetime.date.fromisoformat(date_from)
-    except ValueError:
-        return date_from
-    recent = end - datetime.timedelta(days=_RETRY_WINDOW_DAYS)
-    return recent.isoformat() if recent > start else date_from
+    return unavailable, False
 
 
 def _get_with_retry(
@@ -578,18 +616,16 @@ def _get_with_retry(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     limiter: RateLimiter = ARCTIC_SHIFT_LIMITER,
-    shorter_url: str | None = None,
 ) -> Any:
     """One request, plus at most ONE retry, and never past `deadline`.
 
-    Two things are retried (see `_normalise`), and nothing else: a body-reported
-    overload, after the wait the archive asked for (`Retry-After` or
-    `X-RateLimit-Reset`, at most `_MAX_RETRY_WAIT_SECONDS`), and the archive's
-    own timeout, after `_TIMEOUT_BACKOFF_SECONDS`, with `shorter_url` (the same
-    search over the most recent days) when there is one. A 400, a 404, a 429, a
-    non-timeout 422 or a schema drift is a fact about the request or the archive
-    that will not improve by asking again. The retry is skipped when it would
-    not leave time for the request itself.
+    One thing is retried (see `_normalise`), and nothing else: an overload the
+    archive reported inside a 200 body, after the wait it asked for (`Retry-After`
+    or `X-RateLimit-Reset`, at most `_MAX_RETRY_WAIT_SECONDS`), over the same URL.
+    A 400, a 404, a 429, a 422 (a timeout included: asking again did not help live,
+    and adds load) or a schema drift is a fact about the request or the archive
+    that will not improve by asking again. The retry is skipped when it would not
+    leave time for the request itself.
 
     Every attempt goes through `limiter`, so a retry is paced like a first
     request: the 1 request/second politeness limit holds either way.
@@ -615,20 +651,12 @@ def _get_with_retry(
         else:
             return payload
 
-        if attempt == 2 or retry == _NO_RETRY:
+        if attempt == 2 or not retry:
             raise failure
-        if retry == _RETRY_SHORTER_WINDOW:
-            wait = _TIMEOUT_BACKOFF_SECONDS
-            next_url = shorter_url or url
-        else:
-            wait = (
-                _DEFAULT_RETRY_WAIT_SECONDS if failure.retry_after is None else failure.retry_after
-            )
-            next_url = url
+        wait = _DEFAULT_RETRY_WAIT_SECONDS if failure.retry_after is None else failure.retry_after
         if wait > _MAX_RETRY_WAIT_SECONDS or clock() + wait + _MIN_REQUEST_SECONDS > deadline:
             raise failure
         sleep(wait)
-        url = next_url
 
     raise AssertionError("unreachable: the second attempt returns or raises")
 
@@ -666,17 +694,13 @@ class ArcticShiftSource:
                 "newest posts rather than a search."
             )
 
-        # STOP EARLY ON A 429, for the whole lane and not just this call: after the
-        # archive said it is receiving too many requests, the other query of the
-        # same step and the run's later searches do not ask it until the pause it
-        # named is over.
+        # STOP EARLY ON A 429 OR A TIMEOUT, for the whole lane and not just this
+        # call: after the archive said it is receiving too many requests, or its
+        # search timed out, the other query of the same step and the run's later
+        # searches do not ask it until the pause is over.
         left = cooldown.remaining(clock())
         if left > 0:
-            raise SourceRateLimited(
-                f"rate-limited (the archive said it is receiving too many requests, so "
-                f"this lane is not asking it for another {left:.0f} s); Reddit was not "
-                "searched, which is not a finding that nobody discusses the topic"
-            )
+            raise _paused(cooldown.reason, left)
 
         # Relevance is still scored against the researcher's FULL query: the
         # keywords decide what the archive returns, not how well it fits.
@@ -685,8 +709,9 @@ class ArcticShiftSource:
         seen_urls: set[str] = set()
         # One plain line per subreddit, for the founder-facing lane report.
         outcomes: list[str] = []
-        # Which of "blocked", "rate-limited", "timed out", "rejected", "out of
-        # time", "failed" happened.
+        # Which of "blocked", "rate-limited", "timed out", "rejected", "errored",
+        # "out of time", "capped", "failed" happened. Every one of them means part
+        # of the lane was not searched in full.
         problems: set[str] = set()
         deadline = clock() + _LANE_WALL_TIME_SECONDS
         stop_reason: str | None = None
@@ -696,23 +721,29 @@ class ArcticShiftSource:
         for subreddit in subreddits:
             if stop_reason is None and asked >= _MAX_SUBREDDITS_PER_CALL:
                 stop_reason = f"at most {_MAX_SUBREDDITS_PER_CALL} subreddits are asked per search"
+                # Left out, not searched and found empty: see the end of this method.
+                problems.add("capped")
             if stop_reason is not None:
                 outcomes.append(f"r/{subreddit}: not asked ({stop_reason})")
                 continue
             if asked > 0 and deadline - clock() > _SUBREDDIT_SPACING_SECONDS + _MIN_REQUEST_SECONDS:
                 sleep(_SUBREDDIT_SPACING_SECONDS)
+            # RE-CHECK THE PAUSE BEFORE EVERY REQUEST, not only when the call starts.
+            # The two queries of a step run at the same time, in two threads, and
+            # the pause above can have been started by the other one while this call
+            # waited its two seconds: asking the next subreddit then would send the
+            # archive a request that the lane has just decided not to send.
+            left = cooldown.remaining(clock())
+            if left > 0:
+                problems.add(cooldown.reason)
+                stop_reason = f"another search just paused this lane for {left:.0f} s"
+                outcomes.append(f"r/{subreddit}: not asked ({stop_reason})")
+                continue
             asked += 1
             url = build_search_url(
                 subreddit=str(subreddit),
                 query=keywords,
                 date_from=query.date_from,
-                date_to=query.date_to,
-                limit=query.limit,
-            )
-            shorter_url = build_search_url(
-                subreddit=str(subreddit),
-                query=keywords,
-                date_from=_shorter_window_start(query.date_from, query.date_to),
                 date_to=query.date_to,
                 limit=query.limit,
             )
@@ -723,7 +754,6 @@ class ArcticShiftSource:
                     clock=clock,
                     sleep=sleep,
                     limiter=limiter,
-                    shorter_url=shorter_url,
                 )
                 found = parse_posts(payload, prepared, url)
             except _LaneOutOfTime:
@@ -734,11 +764,11 @@ class ArcticShiftSource:
             except SourceRateLimited as error:
                 # Asking the next subreddit of a host that is rate-limiting us
                 # would be refused too, and would be the opposite of polite.
-                problems.add("rate-limited")
+                problems.add(_RATE_LIMITED)
                 stop_reason = "the archive was already rate-limiting this lane"
                 outcomes.append(f"r/{subreddit}: {error.detail}")
                 if error.status == 429:
-                    cooldown.start(clock(), error.retry_after)
+                    cooldown.start(clock(), error.retry_after, _RATE_LIMITED)
                 continue
             except SourceError as error:
                 # The BASE class, deliberately: one subreddit failing is not the
@@ -748,7 +778,17 @@ class ArcticShiftSource:
                 if isinstance(error, SourceBlocked):
                     problems.add("blocked")
                 elif isinstance(error, _UpstreamTimeout):
-                    problems.add("timed out")
+                    # A TIMEOUT ENDS THE CALL AND PAUSES THE LANE. The search was not
+                    # retried (`_normalise`), and the next subreddit would meet the
+                    # same archive: it timed out on 13 of 15 requests in one live run
+                    # whichever subreddit was asked. So the remaining subreddits are
+                    # not asked, and for `_TIMEOUT_COOLDOWN_SECONDS` neither is any
+                    # other search of this lane.
+                    problems.add(_TIMED_OUT)
+                    stop_reason = "the archive's search just timed out on its side"
+                    cooldown.start(clock(), _TIMEOUT_COOLDOWN_SECONDS, _TIMED_OUT)
+                elif isinstance(error, _ArchiveReportedError):
+                    problems.add("errored")
                 elif status is not None and 400 <= status < 500:
                     problems.add("rejected")
                 else:
@@ -767,8 +807,12 @@ class ArcticShiftSource:
 
         if not collected and problems:
             # NEVER an empty list here. Nothing came back AND part of the lane
-            # was not searched, so "found nothing" would be a claim about
-            # subreddits nobody looked at.
+            # was not searched (a subreddit failed, was paused, ran out of time, or
+            # was left out by `_MAX_SUBREDDITS_PER_CALL`), so "found nothing" would
+            # be a claim about subreddits nobody looked at. The report carries it
+            # the one way the wire has for a lane that did not finish: a failure
+            # whose `detail` lists every subreddit's outcome (`LaneOutcome`
+            # `refused` in apps/chat/tools/platform/deep-research/lane-report.ts).
             raise _lane_failure(keywords, problems, outcomes)
 
         for index, item in enumerate(collected, start=1):
@@ -778,12 +822,32 @@ class ArcticShiftSource:
 
 _PROBLEM_WORDS = {
     "blocked": "refused this server (HTTP 403: a blocked host, not a bad query)",
-    "rate-limited": "rate-limited this lane",
-    "timed out": "timed out on its own side",
+    _RATE_LIMITED: "rate-limited this lane",
+    _TIMED_OUT: "timed out on its own side",
     "rejected": "rejected the query",
+    "errored": "answered with an error instead of posts",
     "failed": "failed to answer",
     "out of time": "ran past this lane's time limit",
+    "capped": "searched only the best-fitting subreddits",
 }
+
+
+def _paused(reason: str, left: float) -> SourceError:
+    """PURE. What a call made while the lane is paused raises: nothing was sent.
+
+    A paused lane is a lane that was not searched, so it says so in the same words
+    a failed one does, and never reads as "nobody discusses the topic".
+    """
+    not_searched = "Reddit was not searched, which is not a finding that nobody discusses the topic"
+    if reason == _TIMED_OUT:
+        return SourceUnavailable(
+            f"timed out on its own side a moment ago (the archive could not run a search in "
+            f"time, so this lane is not asking it for another {left:.0f} s); {not_searched}"
+        )
+    return SourceRateLimited(
+        f"rate-limited (the archive said it is receiving too many requests, so this lane "
+        f"is not asking it for another {left:.0f} s); {not_searched}"
+    )
 
 
 def _lane_failure(keywords: str, problems: set[str], outcomes: list[str]) -> SourceError:
@@ -793,7 +857,9 @@ def _lane_failure(keywords: str, problems: set[str], outcomes: list[str]) -> Sou
     matters (run the sidecar from another network), and waiting cannot fix it, so
     it outranks a rate limit seen alongside it. `rate-limited` when every problem
     was a rate limit or the lane's own time limit (asking later can help);
-    `unavailable` otherwise.
+    `unavailable` otherwise, which includes `capped` on its own: the best-fitting
+    subreddits answered with no posts and the others were never asked, which is a
+    lane that did not finish, not a failure of the archive.
     """
     words = [_PROBLEM_WORDS[key] for key in _PROBLEM_WORDS if key in problems]
     detail = (
@@ -803,6 +869,6 @@ def _lane_failure(keywords: str, problems: set[str], outcomes: list[str]) -> Sou
     )
     if "blocked" in problems:
         return SourceBlocked(detail)
-    if problems <= {"rate-limited", "out of time"}:
+    if problems <= {_RATE_LIMITED, "out of time"}:
         return SourceRateLimited(detail)
     return SourceUnavailable(detail)

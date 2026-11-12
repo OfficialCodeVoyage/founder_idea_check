@@ -35,6 +35,13 @@ class SourceError(Exception):
     #: never "retry immediately".
     retry_after: float | None = None
 
+    #: The start of the response body, when the failure was an HTTP status (set
+    #: by `http.py::_classify`). It is ALSO inside `detail`, next to the URL, but
+    #: an adapter that must tell one 4xx from another (Arctic Shift's 422
+    #: "Timeout" from its other 422s) reads it here, not out of a sentence whose
+    #: URL can contain any word a query had. It never reaches the wire.
+    body: str | None = None
+
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
         self.detail = detail

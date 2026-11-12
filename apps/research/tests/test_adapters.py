@@ -617,11 +617,25 @@ class _FreeLimiter:
         return True
 
 
-def _http_error(cls, status, detail, retry_after=None):
+def _http_error(cls, status, detail, retry_after=None, body=None):
     error = cls(detail)
     error.status = status
     error.retry_after = retry_after
+    error.body = body
     return error
+
+
+_ARCHIVE_TIMEOUT_BODY = "Timeout. Maybe slow down a bit"
+
+
+def _archive_timeout():
+    """What `http.py::_classify` raises for the archive's 422 "Timeout"."""
+    return _http_error(
+        SourceUnavailable,
+        422,
+        f"HTTP 422 from https://arctic.example/api. Body began: {_ARCHIVE_TIMEOUT_BODY!r}",
+        body=_ARCHIVE_TIMEOUT_BODY,
+    )
 
 
 def _retry(url, clock, deadline_in=25.0):
@@ -735,38 +749,26 @@ class TestArcticShiftRetry:
         assert caught.value.kind == "blocked"
         assert not caught.value.detail.startswith("rejected the query")
 
-    def test_a_422_timeout_is_an_upstream_timeout_retried_once_with_a_shorter_window(
-        self, monkeypatch
-    ):
-        # REGRESSION (live QA, twice). The archive answers HTTP 422
+    def test_a_422_timeout_is_an_upstream_timeout_and_is_not_retried(self, monkeypatch):
+        # REGRESSION (live QA, three times). The archive answers HTTP 422
         # {"error":"Timeout. Maybe slow down a bit"} when its own keyword search
         # cannot run. That is neither a rate limit (a 429) nor a malformed
-        # request: the failure kind stays `unavailable`, the sentence says it is
-        # a timeout on the archive's side, and it is asked ONCE more, after a
-        # pause, with the shorter window.
+        # request: the failure kind stays `unavailable` and the sentence says it
+        # is a timeout on the archive's side. It is NOT asked again: the one
+        # retry this used to make, over the last 30 days, timed out 5 times out
+        # of 5 live and only added load to an archive that was already timing out.
         urls: list[str] = []
 
         def fake_get_json(url, timeout=None):
             urls.append(url)
-            raise _http_error(
-                SourceUnavailable,
-                422,
-                "HTTP 422 from https://arctic.example/api. Body began: 'Timeout. Maybe slow down a bit'",
-            )
+            raise _archive_timeout()
 
         monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
         clock = _Clock()
         with pytest.raises(arctic_shift._UpstreamTimeout) as caught:
-            arctic_shift._get_with_retry(
-                "full-window-url",
-                deadline=clock() + 25.0,
-                clock=clock,
-                sleep=clock.sleep,
-                limiter=_FreeLimiter(),
-                shorter_url="short-window-url",
-            )
-        assert urls == ["full-window-url", "short-window-url"]
-        assert clock.slept == [arctic_shift._TIMEOUT_BACKOFF_SECONDS]
+            _retry("full-window-url", clock)
+        assert urls == ["full-window-url"]
+        assert clock.slept == []
         assert caught.value.kind == "unavailable"
         assert caught.value.status == 422
         detail = caught.value.detail
@@ -807,11 +809,50 @@ class TestArcticShiftRetry:
             _retry("https://arctic.example/x", _Clock())
         assert caught.value.detail == "the archive answered HTTP 503"
 
-    def test_the_shorter_window_is_the_most_recent_days_or_unchanged(self):
-        assert arctic_shift._shorter_window_start("2025-11-12", "2026-11-12") == "2026-10-13"
-        # Already shorter than the retry window, or not a date: repeat as is.
-        assert arctic_shift._shorter_window_start("2026-11-01", "2026-11-12") == "2026-11-01"
-        assert arctic_shift._shorter_window_start("", "2026-11-12") == ""
+    def test_a_url_that_says_timeout_does_not_make_a_422_a_timeout(self, monkeypatch):
+        # REGRESSION (code review). `http.py::_classify` builds the detail as
+        # "HTTP 422 from <url>. Body began: ...", and the URL holds the query's
+        # words: a query that contains "timeout" made a 422 with an unrelated body
+        # a timeout, retried it and said the archive was slow. Only the BODY says.
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            raise _http_error(
+                SourceUnavailable,
+                422,
+                "HTTP 422 from https://arctic.example/api?title=timeout+handling. "
+                "Body began: 'invalid date'",
+                body="invalid date",
+            )
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        clock = _Clock()
+        with pytest.raises(SourceUnavailable) as caught:
+            _retry("u", clock)
+        assert calls["n"] == 1
+        assert clock.slept == []
+        assert not isinstance(caught.value, arctic_shift._UpstreamTimeout)
+        assert caught.value.detail.startswith("rejected the query (HTTP 422)")
+
+    def test_a_200_body_error_that_is_not_an_overload_keeps_its_own_meaning(self, monkeypatch):
+        # REGRESSION (code review). An `error` inside a 200 body that is not an
+        # overload fell through to "the archive could not be reached, or did not
+        # answer in time", which it is not: the archive answered, with an error.
+        calls = {"n": 0}
+
+        def fake_get_json(url, timeout=None):
+            calls["n"] += 1
+            return {"data": None, "error": "Invalid subreddit name"}
+
+        monkeypatch.setattr(arctic_shift, "get_json", fake_get_json)
+        with pytest.raises(SourceUnavailable) as caught:
+            _retry("https://arctic.example/x", _Clock())
+        assert calls["n"] == 1
+        assert caught.value.detail == "the archive reported an error instead of posts"
+        assert "could not be reached" not in caught.value.detail
+        assert "https://" not in caught.value.detail
+        assert "Invalid subreddit" not in caught.value.detail
 
 
 class TestArcticShiftKeywordQuery:
@@ -824,6 +865,12 @@ class TestArcticShiftKeywordQuery:
             "Australia Canada New Zealand"
         )
         assert arctic_shift.keyword_query(query) == "reluctant readers"
+
+        # Research framing is dropped too: live QA sent `title=perspectives home`
+        # for a query framed "parent perspectives home reading ...", so one of the
+        # two kept words was framing no Reddit title contains.
+        framed = "parent perspectives home reading strategies insights challenges"
+        assert arctic_shift.keyword_query(framed) == "home reading"
 
     def test_search_operators_and_quotes_are_dropped(self):
         query = 'site:reddit.com -ads "flea treatment" OR reminder'
@@ -915,45 +962,94 @@ class TestArcticShiftLaneResilience:
             self._fetch(["empty", "bad"])
         assert "rejected the query" in caught.value.detail
 
-    def test_a_lane_that_times_out_says_so_in_plain_words_and_asks_only_two(self, monkeypatch):
+        # The same when nothing failed but the cap left subreddits out: two
+        # subreddits answered with no posts, a third was never asked. That is a
+        # lane that did not finish, reported the one way the wire has for it (a
+        # failure that lists every subreddit), not "found nothing".
+        asked: list[str] = []
+
+        def fake_empty(url, **_kw):
+            asked.append(url)
+            return {"data": []}
+
+        monkeypatch.setattr(arctic_shift, "_get_with_retry", fake_empty)
+        with pytest.raises(SourceUnavailable) as capped:
+            self._fetch(["a", "b", "c"])
+        assert len(asked) == arctic_shift._MAX_SUBREDDITS_PER_CALL
+        detail = capped.value.detail
+        assert detail.startswith("Arctic Shift searched only the best-fitting subreddits")
+        assert "not a finding" in detail
+        assert "r/a: answered, 0 matching posts" in detail
+        assert "r/c: not asked (at most 2 subreddits are asked per search)" in detail
+
+    def test_a_lane_that_times_out_says_so_in_plain_words_and_stops_after_the_first(
+        self, monkeypatch
+    ):
         # REGRESSION (live QA): 14 of 16 subreddit requests answered HTTP 422
         # "Timeout. Maybe slow down a bit"; the lane called it a rate limit, then
         # an unprocessable request, and showed the raw archive URL and body to
-        # the founder. At most two subreddits are asked per call, each at most
-        # twice, and the lane fails as `unavailable` with a sentence a founder can
-        # read.
+        # the founder. A timeout is not repeated and ends the call: the one request
+        # is the only one, the rest are named as not asked, and the lane fails as
+        # `unavailable` with a sentence a founder can read.
         asked: list[str] = []
 
         def get_json_timeout(url, timeout=None):
             asked.append(url)
-            raise _http_error(
-                SourceUnavailable,
-                422,
-                "HTTP 422 from https://arctic.example/api. Body began: "
-                "'Timeout. Maybe slow down a bit'",
-            )
+            raise _archive_timeout()
 
         monkeypatch.setattr(arctic_shift, "get_json", get_json_timeout)
         clock = _Clock()
         with pytest.raises(SourceError) as caught:
             self._fetch(["a", "b", "c", "d"], clock=clock)
-        # Two subreddits, each tried and retried once with the shorter window.
-        assert len(asked) == 4
-        assert "subreddit=c" not in "".join(asked)
-        assert "after=2026-01-01" in asked[0]
-        assert "after=2026-07-21" in asked[1]
+        assert len(asked) == 1
+        assert "subreddit=a" in asked[0]
+        assert clock.slept == []
         failure = caught.value
         assert type(failure) is SourceUnavailable
         assert failure.kind == "unavailable"
         detail = failure.detail
         assert detail.startswith("Arctic Shift timed out on its own side")
         assert "rate-limited" not in detail
-        assert "r/c: not asked (at most 2 subreddits are asked per search)" in detail
+        assert "r/b: not asked (the archive's search just timed out on its side)" in detail
+        assert "r/d: not asked (the archive's search just timed out on its side)" in detail
         assert "https://" not in detail
         assert "Body began" not in detail
         assert "Maybe slow down" not in detail
-        # The second subreddit is not asked straight after the first.
-        assert arctic_shift._SUBREDDIT_SPACING_SECONDS in clock.slept
+
+    def test_a_422_timeout_pauses_the_lane_so_three_calls_send_one_request(self, monkeypatch):
+        # REGRESSION (code review). A 422 "Timeout" started no pause and did not
+        # stop the call: every request mocked as a timeout made 4 requests per call
+        # (two subreddits, each asked twice) and 12 for three calls, with the pause
+        # still at 0. Now the first timeout ends the call and starts a pause below
+        # the cap, and the calls that follow send nothing.
+        asked: list[str] = []
+
+        def get_json_timeout(url, timeout=None):
+            asked.append(url)
+            raise _archive_timeout()
+
+        monkeypatch.setattr(arctic_shift, "get_json", get_json_timeout)
+        clock = _Clock()
+        cooldown = arctic_shift._Cooldown()
+        for _ in range(3):
+            with pytest.raises(SourceUnavailable) as caught:
+                self._fetch(["a", "b"], clock=clock, cooldown=cooldown)
+        assert len(asked) == 1
+        pause = cooldown.until - clock()
+        assert pause == arctic_shift._TIMEOUT_COOLDOWN_SECONDS
+        assert 0 < pause < arctic_shift._COOLDOWN_MAX_SECONDS
+        assert cooldown.reason == "timed out"
+        # The calls made during the pause say why nothing was sent, in plain words.
+        detail = caught.value.detail
+        assert detail.startswith("timed out on its own side a moment ago")
+        assert "for another 20 s" in detail
+        assert "not a finding" in detail
+        assert "https://" not in detail
+
+        clock.now += pause + 1.0  # the pause is over
+        with pytest.raises(SourceUnavailable):
+            self._fetch(["a", "b"], clock=clock, cooldown=cooldown)
+        assert len(asked) == 2
 
     def test_a_429_starts_a_cooldown_that_keeps_the_next_search_off_the_archive(self, monkeypatch):
         # STOP EARLY ON A 429, for the lane and not only for the call: the other
@@ -982,6 +1078,33 @@ class TestArcticShiftLaneResilience:
         with pytest.raises(SourceRateLimited):
             self._fetch(["a", "b"], clock=clock, cooldown=cooldown)
         assert len(asked) == 2
+
+        # RE-CHECKED BEFORE EVERY REQUEST, not only when the call starts. The two
+        # queries of a step run at once: while this call waits out the spacing before
+        # its second subreddit, the other one gets a 429 and starts the pause.
+        asked.clear()
+        racing = arctic_shift._Cooldown()
+        race_clock = _Clock()
+
+        def get_json_empty(url, timeout=None):
+            asked.append(url)
+            return {"data": []}
+
+        def sleep_while_the_other_query_is_limited(seconds):
+            race_clock.sleep(seconds)
+            racing.start(race_clock(), 20.0, "rate-limited")
+
+        monkeypatch.setattr(arctic_shift, "get_json", get_json_empty)
+        with pytest.raises(SourceRateLimited) as paused:
+            arctic_shift.ArcticShiftSource().fetch(
+                self._query(["a", "b"]),
+                clock=race_clock,
+                sleep=sleep_while_the_other_query_is_limited,
+                limiter=_FreeLimiter(),
+                cooldown=racing,
+            )
+        assert len(asked) == 1  # b was not asked
+        assert "r/b: not asked (another search just paused this lane" in paused.value.detail
 
     def test_a_lane_refused_with_403_is_reported_blocked_not_rejected(self, monkeypatch):
         # Every subreddit answered 403: the archive refused this server. The

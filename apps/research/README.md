@@ -89,8 +89,9 @@ without the author and no username is ever received.
 
 The archive matches every word it is sent, so the lane does not forward the
 researcher's web-search string: `keyword_query` drops search operators
-(`site:`, `-term`, `OR`), quotes, stopwords and web-search boilerplate and keeps
-the first two content words, sent as the archive's `title` keyword parameter, so
+(`site:`, `-term`, `OR`), quotes, stopwords, web-search boilerplate and research
+framing (perspectives, insights, strategies, challenges) and keeps the first two
+content words, sent as the archive's `title` keyword parameter, so
 the lane matches titles only. (On 2026-11-12 the archive answered the `query`
 parameter, title and body together per its README, with HTTP 422 on four probes
 out of four and `title` on two out of six; the 422 body reads "Timeout. Maybe
@@ -103,9 +104,17 @@ the dominant failure, so the lane is polite and bounded:
 - a 429 is not retried: it starts a cool-down of the lane (the pause the archive
   named, thirty seconds when it names none, at most sixty) during which no search
   asks the archive at all, and the rest of that call's subreddits are not asked;
-- a 422 whose body says "Timeout" is the archive's search timing out on its side,
-  not a rate limit and not a bad query: it is asked once more after a two-second
-  pause with the most recent thirty days only, and reported as a timeout;
+- a 422 whose body (not its URL) says "Timeout" is the archive's search timing out
+  on its side, not a rate limit and not a bad query, and it is not retried
+  either: a retry over the most recent thirty days timed out again five times out
+  of five in a live run, so it only loaded an archive that was already struggling.
+  The timeout ends the call (the remaining subreddits are not asked), starts a
+  twenty-second cool-down of the lane under the same rule as a 429, and is
+  reported as a timeout. A step whose archive is timing out therefore costs about
+  one request per query, where it used to cost up to eight;
+- the cool-down is checked again before every subreddit's request, because the
+  two queries of a step run at the same time and the other one may have started
+  it while this one waited;
 - an overload reported in a 200 body is retried once after the wait it asked for
   (up to five seconds); any other 4xx is a rejected query and is not retried;
 - twenty-five seconds for the whole lane.
@@ -115,6 +124,10 @@ start of the response body are written to the sidecar's log (`research.arctic_sh
 and never returned, because the report is shown to the founder verbatim. When the
 lane returns nothing because it was rate-limited, timed out, rejected the query or
 ran out of time, it says so in those words instead of reporting an empty result.
+The same holds when the two best-fitting subreddits answered with no posts and
+others were left out by the two-subreddit cap: that is a lane that was not
+searched in full, so it is reported as a failure naming each subreddit, and
+"found nothing" is kept for a lane that asked everything it was given.
 
 The permission gate (`app/sources/base.py::assert_permitted`) still supports a
 source that is barred in hosted mode or needs a credential beyond the operator

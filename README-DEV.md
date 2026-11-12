@@ -1,167 +1,228 @@
 # Local development
 
-> **First time here? Read [`GETTING-STARTED.md`](./GETTING-STARTED.md) instead.**
-> It is the copy-paste path from clone to a working, signed-in app.
-> This file is the reference for people who already have it running.
+The reference for people who already have the app running. If you are starting from a fresh clone, read
+[`GETTING-STARTED.md`](GETTING-STARTED.md) first: it is the same quick start, one step at a time.
 
 ## Prerequisites
 
-`bun` (the repo pins `packageManager: bun@1.3.1` — **pnpm will refuse to install**) and Docker.
+- Bun 1.3.14 or newer. The repo pins `packageManager: bun@1.3.14`; npm and pnpm refuse to install it.
+- Node.js 20.9 or newer (Next.js runs on it).
+- Docker with Compose v2.
+- bash: the scripts are written for it, so on Windows use WSL 2.
+- Python 3.11 and [uv](https://docs.astral.sh/uv/), only if you run the research service outside Docker. It must be
+  3.11: the simulation library pins `>=3.10,<3.12`.
+
+## Ports and services
+
+| What | Where | Started by | Notes |
+| --- | --- | --- | --- |
+| The app, `bun run dev:local` | `localhost:3100` | you | `PORT=3210 bun run dev:local` picks another port. |
+| The app, `bun run dev` | `localhost:3000` plus 10 per worktree slot | you | Through turbo; see [Worktrees](#worktrees). |
+| Postgres 17 with pgvector (`ic-pg`) | `127.0.0.1:5433` | Compose | Database `ideacheck`, user and password `postgres`. |
+| Valkey, a Redis-compatible server (`ic-redis`) | `127.0.0.1:6380` | Compose | Optional; only used when `REDIS_URL` is set. |
+| Research service | `127.0.0.1:8099` | Compose, or a virtualenv | No authentication, and its endpoints spend money. |
+| SearXNG (`ic-searxng`) | `127.0.0.1:8888` | the opt-in overlay | AGPL-3.0, so it is not in the default stack. |
+
+The ports are offset (5433, not 5432) so they cannot collide with a Postgres or Redis you already run, and every one is
+bound to loopback. That is why Postgres can have the password `postgres` and Valkey none. If you ever publish one on
+another interface, give it a real password in the same change.
 
 ```bash
-curl -fsSL https://bun.sh/install | bash   # if not already installed
+docker compose up -d --wait            # Postgres, Valkey and the research service container
+docker compose up -d postgres redis    # only the first two, when you run the research service yourself
+docker compose stop                    # stop, keeping the data
+docker compose down                    # remove the containers, keeping the data (named volumes)
+docker compose down -v                 # also delete the database and Redis volumes
 ```
 
-## Services
+The Postgres image is `pgvector/pgvector:pg17`, not `postgres:17-alpine`: `ProjectFact.embedding` needs the `vector`
+extension, and on a stock image the first migration fails with `type "vector" does not exist`.
 
-Postgres and Redis run in Docker on **offset ports** so they don't collide with
-anything already running locally:
+## The research sidecar, in a container or a virtualenv
+
+The service in `apps/research` has two ways to run. [`apps/research/README.md`](apps/research/README.md) owns its
+sources and their policy; this is how to run it.
+
+**The container.** `docker compose up -d --wait` builds it from `apps/research` and starts it. It is fixed to
+`RESEARCH_HOSTED=false` and `RESEARCH_ENABLED_SOURCES=hackernews,web-keyless`, it does not read `.env.local`, and it
+does not include persona simulation. That is enough for a first run.
+
+**A virtualenv.** Use it for any other source, for SearXNG, or for simulation. The container and the virtualenv both
+want port 8099, so stop the container first:
 
 ```bash
-docker compose up -d postgres redis
+docker compose stop research
+cd apps/research
+uv venv --python 3.11 .venv
+VIRTUAL_ENV="$PWD/.venv" uv pip install -e ".[dev]"
+../../node_modules/.bin/dotenv -e ../../.env.local -- .venv/bin/python -m uvicorn app.main:app --port 8099
 ```
 
-That brings up `ic-pg` (Postgres 17 + pgvector, host port **5433**) and `ic-redis`
-(Valkey, a Redis-compatible server, host port **6380**). Both use named volumes, so
-your data survives a recreate. Plain `docker compose up -d` also builds and starts
-the research sidecar. SearXNG (AGPL-3.0) is in neither command; it is an opt-in
-overlay, `docker-compose.searxng.yml`.
-
-> The Postgres image is `pgvector/pgvector:pg17`, not `postgres:17-alpine`. It is
-> plain Postgres 17 plus the `vector` extension, which `ProjectFact.embedding`
-> needs — on the stock image the first migration fails with
-> `type "vector" does not exist`.
-
-## Setup
+The last command loads the repo-root `.env.local`, so everything below is configured there. Uvicorn binds to
+`127.0.0.1` by default; keep it that way, because the service has no authentication. Check what it will run and why
+anything is off:
 
 ```bash
-bun install
-bun run db:migrate      # creates the 17 tables
-bun run db:seed         # idempotent demo user + Project + phase-1 ProjectPhase row
+curl -s http://127.0.0.1:8099/v1/health
 ```
 
-`bun run db:push` pushes `lib/db/schema.ts` straight to the database while iterating,
-without generating a migration.
+A listening port is not proof that it is configured: `sources[].operator_enabled` and `unknown_source_ids` are.
 
-### Environment
+- **More sources.** Set `RESEARCH_ENABLED_SOURCES` in `.env.local`, for example `hackernews,web-keyless,github,arctic-shift`.
+  The app reads the same variable and the service refuses a source it was not told to run, so set it once, in the file
+  both read, and restart both. An unknown id is refused and reported at `/v1/health`.
+- **GitHub** needs `GITHUB_TOKEN` as well as `github` in that list.
+- **The Reddit archive (`arctic-shift`)** cannot search all of Reddit. The app chooses subreddits from your buyer, and
+  with none to choose it says so. See the sidecar README.
+- **SearXNG** gives the keyless web search a real backend instead of DuckDuckGo's HTML endpoint alone, which many
+  networks answer with a challenge page. It is AGPL-3.0 software that this repository only configures, never copies:
 
-`.env.local` lives at the **repo root** and is committed. There is **no**
-`apps/chat/.env.local`, which matters more than it sounds:
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.searxng.yml up -d searxng
+  ```
 
-- `drizzle.config.ts`, `playwright.config.ts` and `lib/db/migrate.ts` all call
-  `config({ path: ".env.local" })` relative to `apps/chat`, so on their own they load
-  **nothing**. Always go through the root `bun run db:*` / `dev:*` scripts, or wrap the
-  command in `bunx dotenv-cli -e ../../.env.local -- …`.
-- `scripts/check-env.ts` and `scripts/seed-demo.ts` load the root file themselves and
-  work from either directory.
+  Then set `RESEARCH_SEARXNG_URL=http://127.0.0.1:8888` in `.env.local` and restart the sidecar. Plain
+  `docker compose up -d` never starts it. If you modify SearXNG or run it for other people, read AGPL-3.0 section 13
+  first.
+- **Persona simulation** needs the heavy build: `VIRTUAL_ENV="$PWD/.venv" uv pip install -e ".[simulation]"` pulls torch
+  and is several gigabytes, and until it is installed `/v1/simulate` reports `oasis-not-installed`. It also needs
+  `OPENAI_API_KEY`, which the `dotenv` command above provides. The install brings in igraph (GPL-2.0-or-later) on your
+  machine; this project publishes no simulation image, and you should not publish one without meeting the GPL for it
+  ([`THIRD_PARTY-research.md`](THIRD_PARTY-research.md)).
+- **Tests** need no network and no key: `.venv/bin/python -m pytest` and `.venv/bin/python -m ruff check app tests`.
 
-Only `DATABASE_URL` and `AUTH_SECRET` are strictly required; everything else is optional
-and gated by `apps/chat/chat.config.ts`. To turn the AI on, add one line to the root
-`.env.local` and restart:
+## Environment
 
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-```
+- **One env file.** `.env.local` at the repository root is the only one the app, the database tools, the evals and
+  Playwright read. Copy it from [`.env.example`](.env.example), which lists every variable, what it does and which
+  process reads it. There is no `apps/chat/.env.local` and no second example file.
+- **Run the migrator through the root script.** `lib/db/migrate.ts` looks for `.env.local` relative to `apps/chat`,
+  where there is none, so on its own it loads nothing; the root `bun run db:migrate` wraps it with `dotenv`, and so do
+  the other root `db:*` scripts and `dev:local`. `drizzle.config.ts`, `scripts/seed-demo.ts`, the evals and the
+  Playwright config resolve the root file from their own location, and `scripts/check-env.ts` does when it is run from
+  `apps/chat`.
+- **Turbo drops variables you did not list.** `bun run dev` and `bun run build` go through turbo, whose strict env mode
+  passes a task only the variables in `globalEnv` in `turbo.json`; `dev:local` bypasses turbo. A variable added to
+  `apps/chat/lib/env-schema.ts` therefore also goes in `globalEnv`, and `lib/env-schema.test.ts` fails when one is
+  missing. This once made a research source work under `dev:local` and refuse under `dev` (Incident 10 in
+  [`docs/INCIDENTS.md`](docs/INCIDENTS.md)).
+- **The public URL** comes from `lib/url.ts::getBaseUrl`: `APP_URL`, then on Vercel the project's production domain
+  (production only), then `VERCEL_URL`, then `http://localhost:3000`. Authentication trusts only that origin, which is
+  why `dev:local` exports `APP_URL` for the port it serves on, and why a cookie-bearing POST from any other address
+  fails with `403 INVALID_ORIGIN`. Outside Vercel, `APP_URL` is required in production. `chat.config.ts` has no URL on
+  purpose.
+- **Checks at start-up.** Both dev scripts run `check-env --dev`, which reports a missing optional variable as a
+  warning; `prebuild` runs it strictly, so a production build fails loudly instead.
+- **Never set `PLAYWRIGHT`, `PLAYWRIGHT_TEST_BASE_URL` or `CI_PLAYWRIGHT` outside a test run.** Any of them switches
+  authentication off.
 
 ## Run
 
 ```bash
-bun run dev:local        # http://localhost:3100   (PORT=3210 to override)
-bun run dev              # http://localhost:3000   (turbo + worktree-ports)
+bun run dev:local        # http://localhost:3100  (PORT=3210 to change it)
+bun run dev              # http://localhost:3000 plus 10 per worktree slot, through turbo
 ```
 
-Prefer `dev:local`. It bypasses turbo (whose strict env mode forwards only the variables
-listed in `turbo.json`) and exports `APP_URL` matching the port it actually serves on.
-That second part is load-bearing: better-auth builds `trustedOrigins` from `APP_URL` and
-otherwise assumes `http://localhost:3000`, so on any other port every cookie-bearing POST
-to `/api/auth` — **sign-out included** — returns `403 INVALID_ORIGIN`.
-
-In production `APP_URL` is required outside Vercel: auth trusts only this deployment's own
-URL (`APP_URL`, else on Vercel the project's production domain and `VERCEL_URL`), never
-`appUrl` from `chat.config.ts`.
-
-Both `dev` scripts run `check-env --dev`, which reports missing optional env vars as
-warnings instead of exiting. `prebuild` still runs `check-env` strictly, so production
-builds fail loudly.
+Prefer `dev:local`: it bypasses turbo and sets `APP_URL` to the port it serves on.
 
 ### Sign in
 
-```
-http://localhost:3100/api/dev-login
-```
+Open `http://localhost:3100/api/dev-login`, or use the "Dev login" button on `/login`. Either creates `dev@localhost`,
+signs the session cookie and redirects to `/`. The route answers 404 unless `NODE_ENV` is `development`.
 
-There is a "Dev login" pill in the bottom-left of `/login` that hits the same route. It
-upserts `dev@localhost`, writes a `session` row, signs the `better-auth.session_token`
-cookie by hand, and 302s to `/`. It returns 404 unless `NODE_ENV === "development"`.
+Every social provider is off in `chat.config.ts`: a button for a provider with no real credentials would redirect to
+a sign-in that cannot succeed. To use one, create the OAuth app, set its two variables in `.env.local` and set
+`authentication.<provider>: true`. `lib/auth.ts` ignores placeholder-looking values (`placeholder...`, `changeme...`,
+`your-...`), so a half-filled `.env.local` cannot bring a dead button back.
 
-`chat.config.ts` enables **no** social provider. GitHub used to be enabled against
-placeholder credentials, which rendered a "Continue with GitHub" button that redirected
-to github.com with a bogus `client_id` and could never succeed. To use it for real:
-create an OAuth app, set `AUTH_GITHUB_ID` / `AUTH_GITHUB_SECRET`, and flip
-`authentication.github` back to `true`. `lib/auth.ts` also ignores placeholder-looking
-credential values (`placeholder…`, `changeme…`, `your-…`) so a half-filled `.env.local`
-cannot resurrect a dead button.
+Anonymous visitors get plain chat only: `/project/...` needs a session, and the phase system block and the post-turn
+phase pass are skipped for them. Signing in is how you exercise the phase workflow.
 
-Anonymous visitors get plain chat only: `/project/...` is not a public route, and
-`app/(chat)/api/chat/route.ts` skips the phase system block and the post-turn phase pass
-for anonymous sessions. **Signing in is mandatory to exercise the phase workflow.**
+## Worktrees
 
-## Tests
+Several git worktrees can run side by side. `bun run dev:info` prints this worktree's app URL, so use it instead of
+assuming a port. Set `CHATJS_DEV_SLOT` in `.env.worktree.local`, which Git ignores, to reserve a stable range of ten
+ports; the slot name is inherited from the code this fork started from and is configured in `.worktree-env.json`. The
+app is at offset 0, so slot 0 is port 3000, slot 1 is 3010, and so on. `dev:local` ignores the slot and uses `PORT`,
+which defaults to 3100, so two worktrees running `dev:local` need different `PORT` values.
+
+The Docker services are not per worktree: the container names and ports are fixed, so every worktree shares one
+database unless you point its `DATABASE_URL` somewhere else.
+
+## Database
+
+- **A new database** is built with `bun run db:migrate`. That is the supported path for anyone who clones the repo.
+  `db:migrate` forces `VERCEL_ENV=production` because the migrator skips itself otherwise, and `bun run build` runs the
+  same migrator first.
+- **Changing the schema:** edit `apps/chat/lib/db/schema.ts`, run `bun run db:generate`, review the SQL, and write any
+  CHECK constraint by hand (drizzle-kit once recorded some without emitting them). Replay the new migration on a
+  throwaway `pgvector/pgvector:pg17` container, run `bun run db:check` from `apps/chat`, and update
+  [`docs/DATABASE.md`](docs/DATABASE.md) in the same commit. The recipe and the rules are in that file.
+- **Never run `db:migrate` against a database that was built with `db:push`.** `push` leaves the migration bookkeeping
+  incomplete, and the migrator applies every pending file in one transaction, so the first change `push` already made
+  aborts the whole batch. The maintainers' own dev database was built that way: apply a new migration to it with
+  `docker exec -i ic-pg psql -U postgres -d ideacheck < <file>.sql`. If you use `db:push` to experiment, treat the
+  database as throwaway and reset it with `docker compose down -v`.
+- **Look at it:** `docker exec -it ic-pg psql -U postgres -d ideacheck`.
+- **Demo data:** `bun run db:seed` is optional and idempotent. It creates the `dev@localhost` user, a balance row and a
+  project called Demo idea with phase 1 active.
+
+## Checks
 
 ```bash
-bun run test:types   # tsc across all workspaces        — 2 tasks
-bun run lint         # biome / ultracite                — 2 tasks
-bun run test:unit    # 297 pass / 3 skip / 0 fail
-bun run test:e2e     # playwright; needs the DB up
+bun run verify       # lint + type-check (apps/chat, packages/thread), ruff when apps/research/.venv exists
+bun run test:unit    # vitest in apps/chat, bun test in the packages and the worktree-port script
+bun run test:types   # tsc --noEmit in every workspace; NOT while a dev server is running
+bun run lint
 ```
 
-`test:unit` breaks down as **208 chat + 58 thread + 31 cli** (the 3 skips are in the CLI
-scaffolding suite). Those counts move as phases land — re-derive them with the `--force`
-command below rather than trusting this line. The chat suite passes with **every** AI env var unset — model calls
-sit behind injectable seams driven by `MockLanguageModelV3` from `ai/test`:
+- `bun run verify` is the one to run before you say work is done. It is safe beside a dev server, and it ends with
+  `verify: all checks passed`. `test:types` is not safe beside one: it deletes `apps/chat/.next/dev/types`.
+- The unit tests need no database, no network and no API key. Model calls sit behind injectable seams driven by
+  `MockLanguageModelV3`, so this passes with every AI variable unset:
 
-```bash
-cd apps/chat && env -u AI_GATEWAY_API_KEY -u OPENAI_API_KEY -u ANTHROPIC_API_KEY bunx vitest run
-```
+  ```bash
+  cd apps/chat && env -u AI_GATEWAY_API_KEY -u OPENAI_API_KEY -u ANTHROPIC_API_KEY ./node_modules/.bin/vitest run
+  ```
 
-Turbo cache replays are not runs. Use `--force` when you need real output:
+  Inside `apps/chat`, use that or `bun run test:unit`, never a bare `bun test`: that is Bun's own runner, not vitest.
+  Turbo replays a cached result as if it were a run, so use `bunx turbo run test:unit --force` when you need real
+  output.
+- `bun run test:e2e` is the Playwright suite. It needs the Docker database and a one-time
+  `cd apps/chat && bunx playwright install`, and it is not part of CI.
+- `bun run build` only right before a push, never while iterating: it runs `check-env` strictly and the migrator, then
+  `next build`.
+- CI runs `verify`, the unit tests, the sidecar tests and a test-integrity check on every pull request; the one required
+  check is `ci-success`. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the details.
 
-```bash
-bunx turbo run test:unit --force
-```
+## What costs money
 
-`test:e2e` needs a one-time `cd apps/chat && bunx playwright install`; without the
-browsers every test fails with `browserType.launch: Executable doesn't exist`. The suite
-currently collects 4 anonymous smoke tests — `tests/auth.setup.e2e.ts` and
-`tests/reasoning.setup.e2e.ts` are **dead code**: `playwright.config.ts` declares no
-`setup` project, no `dependencies`, and no `storageState`, and their filenames match none
-of the three `testMatch` regexes. There is no authenticated e2e coverage yet.
+- Chat turns, the phase gate's judge, fact extraction, fact embeddings and research all call OpenAI with your key.
+- `cd apps/chat && bun run eval:gate` runs the gate calibration against the real judge: about 24 calls on the chat
+  model, `gpt-5.6-terra`. Run it deliberately, never as a habit.
+- The app also keeps a local spending cap, `UserCredit.credits`, in cents. A new user starts with 50 and nothing tops it
+  up. Raise it with
+  `docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 2000;'`.
 
-## Known rough edges
+## Rough edges
 
-- A new user is funded with 50 credits ($0.50) and there is no top-up route or UI, so a
-  long session eventually dead-ends on a bare 402. Bump it directly:
-  `docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 100000;'`
-  (`UserCredit.credits` is CENTS: 100000 = $1000.00, and the sidebar shows `$1000.00`.)
-- `lib/phases/runtime.ts` swallows post-turn failures in a bare `catch` so a bad model id
-  leaves the rail permanently on `BLOCKED` with nothing in the UI.
-- Switching `ai.gateway` without running `bun run fetch:models` leaves
-  `lib/ai/models.generated.ts` pinned to the old gateway and the model picker empty.
-  `check-env` warns about this; it does not fail.
+- There is no credit top-up screen, so a long session ends in a bare `Insufficient credits` (HTTP 402) until you raise
+  the balance as above.
+- When the gate cannot run (a missing or wrong key, a model id the gateway does not serve) the phase strip says
+  `no verdict for this turn` or shows a fail-closed BLOCK. The reason is in the log of the terminal running the app.
+- Switching `ai.gateway` in `chat.config.ts` without running `bun run fetch:models` leaves
+  `lib/ai/models.generated.ts` pinned to the old gateway and the model picker empty. `check-env` warns about it and does
+  not fail. The model ids in `chat.config.ts` are typed per gateway too.
+- The sidecar container and a virtualenv sidecar both use port 8099. Stop one before you start the other, and use
+  `docker compose up -d postgres redis` rather than a plain `up -d` while the virtualenv one runs.
 
-## What was removed from upstream ChatJS
+## Where the rest is written down
 
-Tracked in `NOTICE` (Apache-2.0 §4(d) requires stating modifications):
-
-- `apps/electron`, `apps/site`, `apps/docs` — whole workspaces
-- All vendor telemetry: Langfuse, `@vercel/otel`, OpenTelemetry exporters,
-  `@vercel/analytics` and `@vercel/speed-insights`.
-  `createTelemetry` is a no-op; `instrumentation.ts` registers nothing.
-  **This is load-bearing for the privacy claim — do not reintroduce.**
-- The `retrieve-url` demo tool (required `FIRECRAWL_API_KEY`)
-- Disabled in `chat.config.ts`: attachments, image generation, code execution
-  sandbox, MCP connectors, web search, URL retrieval, deep research, desktop app,
-  and all social auth providers.
-
-Web search and deep research come back in Step 5 on top of the Python research
-sidecar, not on a paid API key.
+| For | Read |
+| --- | --- |
+| how it is put together, and where to add things | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| the schema, constraints and migration rules | [`docs/DATABASE.md`](docs/DATABASE.md) |
+| why a hard-to-reverse choice was made, and what has gone wrong | [`docs/ADR/`](docs/ADR/README.md), [`docs/INCIDENTS.md`](docs/INCIDENTS.md) |
+| the words the code uses | [`CONTEXT.md`](CONTEXT.md) |
+| the research sources and their policy | [`apps/research/README.md`](apps/research/README.md) |
+| contributing, security, what was copied from where | [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md), [`NOTICE`](NOTICE) |

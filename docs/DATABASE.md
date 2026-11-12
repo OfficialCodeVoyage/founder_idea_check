@@ -137,9 +137,10 @@ Rules that have each cost someone time:
 - **A new migration needs a `when` in `meta/_journal.json` strictly larger than every existing entry.** The migrator
   skips a file whose timestamp is not newer than the last one applied.
 - **The migrator applies all pending files in one transaction.** One failing file takes the others with it.
-- **Do not run `bun run db:up`.** drizzle-kit 0.31 uses the flat migration layout; `up` targets the newer folder
-  layout.
-- `bun run db:check` (drizzle-kit's consistency check, no database needed) should say `Everything's fine`.
+- **Do not run `drizzle-kit up`**, which is the `db:up` script in `apps/chat`. drizzle-kit 0.31 uses the flat
+  migration layout; `up` targets the newer folder layout.
+- `bun run db:check` from `apps/chat` (drizzle-kit's consistency check, no database needed) should say
+  `Everything's fine`. There is no root script for it.
 
 ### Replay recipe
 

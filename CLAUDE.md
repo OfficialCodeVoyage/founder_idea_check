@@ -42,7 +42,6 @@ bun run build                    # only right before a push; it runs the DB migr
 - Sidecar (from `apps/research`): `.venv/bin/python -m pytest` for tests (no network, no key);
   `../../node_modules/.bin/dotenv -e ../../.env.local -- .venv/bin/python -m uvicorn app.main:app --port 8099`
   to run it, then check `http://127.0.0.1:8099/v1/health` (a listening port is not proof).
-- Not `bun run dev`: turbo's strict env mode drops `RESEARCH_ENABLED_SOURCES`.
 - Not plain `docker compose up -d`: it also starts a containerised sidecar on :8099.
 - Not `bun run test:types` beside a dev server: it deletes `apps/chat/.next/dev/types`. `verify` does not.
 - Not bare `bun test` inside `apps/chat`: that is Bun's runner, not vitest.

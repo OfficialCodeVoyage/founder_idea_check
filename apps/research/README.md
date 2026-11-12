@@ -145,7 +145,11 @@ topic for the query (`app/sources/hackernews.py::matches_a_content_word`). The
 different weak ones ("code" and "review"). A story with neither in the title
 stays only when its **text** (the Show HN or Ask HN body) says two different
 content words of the query; one word in a paragraph is a mention, not a topic
-(a live run let in a vet directory and a notes app that way). Stopwords, numbers and years, countries, file types, research filler
+(a live run let in a vet directory and a notes app that way). "Different" means a
+different word family: "read", "reader" and "reading" are one word (a plural comes
+off, and so do "-ing", "-ed" and "-er" when four letters or more are left, so "ring"
+stays whole), which is why a Postgres tool or a code-review tool that merely "reads"
+and is "reading" something no longer passes as two words. Stopwords, numbers and years, countries, file types, research filler
 (report, survey, official, qualitative), time and age words and broad tech words
 (AI, app, tool) are never content words. So a query with a single content word
 matches by title alone, and a query with none falls back to any weak word, then

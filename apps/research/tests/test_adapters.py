@@ -412,8 +412,79 @@ class TestHackerNews:
     def test_a_word_matches_its_plural_on_both_sides(self):
         assert self._kept_titles("migrations", ["Zero-downtime migration tooling"]) != []
         assert self._kept_titles("migration", ["Zero-downtime migrations"]) != []
-        # Only a trailing "s" is stemmed: a different word stays a different word.
+        # Only inflections of one word are joined: a different word stays a different
+        # word ("migration" is not "migrating").
         assert self._kept_titles("migrations", ["Migrating a monolith"]) == []
+
+    def test_the_inflections_of_one_word_count_as_one_word_in_the_story_text(self):
+        # REGRESSION (live QA, re-check 5, after the two-word text rule): the stem took
+        # only a plural "s" off, so "read" and "reading" were TWO distinct content
+        # words, and a Postgres tool, an Apple developer-account story, a code-review
+        # tool and an adult vocabulary app passed on that pair alone (the researcher's
+        # query held both words, and any story about code "reading" a PR has both).
+        query = "reading books"
+        read_and_reading = (
+            "Show HN: PgDog - scale Postgres",
+            "<p>I read the docs while reading the pull request. A long read.</p>",
+        )
+        assert self._kept_stories(query, [read_and_reading]) == []
+
+        # The same holds the other way round: the QUERY's "read" and "reading" are one
+        # word, so a text that says both of them has still said one.
+        assert self._kept_stories("read reading", [read_and_reading]) == []
+        assert self._kept_stories("reader reading", [read_and_reading]) == []
+
+        # Two different words still qualify, whatever their forms.
+        reading_and_books = (
+            "Bedtime with my daughter",
+            "<p>We started reading together. She picks out her own books now.</p>",
+        )
+        assert self._kept_stories(query, [reading_and_books]) == [reading_and_books[0]]
+        readers_and_booking = (
+            "Bedtime with my daughter",
+            "<p>The readers she likes come from the library. Booked every week.</p>",
+        )
+        assert self._kept_stories(query, [readers_and_booking]) == [readers_and_booking[0]]
+
+        # The title rule needs one word, in any of its forms.
+        assert self._kept_titles("readers", ["Reading apps for kids"]) != []
+        assert self._kept_titles("reading", ["Why my kid reads less"]) != []
+
+    def test_the_weak_pair_counts_families_too(self):
+        # "price" and "pricing" are one weak word, so they are not a pair.
+        assert self._kept_titles("tutoring price pricing", ["Airline pricing and prices"]) == []
+        assert self._kept_titles("tutoring price cost", ["Airline prices and costs"]) != []
+
+    def test_word_families_join_inflections_and_nothing_else(self):
+        family = hackernews._family
+        joined = [
+            ("read", "reads", "reader", "readers", "reading"),
+            ("learn", "learned", "learning", "learners"),
+            ("price", "prices", "pricing"),
+            ("battery", "batteries"),
+            ("movie", "movies"),
+            ("run", "running"),
+            ("stop", "stopped", "stopping"),
+            ("create", "created", "creating"),
+            ("box", "boxes"),
+            ("watch", "watches"),
+            ("api", "apis"),
+        ]
+        for words in joined:
+            assert len({family(word) for word in words}) == 1, words
+
+        # Short words and words that only look inflected are left whole.
+        for word in ("bus", "ios", "ring", "bring", "string", "thing", "need", "speed"):
+            assert family(word) == word, word
+        for word in ("water", "paper", "business", "status", "fall", "pass"):
+            assert family(word) == word, word
+        assert family("falling") == "fall"
+        assert family("passing") == "pass"
+
+        # Related words stay apart.
+        assert family("reading") != family("books")
+        assert family("migration") != family("migrating")
+        assert family("child") != family("children")
 
     def test_broad_tech_words_never_qualify_a_hit_alone_or_in_a_pair(self):
         # REGRESSION (live QA, third run): the query for an AI-personalised

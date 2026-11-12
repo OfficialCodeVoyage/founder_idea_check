@@ -165,8 +165,14 @@ def build_search_url(query: str, date_from: str, date_to: str, count: int) -> st
 # TEXT shares two DISTINCT CONTENT words with the query. A title is what the
 # story is called; a body is where a story can mention anything. So the body
 # earns its place only with a second, different word, and two weak words in a body
-# do not count at all. Words are compared on a crude stem (`_stem`: a trailing
-# plural "s"), on BOTH sides, so "tool" matches "tools" and "APIs" matches "api".
+# do not count at all. "Different" means a different word FAMILY (`_family`): the
+# inflections of one word ("read", "reads", "reader", "readers", "reading") are one
+# word, on BOTH sides, so "tool" matches "tools", "APIs" matches "api", and a text
+# that says "read" and "reading" has said one word, not two. Live QA (re-check 5,
+# after the rule above) let in a Postgres tool, an Apple developer-account story, a
+# code-review tool and an adult vocabulary app on exactly that pair, because the
+# stem then took only a plural "s" off and the researcher's query held both "read"
+# and "reading".
 #
 # WHAT THE BODY RULE COSTS, stated so nobody re-derives it. A query with ONE
 # content word ("tutoring price cost") can never qualify a hit by its body: there
@@ -302,10 +308,66 @@ def _stem(token: str) -> str:
     "es" plurals are left alone, so "batteries" does not match "battery": a miss
     is the cautious direction here, and a cleverer stemmer is one more thing to
     get wrong.
+
+    This stem is for LOOKING A WORD UP in the NEVER and WEAK lists (`_kind`),
+    where "sources" is a research-filler word and "source" is not, so it must
+    stay exactly this small. COUNTING words is `_family`'s job.
     """
     if len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us")):
         return token[:-1]
     return token
+
+
+#: The fewest letters `_family` leaves when it takes "ing", "ed" or "er" off:
+#: "ring", "bring", "string", "thing", "need", "speed", "water" and "paper" stay
+#: whole, "reading" and "learned" lose their ending.
+_MIN_FAMILY_STEM = 4
+
+#: A doubled consonant an ending leaves behind, which `_family` takes back to one
+#: ("running" to "run", "stopped" to "stop"). Not "l", "s", "z" or "f": "fall",
+#: "pass" and "stuff" keep theirs.
+_UNDOUBLED = "bdgmnprt"
+
+
+def _family(token: str) -> str:
+    """PURE. A key for the word FAMILY `token` belongs to: its inflections share it.
+
+    A comparison key and not a word: "read", "reads", "reader", "readers" and
+    "reading" all become "read"; "pricing" and "prices" become "pric"; "batteries"
+    and "battery" become "batteri". It is what `matches_a_content_word` COUNTS, so
+    that one word said twice in two forms is one word. The rule, in order:
+
+    1. a plural comes off: the "s" (`_stem`), or the "es" of "boxes", "watches",
+       "dishes" and "classes";
+    2. one of "ing", "ed", "er" comes off, only when four letters or more are left
+       ("ring", "string", "need", "water" stay), and a doubled consonant it leaves
+       behind is undoubled ("running", "stopped");
+    3. a trailing "e" comes off a word of five letters or more ("create" meets
+       "creating"), and a trailing "y" after a consonant becomes "i" ("battery"
+       and "batteries" meet; "movie" and "movies" meet at "movi").
+
+    Everything else stays a different word: "migration" is not "migrating", and a
+    word of three letters or fewer is never touched ("bus", "ios", "api"). Two
+    unrelated words can still meet ("number" and "numb"); that costs one wrong match,
+    and since the rule counts DISTINCT families it can only merge words, never make
+    two words out of one. `_kind` does NOT use this: the NEVER and WEAK lists are
+    written in whole words, and "source" must stay a content word while "sources"
+    does not.
+    """
+    if len(token) <= 3:
+        return token
+    word = token[:-2] if token.endswith(("xes", "ches", "shes", "sses")) else _stem(token)
+    for suffix in ("ing", "ed", "er"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= _MIN_FAMILY_STEM:
+            word = word[: -len(suffix)]
+            if word[-1] == word[-2] and word[-1] in _UNDOUBLED:
+                word = word[:-1]
+            break
+    if len(word) > 4 and word.endswith("e"):
+        word = word[:-1]
+    elif len(word) > 3 and word.endswith("y") and word[-2] not in "aeiou":
+        word = word[:-1] + "i"
+    return word
 
 
 def _kind(token: str) -> str:
@@ -319,11 +381,14 @@ def _kind(token: str) -> str:
 
 
 def _plain_words(text: str) -> set[str]:
-    """PURE. The stems of the words `text` contains, and nothing the vendored
-    `tokenize` adds: its synonym expansion ("js" for "javascript", "machine" and
-    "learning" for "ml") would let one mention count as two different words.
+    """PURE. The word families (`_family`) of the words `text` contains, and
+    nothing the vendored `tokenize` adds: its synonym expansion ("js" for
+    "javascript", "machine" and "learning" for "ml") would let one mention count
+    as two different words.
     """
-    return {_stem(word) for word in cjk.segment(text) if word not in STOPWORDS and len(word) > 1}
+    return {
+        _family(word) for word in cjk.segment(text) if word not in STOPWORDS and len(word) > 1
+    }
 
 
 def matches_a_content_word(prepared: PreparedQuery, title: str, body: str = "") -> bool:
@@ -335,7 +400,8 @@ def matches_a_content_word(prepared: PreparedQuery, title: str, body: str = "") 
     words with it (the history and the reasons are in the comment above
     `_FILLER_TOKENS`). The title is tokenised with the same `tokenize` the
     relevance score uses, so a word that counts there counts here, and compared
-    on `_stem`; the body is counted on `_plain_words`. With no CONTENT word in
+    on `_family`, like the query's words, so "read" and "reading" are one word
+    in the title and in the body alike; the body is counted on `_plain_words`. With no CONTENT word in
     the query the test is "any WEAK word" in the title or the body, and with no
     WEAK word either "any query word"; with no query word at all (stopwords
     only) every hit stays, as `token_overlap_relevance` already treats such a
@@ -344,23 +410,23 @@ def matches_a_content_word(prepared: PreparedQuery, title: str, body: str = "") 
     query_tokens = prepared.q_tokens
     if not query_tokens:
         return True
-    in_title = {_stem(token) for token in tokenize(title)}
+    in_title = {_family(token) for token in tokenize(title)}
     content: set[str] = set()
     weak: set[str] = set()
     for token in query_tokens:
         kind = _kind(token)
         if kind == _CONTENT:
-            content.add(_stem(token))
+            content.add(_family(token))
         elif kind == _WEAK:
-            weak.add(_stem(token))
+            weak.add(_family(token))
     if content:
         if content & in_title or len(weak & in_title) >= 2:
             return True
         # Nothing of the kind in the title: the body must say two different
         # content words. A query with a single content word cannot, by design.
         return len(content & _plain_words(body)) >= 2
-    in_hit = in_title | {_stem(token) for token in tokenize(body)}
-    return bool((weak or {_stem(token) for token in query_tokens}) & in_hit)
+    in_hit = in_title | {_family(token) for token in tokenize(body)}
+    return bool((weak or {_family(token) for token in query_tokens}) & in_hit)
 
 
 def parse_hits(payload: object, query: str, limit: int) -> list[SourceItem]:

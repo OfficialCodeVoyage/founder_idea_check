@@ -91,6 +91,93 @@ export type PersonaSeedResult =
   | { ok: false; problems: string[] };
 
 /**
+ * THE LARGEST ONE PERSONA ENTRY MAY BE, measured as its JSON (`JSON.stringify`
+ * of the object sent to the sidecar). Every agent's prompt carries its entry on
+ * every round, so this bounds what each model call costs.
+ *
+ * HOW IT IS SIZED, from how an entry is built:
+ *   - the short fields come from the seat form and are bounded there
+ *     (handle 64, gender 60, country 120, MBTI 8 — save-simulation-profile.ts),
+ *     so with the keys they stay under ~400 characters;
+ *   - `bio` is the persona's role line, and `persona` is
+ *     `renderPersonaMarkdown` of the generated persona: about a dozen short
+ *     sections with their evidence quotes, a few thousand characters;
+ *   - then the project's facts. That is the unbounded part: 66 fact keys across
+ *     the eight phases, each value up to 2,000 characters, so a late-stage
+ *     project could append well over 100,000 characters to EVERY agent.
+ * 16,000 characters (about 4,000 tokens) keeps the whole persona and a
+ * substantial fact block, and puts one agent-round near the 0.1¢ that
+ * `estimateSimulationCostCents` charges for it. Facts that do not fit are left
+ * out with a sentence saying how many (`withFactContext`), never silently.
+ *
+ * MIRRORED as `MAX_PERSONA_ENTRY_CHARS` in apps/research/app/main.py, measured
+ * the same way. Change both together.
+ */
+export const MAX_PERSONA_ENTRY_CHARS = 16_000;
+
+const FACT_CONTEXT_PREAMBLE =
+  "\n\nWhat is already established about the product being discussed: ";
+const FACT_SEPARATOR = "; ";
+
+/**
+ * Room always kept free for the preamble and the omission sentence, so a
+ * persona that is seated always has space to say that facts were left out.
+ */
+const FACT_CONTEXT_RESERVE_CHARS = 400;
+
+function jsonLength(value: unknown): number {
+  return JSON.stringify(value).length;
+}
+
+/** The characters `text` occupies inside a JSON string, quotes excluded. */
+function escapedLength(text: string): number {
+  return JSON.stringify(text).length - 2;
+}
+
+function factOmissionNote(omitted: number): string {
+  return ` (${omitted} established fact${omitted === 1 ? "" : "s"} about the product not shown here, to keep this persona within the simulation's size limit.)`;
+}
+
+/**
+ * PURE. `description` plus as many of `factLines` as fit in `room` JSON
+ * characters, in stored order; a fact too long for the remaining room is
+ * skipped and a shorter later one may still fit. When any is left out, the text
+ * says how many, so the agent (and anyone reading the trace) knows the block is
+ * partial rather than taking it for everything the founder established.
+ */
+export function withFactContext(
+  description: string,
+  factLines: readonly string[],
+  room: number
+): string {
+  if (factLines.length === 0) {
+    return description;
+  }
+  const full = `${FACT_CONTEXT_PREAMBLE}${factLines.join(FACT_SEPARATOR)}`;
+  if (escapedLength(full) <= room) {
+    return `${description}${full}`;
+  }
+
+  // The note is sized for the worst case (every fact omitted), so the result
+  // fits whatever the final count turns out to be.
+  const budget =
+    room -
+    escapedLength(FACT_CONTEXT_PREAMBLE) -
+    escapedLength(factOmissionNote(factLines.length));
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of factLines) {
+    const cost =
+      escapedLength(line) + (kept.length > 0 ? FACT_SEPARATOR.length : 0);
+    if (used + cost <= budget) {
+      kept.push(line);
+      used += cost;
+    }
+  }
+  return `${description}${FACT_CONTEXT_PREAMBLE}${kept.join(FACT_SEPARATOR)}${factOmissionNote(factLines.length - kept.length)}`;
+}
+
+/**
  * PURE. Flattens project personas into the exact array OASIS parses, or names
  * every problem at once.
  *
@@ -118,7 +205,7 @@ export function toOasisPersonas(
   }
 
   const seenNames = new Set<string>();
-  const factContext = facts.map((f) => `${f.key}: ${f.value}`).join("; ");
+  const factLines = facts.map((f) => `${f.key}: ${f.value}`);
 
   const built: OasisPersona[] = [];
   for (const persona of personas) {
@@ -146,20 +233,38 @@ export function toOasisPersonas(
     }
     seenNames.add(username);
 
-    const candidate = {
+    const base = {
       username,
       bio: persona.headline.trim(),
-      // The project's established facts are appended so the agent argues from
-      // what the founder actually evidenced, not from the model's generic idea
-      // of this demographic. This is the cross-phase grounding the whole
-      // product is built on, applied to simulation.
-      persona: factContext
-        ? `${persona.description.trim()}\n\nWhat is already established about the product being discussed: ${factContext}`
-        : persona.description.trim(),
+      persona: persona.description.trim(),
       age: persona.age,
       gender: persona.gender.trim(),
       mbti: (persona.mbti ?? UNSPECIFIED_MBTI).trim(),
       country: persona.country.trim(),
+    };
+
+    // Everything but the facts is fixed; the facts get whatever room is left.
+    // A persona that cannot fit even with no facts is refused by name rather
+    // than cut: which half of a persona to drop is not a call to make here.
+    const fixedChars = jsonLength(base) + FACT_CONTEXT_RESERVE_CHARS;
+    if (fixedChars > MAX_PERSONA_ENTRY_CHARS) {
+      problems.push(
+        `persona "${persona.id}" is too long to seat (${fixedChars} characters before any project fact; the limit is ${MAX_PERSONA_ENTRY_CHARS}) — regenerate it or shorten its role`
+      );
+      continue;
+    }
+
+    const candidate = {
+      ...base,
+      // The project's established facts are appended so the agent argues from
+      // what the founder actually evidenced, not from the model's generic idea
+      // of this demographic. This is the cross-phase grounding the whole
+      // product is built on, applied to simulation.
+      persona: withFactContext(
+        base.persona,
+        factLines,
+        MAX_PERSONA_ENTRY_CHARS - jsonLength(base)
+      ),
     };
 
     const parsed = OasisPersonaSchema.safeParse(candidate);

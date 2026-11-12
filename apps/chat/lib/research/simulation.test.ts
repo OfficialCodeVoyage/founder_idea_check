@@ -2,6 +2,7 @@ import { assert, describe, expect, it } from "vitest";
 import {
   estimateSimulationCostCents,
   judgeSimulation,
+  MAX_PERSONA_ENTRY_CHARS,
   MIN_DIVERGENCE_SCORE,
   measureDivergence,
   OasisPersonaSchema,
@@ -12,6 +13,9 @@ import {
   toOasisPersonas,
   UNSPECIFIED_MBTI,
 } from "./simulation";
+
+const FACTS_LEFT_OUT =
+  /\(\d+ established facts about the product not shown here/;
 
 function persona(overrides: Partial<ProjectPersona> = {}): ProjectPersona {
   return {
@@ -65,6 +69,44 @@ describe("toOasisPersonas — enforcing OASIS's seven unguarded keys up front", 
     expect(seeded.ok).toBe(true);
     if (seeded.ok) {
       expect(seeded.personas[0].mbti).toBe(UNSPECIFIED_MBTI);
+    }
+  });
+
+  it("keeps every entry within MAX_PERSONA_ENTRY_CHARS and says how many facts it left out", () => {
+    // 66 fact keys at up to 2,000 characters each is what a late-stage project
+    // can append to every agent; the entry must still fit, and the cut must be
+    // stated in the text rather than happen silently.
+    const facts = Array.from({ length: 40 }, (_, i) => ({
+      key: `fact_${i}`,
+      value: "v".repeat(1500),
+    }));
+    const seeded = toOasisPersonas(
+      [persona(), persona({ id: "p2", name: "Other" })],
+      facts
+    );
+    expect(seeded.ok).toBe(true);
+    if (seeded.ok) {
+      for (const p of seeded.personas) {
+        expect(JSON.stringify(p).length).toBeLessThanOrEqual(
+          MAX_PERSONA_ENTRY_CHARS
+        );
+        expect(p.persona).toContain("fact_0: ");
+        expect(p.persona).toMatch(FACTS_LEFT_OUT);
+      }
+    }
+  });
+
+  it("refuses by name a persona too long to seat even with no facts", () => {
+    const seeded = toOasisPersonas(
+      [
+        persona({ description: "d".repeat(MAX_PERSONA_ENTRY_CHARS) }),
+        persona({ id: "p2", name: "Other" }),
+      ],
+      []
+    );
+    expect(seeded.ok).toBe(false);
+    if (!seeded.ok) {
+      expect(seeded.problems.join(" ")).toContain("too long to seat");
     }
   });
 

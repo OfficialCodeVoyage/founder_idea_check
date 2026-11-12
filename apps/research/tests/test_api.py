@@ -429,3 +429,13 @@ class TestSimulationRequestCaps:
             },
         )
         assert response.status_code == 422
+
+    def test_a_persona_entry_larger_than_the_cap_is_refused(self, client):
+        http, main = client
+        oversized = {**_persona("b"), "persona": "p" * main.MAX_PERSONA_ENTRY_CHARS}
+        response = http.post(
+            "/v1/simulate",
+            json={"personas": [_persona("a"), oversized], "pitch": "a pitch"},
+        )
+        assert response.status_code == 422
+        assert "persona 1" in response.text

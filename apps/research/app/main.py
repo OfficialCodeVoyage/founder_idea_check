@@ -20,11 +20,12 @@ from __future__ import annotations
 
 import hmac
 import ipaddress
+import json
 import logging
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .config import Settings, load_settings
 from .errors import SourceError
@@ -167,6 +168,18 @@ MAX_SIMULATION_PERSONAS = 10
 #: so the app's check is never the looser of the two.
 MAX_SIMULATION_PITCH_CHARS = 2000
 
+#: MIRRORS `MAX_PERSONA_ENTRY_CHARS` in `apps/chat/lib/research/simulation.ts`,
+#: where the sizing is explained: every agent's prompt carries its entry on
+#: every round, and the app appends the project's facts to each one. Measured
+#: as compact JSON with non-ASCII kept literal, which is what `JSON.stringify`
+#: produces; JavaScript counts UTF-16 units, so the app's check is never the
+#: looser of the two.
+MAX_PERSONA_ENTRY_CHARS = 16_000
+
+
+def _entry_chars(entry: dict[str, Any]) -> int:
+    return len(json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
+
 
 class SignalRequest(BaseModel):
     query: str = Field(min_length=1)
@@ -180,6 +193,21 @@ class SimulationRequest(BaseModel):
     personas: list[dict[str, Any]] = Field(max_length=MAX_SIMULATION_PERSONAS)
     pitch: str = Field(min_length=1, max_length=MAX_SIMULATION_PITCH_CHARS)
     rounds: int = Field(default=2, ge=1, le=10)
+
+    @field_validator("personas")
+    @classmethod
+    def _each_persona_fits(cls, personas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # A 422, not the named 200 refusals `run_simulation` gives: the app
+        # never sends an entry this large, so reaching here means a caller that
+        # is not the app, and it gets the framework's validation error.
+        for index, entry in enumerate(personas):
+            size = _entry_chars(entry)
+            if size > MAX_PERSONA_ENTRY_CHARS:
+                raise ValueError(
+                    f"persona {index} is {size} characters as JSON; "
+                    f"the limit is {MAX_PERSONA_ENTRY_CHARS}"
+                )
+        return personas
 
 
 def _failure(source_id: str, kind: str, detail: str) -> dict:

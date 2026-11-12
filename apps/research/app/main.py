@@ -441,8 +441,9 @@ def simulate(request: SimulationRequest) -> dict:
     }
 
 
-# Referenced so the module-level import is not flagged as unused. `cluster` is
-# used by the multi-source path in `apps/chat/lib/research/loop.ts`, which posts
-# several sources' items back for fusion; it is exported here so both paths use
-# one implementation.
+# Referenced so the module-level import is not flagged as unused. Nothing in
+# this service calls it today: `_pipeline` runs one source per request with
+# `cluster_mode="none"`, and `pipeline/cluster.py::cluster_candidates` returns
+# early for that mode. It is kept for a future multi-source request that fuses
+# several sources' items in one call.
 CLUSTER_CANDIDATES = cluster_mod.cluster_candidates

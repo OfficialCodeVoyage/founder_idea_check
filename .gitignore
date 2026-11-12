@@ -58,23 +58,12 @@ packages/*/dist
 packages/cli/templates
 templates
 
-# Blume
-apps/docs/.blume/
-apps/docs/.blume-verify/
-apps/docs/dist/
-
 # Evalite DB
 evals/db/
 apps/*/evals/db/
 
 # Neon
 .neon
-
-# Electron
-apps/electron/dist/
-apps/electron/release/
-apps/electron/out/
-apps/electron/branding.json
 
 .devtools
 .cursor/hooks/state

@@ -34,7 +34,6 @@
     "VERCEL_TOKEN",
     "VERCEL_SANDBOX_RUNTIME",
     "APP_URL",
-    "ELECTRON_APP_URL",
     "PORT",
     "VERCEL_URL",
     "VERCEL_ENV",
@@ -65,31 +64,11 @@
     "test:types": {
       "dependsOn": ["^test:types"]
     },
-    "docs:links": {
-      "cache": false
-    },
     "fetch:models": {
       "cache": false
     },
     "test:e2e": {
       "cache": false
-    },
-    "electron:build": {
-      "cache": true,
-      "inputs": ["src/**", "package.json", "tsconfig.json", "icon.png", "scripts/**"],
-      "outputs": ["dist/**", "build/**"]
-    },
-    "electron:dev": {
-      "cache": false,
-      "persistent": true
-    },
-    "electron:publish": {
-      "cache": false,
-      "dependsOn": ["electron:build"]
-    },
-    "electron:make": {
-      "cache": false,
-      "dependsOn": ["electron:build"]
     }
   }
 }

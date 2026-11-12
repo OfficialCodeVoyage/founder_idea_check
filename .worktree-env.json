@@ -16,24 +16,6 @@
         "APP_URL": "{url}",
         "PORT": "{port}"
       }
-    },
-    "electron": {
-      "offset": 1,
-      "exports": {
-        "ELECTRON_APP_URL": "{apps.chat.url}"
-      }
-    },
-    "site": {
-      "offset": 2,
-      "exports": {
-        "PORT": "{port}"
-      }
-    },
-    "docs": {
-      "offset": 3,
-      "exports": {
-        "PORT": "{port}"
-      }
     }
   }
 }

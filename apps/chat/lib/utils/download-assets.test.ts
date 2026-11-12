@@ -90,11 +90,35 @@ describe("replaceFilePartUrlByBinaryDataInMessages", () => {
       "http://169.254.169.254/latest/meta-data/",
       "http://[::1]/a.png",
       "http://[::ffff:127.0.0.1]/a.png",
+      "http://[::127.0.0.1]/a.png",
+      "http://[64:ff9b::a9fe:a9fe]/a.png",
       "http://[fd00:ec2::254]/a.png",
       "http://user:pass@example.com/a.png",
       "ftp://example.com/a.png",
     ]) {
       await assert.rejects(fetchPublicUrl(new URL(url)), RefusedUrlError, url);
+    }
+  });
+
+  it("still treats public IPv4 and IPv6 addresses as public", async () => {
+    // node:net's BlockList matches IPv4 against an IPv6 ::ffff:0:0/96 rule;
+    // with one shared list every IPv4 address was refused.
+    const { isNonPublicAddress } = await vi.importActual<
+      typeof import("@/lib/utils/public-url-fetch")
+    >("@/lib/utils/public-url-fetch");
+    for (const address of [
+      "8.8.8.8",
+      "93.184.215.14",
+      "2606:4700:4700::1111",
+    ]) {
+      assert.equal(isNonPublicAddress(address), false, address);
+    }
+    for (const address of [
+      "::127.0.0.1",
+      "::ffff:8.8.8.8",
+      "255.255.255.255",
+    ]) {
+      assert.equal(isNonPublicAddress(address), true, address);
     }
   });
 

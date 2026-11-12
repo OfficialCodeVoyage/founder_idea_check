@@ -12,7 +12,7 @@ import { BlockList, isIP, type LookupFunction } from "node:net";
  *
  * - http(s) only, and no credentials in the URL;
  * - the host is resolved once per connection and EVERY returned address must
- *   be public (NON_PUBLIC below); the connection then uses those checked
+ *   be public (NON_PUBLIC_IPV4 / NON_PUBLIC_IPV6 below); the connection then uses those checked
  *   addresses (`guardedLookup` is the socket's own lookup), so a DNS answer
  *   cannot change between the check and the connect;
  *   an IP-literal host is checked directly, since sockets skip the lookup;
@@ -23,7 +23,11 @@ import { BlockList, isIP, type LookupFunction } from "node:net";
  * A refusal throws RefusedUrlError, which the caller turns into a text part.
  */
 
-const NON_PUBLIC = new BlockList();
+// Two lists, never one: node:net's BlockList checks an IPv4 address against
+// IPv6 rules too, through its IPv4-mapped form, so a single list holding
+// `::ffff:0:0/96` refused every IPv4 address.
+const NON_PUBLIC_IPV4 = new BlockList();
+const NON_PUBLIC_IPV6 = new BlockList();
 for (const [network, prefix] of [
   ["0.0.0.0", 8], // "this" network
   ["10.0.0.0", 8], // private
@@ -39,26 +43,31 @@ for (const [network, prefix] of [
   ["198.51.100.0", 24], // documentation
   ["203.0.113.0", 24], // documentation
   ["224.0.0.0", 4], // multicast
-  ["240.0.0.0", 4], // reserved, broadcast
+  ["240.0.0.0", 4], // reserved
+  ["255.255.255.255", 32], // limited broadcast (inside 240/4; listed to be explicit)
 ] as const) {
-  NON_PUBLIC.addSubnet(network, prefix, "ipv4");
+  NON_PUBLIC_IPV4.addSubnet(network, prefix, "ipv4");
 }
 for (const [network, prefix] of [
-  ["::", 128], // unspecified
-  ["::1", 128], // loopback
+  ["::", 96], // IPv4-compatible (deprecated), embeds an IPv4 address
+  ["::", 128], // unspecified (inside ::/96; listed to be explicit)
+  ["::1", 128], // loopback (inside ::/96; listed to be explicit)
   ["::ffff:0:0", 96], // IPv4-mapped: refused outright, whatever it maps to
+  ["::ffff:0:0:0", 96], // IPv4-translated, embeds an IPv4 address
   ["64:ff9b::", 96], // NAT64, embeds an IPv4 address
   ["64:ff9b:1::", 48], // local NAT64
   ["100::", 64], // discard
-  ["2001::", 32], // Teredo, embeds an IPv4 address
+  ["2001::", 23], // IETF protocol assignments: Teredo, ORCHID, benchmarking
   ["2001:db8::", 32], // documentation
+  ["3fff::", 20], // documentation
   ["2002::", 16], // 6to4, embeds an IPv4 address
+  ["5f00::", 16], // SRv6 segment identifiers, not hosts
   ["fc00::", 7], // unique local (includes fd00:ec2::254, AWS metadata)
   ["fe80::", 10], // link-local
   ["fec0::", 10], // site-local (deprecated)
   ["ff00::", 8], // multicast
 ] as const) {
-  NON_PUBLIC.addSubnet(network, prefix, "ipv6");
+  NON_PUBLIC_IPV6.addSubnet(network, prefix, "ipv6");
 }
 
 const IPV6_BRACKETS = /^\[|\]$/g;
@@ -78,10 +87,10 @@ export class RefusedUrlError extends Error {
 export function isNonPublicAddress(address: string): boolean {
   const family = isIP(address);
   if (family === 4) {
-    return NON_PUBLIC.check(address, "ipv4");
+    return NON_PUBLIC_IPV4.check(address, "ipv4");
   }
   if (family === 6) {
-    return NON_PUBLIC.check(address, "ipv6");
+    return NON_PUBLIC_IPV6.check(address, "ipv6");
   }
   return true;
 }

@@ -454,6 +454,10 @@ async function getSystemPrompt({
       const phaseBlock = await buildPhaseSystemBlock({
         projectId: currentChat.projectId,
         latestUserMessage: messageText(userMessage),
+        // The client's "this message answers criterion X", passed through
+        // unread: buildPhaseSystemBlock is the one place that validates it.
+        targetCriterionId: (userMessage.metadata as Record<string, unknown>)
+          .targetCriterionId,
         costAccumulator,
       });
       system = `${system}\n\n${phaseBlock}`;

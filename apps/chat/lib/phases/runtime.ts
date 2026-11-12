@@ -38,6 +38,7 @@ import {
 import {
   buildPhaseDirective,
   buildPhaseSystemBlockText,
+  type DirectiveTarget,
   toPhaseGateState,
 } from "./directive";
 import { extractFacts, reconcileFacts } from "./extract";
@@ -276,6 +277,48 @@ function toStoredFacts(
   }));
 }
 
+/** Longest criterion id the client may name; matches `CRITERION_ID_PATTERN`'s ceiling. */
+const MAX_TARGET_ID_LENGTH = 64;
+const TARGET_ID_SHAPE = /^[a-z0-9-]+$/;
+
+/**
+ * THE ONE PLACE A CLIENT'S "THIS MESSAGE ANSWERS CRITERION X" IS READ.
+ *
+ * `raw` comes from the request's message metadata, so it is whatever a client
+ * chose to send: any type, any length, any text. It is never interpolated. It
+ * is only ever COMPARED, after a cheap shape check, against the ids of the exit
+ * criteria of `phase` — the phase this turn resolved as current — and what the
+ * prompt receives is that criterion's own definition text.
+ *
+ * Fails closed to "no target": a non-string, an oversized or odd-shaped string,
+ * an id of another phase (a stale mark from before an advance) or an id that
+ * names nothing all yield null, and the turn renders exactly as it would have
+ * with no mark. A dropped mark costs the founder a hint; an accepted wrong one
+ * would aim the interviewer at the wrong criterion.
+ */
+function resolveTarget(
+  phase: PhaseDefinition,
+  raw: unknown
+): DirectiveTarget | null {
+  if (
+    typeof raw !== "string" ||
+    raw.length > MAX_TARGET_ID_LENGTH ||
+    !TARGET_ID_SHAPE.test(raw)
+  ) {
+    return null;
+  }
+  const criterion = phase.exitCriteria.find((c) => c.id === raw);
+  if (!criterion) {
+    return null;
+  }
+  const words = criterion.id.replaceAll("-", " ");
+  return {
+    title: `${words.charAt(0).toUpperCase()}${words.slice(1)}`,
+    description: criterion.description,
+    closure: criterion.closure,
+  };
+}
+
 /**
  * Read-side: what gets appended to the chat system prompt, at the START of the
  * turn.
@@ -291,11 +334,17 @@ function toStoredFacts(
 export async function buildPhaseSystemBlock({
   projectId,
   latestUserMessage,
+  targetCriterionId,
   costAccumulator,
 }: {
   projectId: string;
   /** Ranks the fact block against what this turn is actually about. */
   latestUserMessage?: string;
+  /**
+   * The latest user message's `metadata.targetCriterionId`, UNVALIDATED and
+   * typed as such. `resolveTarget` is the only reader.
+   */
+  targetCriterionId?: unknown;
   /**
    * The TURN'S accumulator, still open at this point (the route settles it in
    * onFinish), so the query embedding is charged with the turn that needed it.
@@ -374,6 +423,19 @@ export async function buildPhaseSystemBlock({
     );
   }
 
+  const target = resolveTarget(phase, targetCriterionId);
+  if (targetCriterionId !== undefined) {
+    // The outcome only, never the value: a dropped id is client text.
+    log.debug(
+      {
+        projectId,
+        phaseKey: phase.key,
+        target: target ? "accepted" : "dropped",
+      },
+      "criterion target"
+    );
+  }
+
   return buildPhaseSystemBlockText({
     personaPrompt: loadPersonaPrompt(),
     phasePrompt: loadPrompt(phase.promptFile),
@@ -384,6 +446,7 @@ export async function buildPhaseSystemBlock({
       previousPhase: resolution.previousPhase,
       nextPhase: resolution.nextPhase,
       workflowComplete: resolution.workflowComplete,
+      target,
     }),
   });
 }

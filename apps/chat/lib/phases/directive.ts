@@ -1,4 +1,5 @@
 import {
+  type CriterionClosure,
   type CriterionStatus,
   type GateDecisionValue,
   type GateObstacle,
@@ -279,6 +280,28 @@ export type PhaseDirectiveInput = {
   nextPhase: PhaseDefinition | null;
   /** Every phase is passed. `phase` is then the last one. */
   workflowComplete: boolean;
+  /**
+   * The exit criterion the founder marked their latest message as answering,
+   * already resolved against `phase` by the caller. Absent when nothing was
+   * marked or the mark did not name a criterion of this phase.
+   */
+  target?: DirectiveTarget | null;
+};
+
+/**
+ * WHAT THE FOUNDER SAID THEIR MESSAGE WAS FOR — and only server-side text.
+ *
+ * Every field here is copied from the phase DEFINITION, never from the request:
+ * the client sends an id, `lib/phases/runtime.ts::buildPhaseSystemBlock` looks
+ * it up among the current phase's exit criteria, and only what the definition
+ * says about that criterion reaches the prompt. An id that matches nothing is
+ * dropped there, so no client string is ever interpolated below.
+ */
+export type DirectiveTarget = {
+  /** The criterion's id, humanised ("willingness-to-pay" → "Willingness to pay"). */
+  title: string;
+  description: string;
+  closure: CriterionClosure;
 };
 
 function phaseLabel(phase: PhaseDefinition): string {
@@ -338,9 +361,58 @@ function askLine(nextQuestion: string | null): string {
 const FIELDWORK_INSTRUCTION =
   "WHAT IS LEFT CANNOT BE ANSWERED FROM MEMORY. Every criterion still open needs field data that does not exist yet, so do NOT ask the founder to score, estimate, guess or 'ballpark' any of it, and do not accept a number they produce on the spot — a figure invented to clear this gate is the exact fabrication this phase exists to prevent, and you would be the one who asked for it. Help them build the instrument instead: the recruiting plan, the sample size, the questions asked verbatim, and the pass/fail threshold committed to BEFORE any data arrives. Treat a defined protocol with a pre-registered threshold as real progress and say so — it is not a pass, and you must still not advance the phase, but it is the work that makes a pass possible.";
 
+/**
+ * THE FOUNDER'S MARK IS INTENT, NOT EVIDENCE.
+ *
+ * A founder can tag a message as answering one exit criterion. That tells the
+ * interviewer what the message is FOR; it does not make the message adequate.
+ * Read as "the founder says this closes it", the mark would be a one-click way
+ * to talk the interviewer into treating a criterion as settled — so the
+ * paragraph asks for the honest delta (what the message establishes, what it
+ * still lacks) and keeps the one-question rule. The gate itself never sees the
+ * mark: the judge and the extractor read the transcript, not this prompt.
+ *
+ * An OFFLINE-ONLY criterion gets Incident 2's rule restated at the point of
+ * use. Marking a message "this is my willingness-to-pay evidence" is exactly
+ * where a founder is likeliest to type a number to clear the gate, and the
+ * interviewer must not accept one produced on the spot.
+ *
+ * Placed immediately before `askLine`, so it conditions the question that
+ * follows rather than replacing it. `questionFollows` says whether one does:
+ * a WARN with no stored question renders no ask line, and the paragraph must
+ * not point at one that is not there.
+ */
+/** A description's own full stop, dropped so it can sit inside parentheses. */
+const TRAILING_STOP = /[.\s]+$/;
+
+function targetLines(
+  target: DirectiveTarget | null | undefined,
+  questionFollows: boolean
+): string[] {
+  if (!target) {
+    return [];
+  }
+  const description = target.description.trim().replace(TRAILING_STOP, "");
+  const fallback = questionFollows
+    ? "otherwise the question asked for below"
+    : "otherwise the next thing this phase needs";
+  const lines = [
+    "",
+    `The founder marked their latest message as addressing the exit criterion "${target.title}" (${description}). Treat that as their intent, not as evidence: say in one sentence what the message establishes for that criterion and what it still lacks, and do not re-ask what it answered. Then ask one question: about this criterion if it is still short, ${fallback}.`,
+  ];
+  if (target.closure === "offline-only") {
+    lines.push(
+      "",
+      "This criterion needs field data. Count only a report of fieldwork already done (who, how many, when, in their own words). If the message is an estimate, a score or an opinion, say plainly that it cannot count and help plan how to collect it; never ask for or accept a number produced on the spot."
+    );
+  }
+  return lines;
+}
+
 function blockedDirective(
   state: PhaseGateState,
-  phase: PhaseDefinition
+  phase: PhaseDefinition,
+  target: DirectiveTarget | null | undefined
 ): string[] {
   const lines = [
     `${DIRECTIVE_HEADING} — as of last turn, BLOCKED on ${phaseLabel(phase)}.`,
@@ -369,13 +441,15 @@ function blockedDirective(
       `This phase has now been judged ${state.attemptCount} times and is still short. Do not re-ask the same question in the same words — that is a deadlock, not persistence. Name the criterion that is blocking, say explicitly that the phase cannot close without it, and offer one concrete way to get that evidence, or one way to reframe the problem so a different answer becomes possible.`
     );
   }
+  lines.push(...targetLines(target, true));
   lines.push("", askLine(state.nextQuestion));
   return lines;
 }
 
 function warnedDirective(
   state: PhaseGateState,
-  phase: PhaseDefinition
+  phase: PhaseDefinition,
+  target: DirectiveTarget | null | undefined
 ): string[] {
   const lines = [
     `${DIRECTIVE_HEADING} — as of last turn, ${phaseLabel(phase)} clears its blocking criteria but the gate flagged a weakness.`,
@@ -393,6 +467,7 @@ function warnedDirective(
     "",
     "Keep working inside this phase and keep the conversation moving — this is not a refusal. State the weakness above once, in one sentence, the first time it is relevant, and do not treat it as closed. You still may not tell the founder the phase is complete; the gate decides that, not you."
   );
+  lines.push(...targetLines(target, state.nextQuestion !== null));
   if (state.nextQuestion) {
     lines.push("", askLine(state.nextQuestion));
   }
@@ -456,9 +531,9 @@ export function buildPhaseDirective(input: PhaseDirectiveInput): string {
   if (state === null || state.decision === null) {
     lines = openingDirective(input);
   } else if (state.decision === "BLOCK") {
-    lines = blockedDirective(state, input.phase);
+    lines = blockedDirective(state, input.phase, input.target);
   } else if (state.decision === "WARN") {
-    lines = warnedDirective(state, input.phase);
+    lines = warnedDirective(state, input.phase, input.target);
   } else {
     lines = passedDirective(input);
   }

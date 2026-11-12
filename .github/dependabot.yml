@@ -1,6 +1,7 @@
 # Version updates. Security updates are separate and are never delayed by a cooldown.
 # Every ecosystem waits 7 days after a release before proposing it, and folds minor and
-# patch bumps into one grouped pull request; a major bump gets its own pull request.
+# patch bumps into one grouped pull request; a major bump gets its own pull request
+# unless an `ignore` entry below holds it back.
 version: 2
 updates:
   # Bun workspaces (apps/chat, packages/*), one root bun.lock.
@@ -14,6 +15,18 @@ updates:
       minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    # The AI SDK moves as one set. ai@6 accepts only v2/v3 provider models, and the next
+    # majors of these packages (ai 7, @ai-sdk/* on @ai-sdk/provider 4, the OpenRouter
+    # provider 3) target AI SDK 7: a lone bump fails the type check and would throw
+    # UnsupportedModelVersionError at runtime. Majors wait for a deliberate AI SDK 7
+    # migration; minor and patch updates still arrive in the group above.
+    ignore:
+      - dependency-name: "ai"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@ai-sdk/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@openrouter/ai-sdk-provider"
+        update-types: ["version-update:semver-major"]
 
   # Research sidecar. `mcp` stays below 2 because camel-ai, pulled in by the OASIS extra,
   # imports a name that mcp 2 removed; see apps/research/pyproject.toml.

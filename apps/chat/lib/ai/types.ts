@@ -144,6 +144,14 @@ const messageMetadataSchema = z.object({
    */
   streamStopped: z.boolean().optional(),
   selectedTool: frontendToolsSchema.optional(),
+  /**
+   * The exit criterion the founder pointed this message at (the gate card's
+   * "Answer" and "Plan how to find out"). A label on the message, never part of
+   * its text: the text is sent exactly as typed, so the judge and the extractor
+   * read the founder's own words and nothing the UI put there. An id the phase
+   * definitions do not carry is ignored by every reader.
+   */
+  targetCriterionId: z.string().max(64).optional(),
   usage: z.custom<LanguageModelUsage | undefined>((_val) => true).optional(),
 });
 

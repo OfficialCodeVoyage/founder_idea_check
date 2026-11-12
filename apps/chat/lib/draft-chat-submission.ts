@@ -29,6 +29,7 @@ export function buildDraftChatSubmission({
   parallelResponsesEnabled,
   parentMessageId,
   selectedTool,
+  targetCriterionId,
 }: {
   attachments: Attachment[];
   input: string;
@@ -36,6 +37,8 @@ export function buildDraftChatSubmission({
   parallelResponsesEnabled: boolean;
   parentMessageId: string | null;
   selectedTool: UiToolName | null;
+  /** The exit criterion this message answers; see `MessageMetadata`. */
+  targetCriterionId?: string | null;
 }): DraftChatSubmission {
   const requestedModelIds = expandSelectedModelValue(normalizedSelectedModel);
   const primaryModelId = requestedModelIds[0];
@@ -95,6 +98,7 @@ export function buildDraftChatSubmission({
         selectedModel: normalizedSelectedModel,
         activeStreamId: null,
         selectedTool: selectedTool || undefined,
+        targetCriterionId: targetCriterionId || undefined,
       },
       role: "user",
     },

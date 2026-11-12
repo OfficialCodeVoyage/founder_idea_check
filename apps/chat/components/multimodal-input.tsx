@@ -1,7 +1,7 @@
 "use client";
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CameraIcon, FileIcon, ImageIcon, PlusIcon } from "lucide-react";
+import { CameraIcon, FileIcon, ImageIcon, PlusIcon, XIcon } from "lucide-react";
 import type React from "react";
 import {
   type ChangeEvent,
@@ -9,6 +9,7 @@ import {
   memo,
   type SetStateAction,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -24,6 +25,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { ContextBar } from "@/components/context-bar";
 import { ContextUsageFromParent } from "@/components/context-usage";
+import { usePhaseGate } from "@/components/phase/phase-gate-provider";
 import { useArtifact } from "@/hooks/use-artifact";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { AppModelId } from "@/lib/ai/app-model-id";
@@ -152,7 +154,25 @@ function PureMultimodalInput({
     getInitialInput,
     isEmpty,
     handleSubmit,
+    criterionTarget,
+    setCriterionTarget,
   } = useChatInput();
+
+  // A TARGET DOES NOT OUTLIVE ITS PHASE. The gate advances in `after()`, so a
+  // founder can have "Answer" armed on a criterion of phase 3 when phase 4
+  // opens; sending the old id then would label an answer with a criterion the
+  // new phase does not have. Null `gatePhaseKey` (no gate on this route, or the
+  // first read not landed) never clears: absence is not a different phase.
+  const gatePhaseKey = usePhaseGate()?.data?.phaseKey ?? null;
+  useEffect(() => {
+    if (
+      criterionTarget &&
+      gatePhaseKey !== null &&
+      criterionTarget.phaseKey !== gatePhaseKey
+    ) {
+      setCriterionTarget(null);
+    }
+  }, [criterionTarget, gatePhaseKey, setCriterionTarget]);
 
   const isAnonymous = !session?.user;
   const isModelDisallowedForAnonymous =
@@ -378,6 +398,9 @@ function PureMultimodalInput({
       parallelResponsesEnabled,
       parentMessageId: effectiveParentMessageId,
       selectedTool,
+      // A label on the message, never a prefix on its text: `input` above is
+      // sent exactly as typed.
+      targetCriterionId: criterionTarget?.criterionId,
     });
 
     onSendMessage?.(message);
@@ -395,6 +418,9 @@ function PureMultimodalInput({
         requestSpecs,
       })
     ) {
+      // `startProvisionalChat` has already called `sendMessage` by the time it
+      // returns true, so this is "after the send", as below.
+      setCriterionTarget(null);
       return;
     }
 
@@ -445,6 +471,10 @@ function PureMultimodalInput({
       addMessageToTree(message);
     }
 
+    // CLEARED ONLY AFTER `sendMessage` HAS BEEN CALLED, never before it: the
+    // label has to be on the message when it leaves.
+    setCriterionTarget(null);
+
     // Refocus after submit
     if (!isMobile) {
       editorRef.current?.focus();
@@ -452,6 +482,7 @@ function PureMultimodalInput({
   }, [
     addMessageToTree,
     attachments,
+    criterionTarget?.criterionId,
     isMobile,
     chatId,
     currentRoute.projectId,
@@ -467,6 +498,7 @@ function PureMultimodalInput({
     parallelResponsesEnabled,
     selectedTool,
     sendMessage,
+    setCriterionTarget,
     startProvisionalChat,
     trimMessagesInEditMode,
   ]);
@@ -677,6 +709,9 @@ function PureMultimodalInput({
   const composerTestId = isActive
     ? `multimodal-input${surfaceSuffix}`
     : undefined;
+  const defaultPlaceholder = isMobile
+    ? "Send a message... (Ctrl+Enter to send)"
+    : "Send a message...";
   const modelSelectorTestId = isActive
     ? `model-selector${surfaceSuffix}`
     : undefined;
@@ -749,6 +784,13 @@ function PureMultimodalInput({
             uploadQueue={uploadQueue}
           />
 
+          {criterionTarget && isActive && !isEditMode ? (
+            <CriterionTargetChip
+              onClear={() => setCriterionTarget(null)}
+              title={criterionTarget.title}
+            />
+          ) : null}
+
           <LexicalChatInput
             autoFocus={autoFocus && isActive}
             className="max-h-[max(35svh,5rem)] min-h-[60px] overflow-y-scroll sm:min-h-[80px]"
@@ -773,9 +815,9 @@ function PureMultimodalInput({
             onInputChange={handleInputChange}
             onPaste={handlePaste}
             placeholder={
-              isMobile
-                ? "Send a message... (Ctrl+Enter to send)"
-                : "Send a message..."
+              criterionTarget
+                ? TARGET_HINT[criterionTarget.closure]
+                : defaultPlaceholder
             }
             ref={isActive ? editorRef : undefined}
           />
@@ -936,6 +978,54 @@ function PureAttachmentsButton({
 }
 
 const AttachmentsButton = memo(PureAttachmentsButton);
+
+/**
+ * WHAT THE FOUNDER IS ANSWERING, in the founder's words, above the editor.
+ *
+ * The gate card's "Answer" sets a target; this is where it stays visible until
+ * the message is sent or it is dismissed. It is a label OUTSIDE the editor on
+ * purpose: nothing here is ever put in the message text, so what the gate judges
+ * and what extraction quotes is exactly what the founder typed.
+ *
+ * Not a `PromptInputHeader`: that addon focuses the form's `<input>` on click
+ * and carries a border and a background built for the attachment strip.
+ */
+function CriterionTargetChip({
+  title,
+  onClear,
+}: {
+  title: string;
+  onClear: () => void;
+}) {
+  return (
+    <div
+      className="flex w-full min-w-0 items-center px-3 pt-2"
+      data-testid="criterion-target-chip"
+    >
+      <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border bg-background py-0.5 pr-0.5 pl-2.5 text-xs">
+        <span className="min-w-0 truncate">
+          <span className="text-foreground/75">Answering:</span>{" "}
+          <span className="font-medium">{title}</span>
+        </span>
+        <button
+          aria-label={`Stop answering ${title}`}
+          className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-full text-foreground/75 hover:bg-foreground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onClear}
+          type="button"
+        >
+          <XIcon aria-hidden="true" className="size-3" />
+        </button>
+      </span>
+    </div>
+  );
+}
+
+/** What the empty editor says while a criterion is the target. */
+const TARGET_HINT = {
+  "in-conversation": "Say it in a full sentence, in your own words.",
+  "offline-only":
+    "What did you find? Who you spoke to, how many, when, and what they said.",
+} as const;
 
 function PureChatInputBottomControls({
   selectedModelId,

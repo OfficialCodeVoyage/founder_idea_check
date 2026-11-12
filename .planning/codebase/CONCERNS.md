@@ -123,6 +123,15 @@ in the last section.
 
 **Privacy page prints empty parentheses** where processors belong (`apps/chat/app/privacy/page.tsx`).
 
+**Server-side tRPC prefetches can still read the clock while prerendering (open, not observed):**
+- Layouts and pages look the session up through `apps/chat/lib/request-session.ts::getRequestSession`, which awaits
+  `connection()` first. Server-side tRPC prefetches do not: `apps/chat/trpc/init.ts::createTRPCContext` calls
+  `auth.api.getSession` directly, and better-auth reads the clock. On a page whose own render runs alongside a gated
+  layout (`/settings/models`, `/settings/connectors`, `/share/[id]`) that read can land in a runtime prerender stage and
+  raise Next's `blocking-prerender-current-time` error. Not seen in testing.
+- Deferred: both systemic fixes (`connection()` in the tRPC context, or the session lookup inside the (chat) layout's
+  `Promise.all`) made the Next 16.4.5 dev server reload `/` dozens of times after sign-in. Revisit once that is understood.
+
 ## Security Considerations
 
 **1. Cross-user writes (rank 1, both known cases fixed):**

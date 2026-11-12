@@ -66,15 +66,20 @@ export default function ModelsSettingsPage() {
 
 async function ModelsSettingsContent() {
   const queryClient = getQueryClient();
-  await queryClient.prefetchQuery(
-    trpc.settings.getModelPreferences.queryOptions()
-  );
+  // Read here and handed to `ModelsTable` as a prop, so its first render
+  // does not depend on the query cache (see `ModelsTable`). Same
+  // request-scoped client as the layout's lazy prefetch, so this joins that
+  // fetch instead of starting another. A failed read falls back to no saved
+  // preferences, which renders the default model set.
+  const initialPreferences = await queryClient
+    .fetchQuery(trpc.settings.getModelPreferences.queryOptions())
+    .catch(() => []);
 
   return (
     <HydrateClient>
       <SettingsPage>
         <ModelsSettingsHeader showRegistryLink />
-        <ModelsSettings />
+        <ModelsSettings initialPreferences={initialPreferences} />
       </SettingsPage>
     </HydrateClient>
   );

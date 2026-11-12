@@ -55,12 +55,16 @@ async function ChatLayoutDynamic({ children }: { children: React.ReactNode }) {
   // in parallel, it made the Next 16.4.5 dev server reload `/` 26–47 times in
   // a row on the first load after sign-in (clean restarts, checked by hand;
   // sequential: one load, no clock error). The Playwright environment skips
-  // the session but still waits on the same barrier, so e2e runs everything
-  // below — including the tRPC prefetches, whose context reads the clock — at
-  // request time like everyone else (`lib/request-session.ts`).
-  const session = isPlaywrightTestEnvironment
-    ? await connection().then(() => null)
-    : await getRequestSession();
+  // the session lookup but still waits on the same barrier, so e2e renders
+  // the rest of this layout at request time too. With no session it never
+  // runs the tRPC prefetches below, so e2e does not cover those
+  // (`lib/request-session.ts`).
+  let session: Awaited<ReturnType<typeof getRequestSession>> = null;
+  if (isPlaywrightTestEnvironment) {
+    await connection();
+  } else {
+    session = await getRequestSession();
+  }
 
   const cookieModel = cookieStore.get("chat-model")?.value;
   const isAnonymous = !session?.user;

@@ -21,8 +21,9 @@ import { auth } from "@/lib/auth";
  * the page is for, so it must wait for a real request and never be part of a
  * prefetch.
  *
- * Wrapped in React `cache()` so one request does one lookup, however many of
- * the (chat) layout, the settings layout and the project screens ask for it.
+ * Wrapped in React `cache()`, so within one request the (chat) layout, the
+ * settings layout and the project screens share a single lookup.
+ * `trpc/init.ts::createTRPCContext` still does its own, separate lookup.
  *
  * Not used by `trpc/init.ts::createTRPCContext`: putting `connection()` there
  * made the dev server reload `/` about 25 times in a row on the first load

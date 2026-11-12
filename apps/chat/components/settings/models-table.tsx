@@ -1,15 +1,12 @@
 "use client";
 
-import {
-  useMutation,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { Table, TableBody } from "@/components/ui/table";
 import type { AppModelId } from "@/lib/ai/app-model-id";
 import { getDefaultEnabledModels } from "@/lib/ai/app-models";
+import type { UserModelPreference } from "@/lib/db/schema";
 import { useChatModels } from "@/providers/chat-models-provider";
 import { useTRPC } from "@/trpc/react";
 import { ModelRow } from "./model-row";
@@ -17,24 +14,32 @@ import { ModelRow } from "./model-row";
 export function ModelsTable({
   search,
   className,
+  initialPreferences,
 }: {
   search: string;
   className?: string;
+  initialPreferences: UserModelPreference[];
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { allModels, models: enabledModels } = useChatModels();
 
-  // Suspends instead of rendering a loading state. The (chat) layout streams
-  // this query pending and the page dehydrates it resolved, but
-  // HydrationBoundary applies a query already in the cache only in an effect,
-  // so on first load the server and the browser could each see it pending or
-  // resolved and render different markup. While a hydrating component
-  // suspends, React keeps the server HTML and hydrates once the data is in,
-  // so both sides render the same table and no skeleton flashes.
-  const { data: preferences } = useSuspenseQuery(
-    trpc.settings.getModelPreferences.queryOptions()
-  );
+  // The (chat) layout streams this query pending and the page dehydrates it
+  // resolved, but HydrationBoundary applies a query already in the cache only
+  // in an effect, so on first load the server and the browser could each see
+  // it pending or resolved and render different markup. The page reads the
+  // same rows on the server and passes them in; while the query is pending
+  // they stand in for it, so both sides render those rows and there is no
+  // loading state. `placeholderData` rather than `initialData`: initialData
+  // is written into the shared cache during render and marked fresh, which
+  // would also overwrite an errored query and hide the error from
+  // `ChatModelsProvider`; placeholderData only shapes this component's result.
+  // If the server read failed the prop is empty, and pending, errored and
+  // empty all render the default model set.
+  const { data: preferences } = useQuery({
+    ...trpc.settings.getModelPreferences.queryOptions(),
+    placeholderData: initialPreferences,
+  });
 
   const queryKey = trpc.settings.getModelPreferences.queryKey();
 
@@ -75,7 +80,7 @@ export function ModelsTable({
 
   const enabledModelsSet = useMemo(() => {
     const enabled = getDefaultEnabledModels(allModels);
-    for (const pref of preferences) {
+    for (const pref of preferences ?? []) {
       if (pref.enabled) {
         enabled.add(pref.modelId as AppModelId);
       } else {

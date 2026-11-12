@@ -11,6 +11,12 @@
 # falls back to http://localhost:3000). Running on any other port without
 # APP_URL makes every cookie-bearing POST to /api/auth — sign-out included —
 # fail with 403 INVALID_ORIGIN.
+#
+# Why --hostname localhost: without it `next dev` listens on every interface,
+# and /api/dev-login hands a 30-day session for the founder's real account to
+# whoever reaches it — anyone on the same Wi-Fi. `localhost` rather than
+# 127.0.0.1 because sign-in and its cookie are documented on
+# http://localhost:PORT, and that is the origin APP_URL names.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,4 +36,4 @@ bun scripts/check-env.ts --dev
 echo "▶ http://localhost:${PORT}   (sign in: http://localhost:${PORT}/api/dev-login)"
 
 exec bunx dotenv-cli -e "$REPO_ROOT/.env.local" -- \
-  bash "$SCRIPT_DIR/with-db.sh" bunx next dev --port "$PORT"
+  bash "$SCRIPT_DIR/with-db.sh" bunx next dev --hostname localhost --port "$PORT"

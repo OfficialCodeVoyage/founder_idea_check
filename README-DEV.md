@@ -128,7 +128,10 @@ Prefer `dev:local`: it bypasses turbo and sets `APP_URL` to the port it serves o
 ### Sign in
 
 Open `http://localhost:3100/api/dev-login`, or use the "Dev login" button on `/login`. Either creates `dev@localhost`,
-signs the session cookie and redirects to `/`. The route answers 404 unless `NODE_ENV` is `development`.
+signs the session cookie and redirects to `/`. The route answers 404 unless `NODE_ENV` is `development`. It also answers
+404 unless the request's `Host` is a loopback name and its `X-Forwarded-For` is a loopback address, and the dev
+scripts start `next dev --hostname localhost`, so other machines on your network cannot reach the server: open it as
+`localhost`, not by the machine's LAN address.
 
 Every social provider is off in `chat.config.ts`: a button for a provider with no real credentials would redirect to
 a sign-in that cannot succeed. To use one, create the OAuth app, set its two variables in `.env.local` and set

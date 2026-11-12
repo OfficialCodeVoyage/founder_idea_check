@@ -55,7 +55,7 @@ export type ResearchAvailability =
     };
 
 const NO_BACKEND =
-  "No search backend is configured: RESEARCH_SIDECAR_URL is empty and neither TAVILY_API_KEY nor FIRECRAWL_API_KEY is set.";
+  "No search backend is configured: researchSidecarUrl in chat.config.ts is empty and neither TAVILY_API_KEY nor FIRECRAWL_API_KEY is set.";
 
 const EVERY_LANE_REFUSED =
   "Every research source is switched off for this deployment.";

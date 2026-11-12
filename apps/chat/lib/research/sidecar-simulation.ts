@@ -41,7 +41,7 @@ export function createSidecarSimulationRunner(
         ok: false,
         kind: "disabled",
         detail:
-          "No research sidecar is configured, so no simulation can run. Set researchSidecarUrl in chat.config.ts (or RESEARCH_SIDECAR_URL) and start apps/research.",
+          "No research sidecar is configured, so no simulation can run. Set researchSidecarUrl in chat.config.ts and start apps/research.",
       };
     }
 

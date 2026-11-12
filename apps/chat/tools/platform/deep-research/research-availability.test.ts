@@ -61,7 +61,7 @@ describe("decideResearchAvailability", () => {
     expect(view.available).toBe(false);
     if (!view.available) {
       // Name the knobs, not the symptom. The founder saw an AI-SDK string.
-      expect(view.headline).toContain("RESEARCH_SIDECAR_URL");
+      expect(view.headline).toContain("researchSidecarUrl");
       expect(view.headline).toContain("TAVILY_API_KEY");
       expect(view.headline).toContain("FIRECRAWL_API_KEY");
     }

@@ -21,5 +21,7 @@ source and binds to `127.0.0.1`, because it has no auth and its endpoints spend 
   TypeScript side, so `ruff` and `pytest` are the Python side's only automatic checks.
 - Source ids and the source permission gate exist in both languages and must be kept in step by hand
   (`.claude/rules/research-sources.md`).
-- A deployment must run the sidecar privately next to the app (`RESEARCH_SIDECAR_URL`).
+- A deployment must run the sidecar privately next to the app. Its address is the config key `researchSidecarUrl`
+  in `apps/chat/chat.config.ts`, not an environment variable (an env variable of the earlier name
+  `RESEARCH_SIDECAR_URL` was declared but never read, and has been removed).
 - Inherited ChatJS packages (`packages/{thread,cli,registry}`) stay until a later decision removes them.

@@ -126,10 +126,6 @@ export const serverEnvSchema = {
     .string()
     .optional()
     .describe("Operator acknowledgement required to enable Reddit signals"),
-  RESEARCH_SIDECAR_URL: z
-    .string()
-    .optional()
-    .describe("Base URL of the apps/research sidecar; empty disables it"),
   RESEARCH_MAX_INPUT_TOKENS: z
     .string()
     .optional()

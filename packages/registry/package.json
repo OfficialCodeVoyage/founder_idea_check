@@ -5,12 +5,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/FranciscoMoretti/chat-js.git",
+    "url": "git+https://github.com/OfficialCodeVoyage/founder_idea_check.git",
     "directory": "packages/registry"
   },
-  "homepage": "https://github.com/FranciscoMoretti/chat-js/tree/main/packages/registry",
+  "homepage": "https://github.com/OfficialCodeVoyage/founder_idea_check/tree/main/packages/registry",
   "bugs": {
-    "url": "https://github.com/FranciscoMoretti/chat-js/issues"
+    "url": "https://github.com/OfficialCodeVoyage/founder_idea_check/issues"
   },
   "keywords": [
     "chatjs",
@@ -18,7 +18,7 @@
     "registry",
     "tools"
   ],
-  "private": false,
+  "private": true,
   "type": "module",
   "exports": {
     ".": {

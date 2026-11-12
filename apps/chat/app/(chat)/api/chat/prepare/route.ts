@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import type { NextRequest } from "next/server";
 import type { ChatMessage } from "@/lib/ai/types";
 import { auth } from "@/lib/auth";
+import { canSpend } from "@/lib/db/credits";
 import {
   getChatById,
   getMessageById,
@@ -110,6 +111,16 @@ async function ensurePrepareChat({
   });
   if (projectError) {
     return { error: projectError };
+  }
+
+  // CREDITS BEFORE THE TITLE. The title is a charged model call
+  // (`app/(chat)/actions.ts::generateTitleFromUserMessage`) and this route had
+  // no credit check at all, so a script could buy title calls here at zero
+  // credits by posting fresh chat ids. Same 402 as `/api/chat`, and checked
+  // after the ownership checks so an unauthorised request still gets its 401.
+  if (!(await canSpend(userId))) {
+    log.warn({ chatId, userId }, "POST /api/chat/prepare insufficient credits");
+    return { error: new Response("Insufficient credits", { status: 402 }) };
   }
 
   const title = await generateTitleFromUserMessage({

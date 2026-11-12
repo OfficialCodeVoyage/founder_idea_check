@@ -244,6 +244,17 @@ async function handleChatValidation({
       }
     }
 
+    // CREDITS BEFORE THE TITLE. The title is a charged model call
+    // (`app/(chat)/actions.ts::generateTitleFromUserMessage`), and the turn's
+    // own credit check in `handleUserValidationAndCredits` runs only after
+    // this function returns — so a founder at zero credits was billed for a
+    // title on the way to the 402. Checked after the ownership checks above,
+    // so an unauthorised request still gets its 401, not a balance answer.
+    const creditError = await checkUserCanSpend(userId);
+    if (creditError) {
+      return { error: creditError, isNewChat };
+    }
+
     isNewChat = true;
     const title = await generateTitleFromUserMessage({
       message: userMessage,

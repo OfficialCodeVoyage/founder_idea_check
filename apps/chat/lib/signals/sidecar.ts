@@ -265,6 +265,13 @@ export function createSidecarSignalFetcher(config: SidecarConfig) {
       try {
         body = await response.json();
       } catch (error) {
+        // The same abort that `unreachable` handles around `fetch` can land
+        // while the body is still streaming in, and `json()` then rejects with
+        // the abort reason. That is the step's time running out (or the lane's
+        // own ceiling), not a sidecar that sent something that is not JSON.
+        if (signal.aborted) {
+          return unreachable(descriptor, base, error, abortSignal);
+        }
         return failure(
           descriptor.id,
           "schema-drift",

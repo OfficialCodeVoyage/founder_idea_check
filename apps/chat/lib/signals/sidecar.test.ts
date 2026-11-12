@@ -234,6 +234,34 @@ describe("createSidecarSignalFetcher", () => {
     }
   });
 
+  it("reports a step-cap abort while the body is being read as a time-out, not schema-drift", async () => {
+    // REGRESSION. `unreachable` only covered an abort during `fetch`; one that
+    // landed during `response.json()` was reported as "non-JSON body".
+    const stepCap = new AbortController();
+    const fetcher = createSidecarSignalFetcher({
+      baseUrl: "http://sidecar:8099",
+      fetchImpl: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => {
+            stepCap.abort();
+            return Promise.reject(
+              new DOMException("This operation was aborted", "AbortError")
+            );
+          },
+        } as unknown as Response),
+    });
+
+    const outcome = await fetcher(HACKERNEWS)(QUERY, stepCap.signal);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.failure.kind).toBe("unavailable");
+      expect(outcome.failure.detail).toContain("time ran out");
+      expect(outcome.failure.detail).not.toContain("non-JSON");
+    }
+  });
+
   it("reports a non-JSON body as schema-drift rather than crashing", async () => {
     const fetcher = createSidecarSignalFetcher({
       baseUrl: "http://sidecar:8099",

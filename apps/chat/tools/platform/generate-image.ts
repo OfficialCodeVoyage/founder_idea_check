@@ -4,7 +4,8 @@ import { type AppModelId, getAppModelDefinition } from "@/lib/ai/app-models";
 import { getImageModel, getMultimodalImageModel } from "@/lib/ai/providers";
 import { config } from "@/lib/config";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
-import { uploadFile } from "@/lib/file-storage";
+import { downloadFile, isFileOwnedBy, uploadFile } from "@/lib/file-storage";
+import { keyFromFileUrl } from "@/lib/file-url";
 import { createModuleLogger } from "@/lib/logger";
 import { getBaseUrl } from "@/lib/url";
 
@@ -12,6 +13,8 @@ interface GenerateImageProps {
   attachments?: FileUIPart[];
   costAccumulator?: CostAccumulator;
   lastGeneratedImage?: { imageUrl: string; name: string } | null;
+  /** The signed-in user; generated images are stored under this owner. */
+  ownerId?: string;
   selectedModel?: string;
 }
 
@@ -59,7 +62,22 @@ async function resolveImageModel(selectedModel?: string): Promise<{
   return { modelId: defaultId, multimodal: false };
 }
 
-async function fetchImageBuffer(url: string): Promise<Buffer> {
+/**
+ * Reads an edit-reference image. A file this app stores is read from storage
+ * directly, and only when the requesting user stored it
+ * (`lib/file-storage.ts::isFileOwnedBy`): `/api/files/content` needs the
+ * browser's session, which neither a server-side fetch nor a model provider
+ * has.
+ */
+async function fetchImageBuffer(url: string, ownerId: string): Promise<Buffer> {
+  const key = keyFromFileUrl(url);
+  if (key) {
+    if (!isFileOwnedBy(key, ownerId)) {
+      throw new Error("Reference image not found");
+    }
+    const file = await downloadFile(key);
+    return Buffer.from(await file.arrayBuffer());
+  }
   const response = await fetch(new URL(url, getBaseUrl()));
   const arrayBuffer = await response.arrayBuffer();
   return Buffer.from(arrayBuffer);
@@ -68,15 +86,17 @@ async function fetchImageBuffer(url: string): Promise<Buffer> {
 async function collectEditImages({
   imageParts,
   lastGeneratedImage,
+  ownerId,
 }: {
   imageParts: FileUIPart[];
   lastGeneratedImage: { imageUrl: string; name: string } | null;
+  ownerId: string;
 }): Promise<Buffer[]> {
   return await Promise.all([
     ...(lastGeneratedImage
-      ? [fetchImageBuffer(lastGeneratedImage.imageUrl)]
+      ? [fetchImageBuffer(lastGeneratedImage.imageUrl, ownerId)]
       : []),
-    ...imageParts.map((p) => fetchImageBuffer(p.url)),
+    ...imageParts.map((p) => fetchImageBuffer(p.url, ownerId)),
   ]);
 }
 
@@ -130,6 +150,7 @@ async function runGenerateImageTraditional({
   lastGeneratedImage,
   startMs,
   costAccumulator,
+  ownerId,
 }: {
   mode: ImageMode;
   prompt: string;
@@ -137,6 +158,7 @@ async function runGenerateImageTraditional({
   lastGeneratedImage: { imageUrl: string; name: string } | null;
   startMs: number;
   costAccumulator?: CostAccumulator;
+  ownerId: string;
 }): Promise<{ imageUrl: string; prompt: string }> {
   if (!config.ai.tools.image.enabled) {
     throw new Error("Image generation is not enabled");
@@ -162,6 +184,7 @@ async function runGenerateImageTraditional({
     const inputImages = await collectEditImages({
       imageParts,
       lastGeneratedImage,
+      ownerId,
     });
     promptInput = { text: prompt, images: inputImages };
   } else {
@@ -188,7 +211,7 @@ async function runGenerateImageTraditional({
   const buffer = Buffer.from(res.images[0].base64, "base64");
   const timestamp = Date.now();
   const filename = `generated-image-${timestamp}.png`;
-  const result = await uploadFile(filename, buffer, "image/png");
+  const result = await uploadFile(filename, buffer, "image/png", ownerId);
 
   if (res.usage) {
     costAccumulator?.addLLMCost(
@@ -222,6 +245,7 @@ async function runGenerateImageMultimodal({
   lastGeneratedImage,
   startMs,
   costAccumulator,
+  ownerId,
 }: {
   modelId: string;
   mode: ImageMode;
@@ -230,10 +254,12 @@ async function runGenerateImageMultimodal({
   lastGeneratedImage: { imageUrl: string; name: string } | null;
   startMs: number;
   costAccumulator?: CostAccumulator;
+  ownerId: string;
 }): Promise<{ imageUrl: string; prompt: string }> {
-  // Build messages with image context if in edit mode
+  // Build messages with image context if in edit mode. Images are sent as
+  // bytes: the provider cannot fetch a session-protected /api/files URL.
   interface ImageContent {
-    image: URL;
+    image: Buffer;
     type: "image";
   }
   interface TextContent {
@@ -244,17 +270,13 @@ async function runGenerateImageMultimodal({
 
   // Add reference images if in edit mode
   if (mode === "edit") {
-    if (lastGeneratedImage) {
-      userContent.push({
-        type: "image",
-        image: new URL(lastGeneratedImage.imageUrl, getBaseUrl()),
-      });
-    }
-    for (const part of imageParts) {
-      userContent.push({
-        type: "image",
-        image: new URL(part.url, getBaseUrl()),
-      });
+    const images = await collectEditImages({
+      imageParts,
+      lastGeneratedImage,
+      ownerId,
+    });
+    for (const image of images) {
+      userContent.push({ type: "image", image });
     }
   }
 
@@ -326,7 +348,12 @@ async function runGenerateImageMultimodal({
   const timestamp = Date.now();
   const ext = imageFile.mediaType.split("/")[1] || "png";
   const filename = `generated-image-${timestamp}.${ext}`;
-  const result = await uploadFile(filename, buffer, imageFile.mediaType);
+  const result = await uploadFile(
+    filename,
+    buffer,
+    imageFile.mediaType,
+    ownerId
+  );
 
   log.info(
     {
@@ -347,6 +374,7 @@ export const generateImageTool = ({
   lastGeneratedImage = null,
   selectedModel,
   costAccumulator,
+  ownerId,
 }: GenerateImageProps = {}) =>
   tool({
     description: `Generate an image from a user-provided prompt.
@@ -363,6 +391,11 @@ The assistant must not add new subjects, claims, branding, or alter the tone or 
         ),
     }),
     execute: async ({ prompt }) => {
+      // Stored files belong to a signed-in user (`lib/file-url.ts`); with no
+      // owner the result could be stored but never served.
+      if (!ownerId) {
+        throw new Error("Image generation requires a signed-in user");
+      }
       const startMs = Date.now();
       const imageParts = attachments.filter(
         (part) => part.type === "file" && part.mediaType?.startsWith("image/")
@@ -398,6 +431,7 @@ The assistant must not add new subjects, claims, branding, or alter the tone or 
             lastGeneratedImage,
             startMs,
             costAccumulator,
+            ownerId,
           });
         }
 
@@ -409,6 +443,7 @@ The assistant must not add new subjects, claims, branding, or alter the tone or 
           lastGeneratedImage,
           startMs,
           costAccumulator,
+          ownerId,
         });
       } catch (error) {
         const resolvedError = await resolveError(error);

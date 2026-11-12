@@ -235,7 +235,10 @@ function cloneDocuments<
   return clonedDocuments;
 }
 
-async function cloneFileUIPart(part: FileUIPart): Promise<FileUIPart> {
+async function cloneFileUIPart(
+  part: FileUIPart,
+  ownerId: string
+): Promise<FileUIPart> {
   try {
     // Skip if no URL is provided
     if (!part.url) {
@@ -271,7 +274,8 @@ async function cloneFileUIPart(part: FileUIPart): Promise<FileUIPart> {
     const uploadedFile = await uploadFile(
       filename,
       Buffer.from(await storedFile.arrayBuffer()),
-      storedFile.type
+      storedFile.type,
+      ownerId
     );
 
     return {
@@ -287,7 +291,7 @@ async function cloneFileUIPart(part: FileUIPart): Promise<FileUIPart> {
 
 export async function cloneAttachmentsInMessages<
   T extends { parts: ChatMessage["parts"] },
->(messages: T[]): Promise<T[]> {
+>(messages: T[], ownerId: string): Promise<T[]> {
   const clonedMessages: T[] = [];
 
   for (const message of messages) {
@@ -296,7 +300,7 @@ export async function cloneAttachmentsInMessages<
 
       for (const part of message.parts) {
         if (part.type === "file") {
-          const clonedPart = await cloneFileUIPart(part);
+          const clonedPart = await cloneFileUIPart(part, ownerId);
           clonedParts.push(clonedPart);
         } else {
           clonedParts.push(part);

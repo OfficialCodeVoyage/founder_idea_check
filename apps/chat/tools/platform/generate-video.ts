@@ -11,6 +11,8 @@ const COST_CENTS = 50; // Fixed estimate — not yet available from provider API
 
 interface GenerateVideoProps {
   costAccumulator?: CostAccumulator;
+  /** The signed-in user; generated videos are stored under this owner. */
+  ownerId?: string;
   selectedModel?: string;
 }
 
@@ -57,6 +59,7 @@ async function resolveVideoModel(selectedModel?: string): Promise<string> {
 
 export const generateVideoTool = ({
   costAccumulator,
+  ownerId,
   selectedModel,
 }: GenerateVideoProps = {}) =>
   tool({
@@ -79,6 +82,11 @@ export const generateVideoTool = ({
         .describe("Optional video duration in seconds. Defaults to 5."),
     }),
     execute: async ({ prompt, aspectRatio, durationSeconds }) => {
+      // Stored files belong to a signed-in user (`lib/file-url.ts`); with no
+      // owner the result could be stored but never served.
+      if (!ownerId) {
+        throw new Error("Video generation requires a signed-in user");
+      }
       const startMs = Date.now();
       const finalAspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
       const finalDurationSeconds = durationSeconds ?? DEFAULT_DURATION_SECONDS;
@@ -123,7 +131,12 @@ export const generateVideoTool = ({
         const timestamp = Date.now();
         const ext = resolveVideoExtension(video.mediaType);
         const filename = `generated-video-${timestamp}.${ext}`;
-        const uploaded = await uploadFile(filename, buffer, video.mediaType);
+        const uploaded = await uploadFile(
+          filename,
+          buffer,
+          video.mediaType,
+          ownerId
+        );
 
         costAccumulator?.addAPICost("generateVideo", COST_CENTS);
 

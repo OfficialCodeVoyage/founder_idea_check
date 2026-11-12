@@ -110,6 +110,7 @@ export function getTools({
             lastGeneratedImage,
             selectedModel,
             costAccumulator,
+            ownerId: session.user?.id,
           }),
         }
       : {}),
@@ -126,7 +127,11 @@ export function getTools({
       : {}),
     ...(config.ai.tools.video.enabled
       ? {
-          generateVideo: generateVideoTool({ selectedModel, costAccumulator }),
+          generateVideo: generateVideoTool({
+            selectedModel,
+            costAccumulator,
+            ownerId: session.user?.id,
+          }),
         }
       : {}),
     ...enabledInstalledTools,

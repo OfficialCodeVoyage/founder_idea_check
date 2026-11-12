@@ -3,6 +3,7 @@ import {
   downloadFile,
   getFileMetadata,
   getFileProviderUrl,
+  isFileOwnedBy,
   storageSupportsRange,
 } from "./file-storage";
 import { keyFromFileUrl } from "./file-url";
@@ -32,10 +33,22 @@ function parseRange(value: string, size: number) {
     : null;
 }
 
-export async function createFileContentResponse(request: Request) {
+/**
+ * Serves a stored file to the signed-in user who stored it. `userId` comes from
+ * the caller's session (`app/(chat)/api/files/content/route.ts`); a key whose
+ * owner tag is not that user's answers 404, the same as a missing file, so the
+ * response does not reveal whether someone else's key exists.
+ */
+export async function createFileContentResponse(
+  request: Request,
+  userId: string
+) {
   const key = keyFromFileUrl(request.url);
   if (!key) {
     return new Response("Invalid file URL", { status: 400 });
+  }
+  if (!isFileOwnedBy(key, userId)) {
+    return new Response("Not found", { status: 404 });
   }
 
   try {

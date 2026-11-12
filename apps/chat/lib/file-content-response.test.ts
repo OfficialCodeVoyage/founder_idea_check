@@ -19,14 +19,22 @@ vi.mock("./storage-provider", async () => {
 import { createFileContentResponse } from "./file-content-response";
 import { uploadFile } from "./file-storage";
 
+const OWNER = "user-1";
+
 describe("file content response", () => {
   it("serves byte ranges", async () => {
-    const uploaded = await uploadFile("hello.txt", "hello", "text/plain");
+    const uploaded = await uploadFile(
+      "hello.txt",
+      "hello",
+      "text/plain",
+      OWNER
+    );
 
     const response = await createFileContentResponse(
       new Request(new URL(uploaded.url, "https://chat.example"), {
         headers: { Range: "bytes=1-3" },
-      })
+      }),
+      OWNER
     );
     assert.equal(response.status, 206);
     assert.equal(response.headers.get("content-range"), "bytes 1-3/5");
@@ -35,19 +43,21 @@ describe("file content response", () => {
     const suffixResponse = await createFileContentResponse(
       new Request(new URL(uploaded.url, "https://chat.example"), {
         headers: { Range: "bytes=-2" },
-      })
+      }),
+      OWNER
     );
     assert.equal(suffixResponse.status, 206);
     assert.equal(await suffixResponse.text(), "lo");
   });
 
   it("rejects unsatisfiable ranges", async () => {
-    const uploaded = await uploadFile("short.txt", "hi", "text/plain");
+    const uploaded = await uploadFile("short.txt", "hi", "text/plain", OWNER);
 
     const response = await createFileContentResponse(
       new Request(new URL(uploaded.url, "https://chat.example"), {
         headers: { Range: "bytes=5-8" },
-      })
+      }),
+      OWNER
     );
 
     assert.equal(response.status, 416);

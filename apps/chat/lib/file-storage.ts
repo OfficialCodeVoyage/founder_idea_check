@@ -1,7 +1,13 @@
+import { createHash } from "node:crypto";
 import { type Body, Files } from "files-sdk";
 import { nanoid } from "nanoid";
 import { FILE_STORAGE_PREFIX } from "./constants";
-import { FILE_CONTENT_PATH, keyFromFileUrl } from "./file-url";
+import {
+  FILE_CONTENT_PATH,
+  FILE_OWNER_TAG_LENGTH,
+  keyFromFileUrl,
+  ownerTagFromFileKey,
+} from "./file-url";
 import { storageProvider } from "./storage-provider";
 
 const SAFE_EXTENSION = /^\.[a-z0-9]{1,10}$/;
@@ -29,12 +35,28 @@ function sanitizeFilename(filename: string): string {
   return withoutControlCharacters.trim() || "file";
 }
 
-function createStorageKey(filename: string): string {
+/**
+ * The owner part of a storage key (`lib/file-url.ts::isFileStorageKey`): a
+ * fixed-length digest of the user id, so the key names its owner without
+ * exposing the id itself.
+ */
+export function fileOwnerTag(userId: string): string {
+  return createHash("sha256")
+    .update(userId)
+    .digest("base64url")
+    .slice(0, FILE_OWNER_TAG_LENGTH);
+}
+
+export function isFileOwnedBy(key: string, userId: string): boolean {
+  return ownerTagFromFileKey(key) === fileOwnerTag(userId);
+}
+
+function createStorageKey(filename: string, ownerId: string): string {
   const clean = sanitizeFilename(filename);
   const dot = clean.lastIndexOf(".");
   const candidate = dot > 0 ? clean.slice(dot).toLowerCase() : "";
   const extension = SAFE_EXTENSION.test(candidate) ? candidate : "";
-  return `${nanoid(24)}${extension}`;
+  return `${fileOwnerTag(ownerId)}.${nanoid(24)}${extension}`;
 }
 
 function createFileUrl(key: string): string {
@@ -45,12 +67,15 @@ function createFileUrl(key: string): string {
 export async function uploadFile(
   filename: string,
   body: Body,
-  contentType?: string
+  contentType: string | undefined,
+  ownerId: string
 ) {
   const pathname = sanitizeFilename(filename);
-  const uploaded = await getFiles().upload(createStorageKey(pathname), body, {
-    contentType,
-  });
+  const uploaded = await getFiles().upload(
+    createStorageKey(pathname, ownerId),
+    body,
+    { contentType }
+  );
 
   return {
     contentType: uploaded.contentType,

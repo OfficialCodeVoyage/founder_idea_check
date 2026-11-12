@@ -21,7 +21,12 @@ import { keyFromFileUrl } from "./file-url";
 
 describe("file storage", () => {
   it("uploads, lists, and deletes through Files SDK", async () => {
-    const uploaded = await uploadFile("../hello.txt", "hello", "text/plain");
+    const uploaded = await uploadFile(
+      "../hello.txt",
+      "hello",
+      "text/plain",
+      "user-1"
+    );
     const key = keyFromFileUrl(uploaded.url);
 
     assert(key);

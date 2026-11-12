@@ -237,24 +237,28 @@ describe("cloneAttachmentsInMessages", () => {
       url: "https://chat.example/api/files/content?key=cloned-key",
     });
 
-    const [message] = await cloneAttachmentsInMessages([
-      {
-        parts: [
-          {
-            type: "file",
-            filename: "attachment.txt",
-            mediaType: "text/plain",
-            url: "https://old-chat.example/api/files/content?key=l_u0a2bkphKLFKsBI4q5Tue9.png",
-          },
-        ],
-      },
-    ]);
+    const [message] = await cloneAttachmentsInMessages(
+      [
+        {
+          parts: [
+            {
+              type: "file",
+              filename: "attachment.txt",
+              mediaType: "text/plain",
+              url: "https://old-chat.example/api/files/content?key=Ab3_xY9-kLmN0pQr.l_u0a2bkphKLFKsBI4q5Tue9.png",
+            },
+          ],
+        },
+      ],
+      "user-2"
+    );
 
     assert.deepEqual(fileStorage.downloadFile.mock.calls, [
-      ["l_u0a2bkphKLFKsBI4q5Tue9.png"],
+      ["Ab3_xY9-kLmN0pQr.l_u0a2bkphKLFKsBI4q5Tue9.png"],
     ]);
     assert.equal(fileStorage.uploadFile.mock.calls[0]?.[0], "attachment.txt");
     assert.equal(fileStorage.uploadFile.mock.calls[0]?.[2], "text/plain");
+    assert.equal(fileStorage.uploadFile.mock.calls[0]?.[3], "user-2");
     assert.equal(
       message.parts[0]?.type === "file" ? message.parts[0].url : null,
       "https://chat.example/api/files/content?key=cloned-key"

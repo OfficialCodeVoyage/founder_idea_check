@@ -347,8 +347,10 @@ export const chatRouter = createTRPCRouter({
       );
 
       // Clone attachments in messages (this has side effects - network calls to blob storage)
-      const messagesWithClonedAttachments =
-        await cloneAttachmentsInMessages(clonedMessages);
+      const messagesWithClonedAttachments = await cloneAttachmentsInMessages(
+        clonedMessages,
+        ctx.user.id
+      );
 
       // Save cloned messages first, then documents due to foreign key dependency
       await saveChatMessages({

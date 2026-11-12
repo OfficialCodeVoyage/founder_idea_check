@@ -1,10 +1,23 @@
 export const FILE_CONTENT_PATH = "/api/files/content";
 
-const STORAGE_KEY = /^[A-Za-z0-9_-]{24}(?:\.[a-z0-9]{1,10})?$/;
+/**
+ * A managed key is `<owner tag>.<random id>[.ext]`. The owner tag is derived
+ * from the uploader's user id (`lib/file-storage.ts::fileOwnerTag`) so that
+ * `lib/file-content-response.ts::createFileContentResponse` can serve a file
+ * only to the user who stored it. Keys without a tag cannot prove an owner and
+ * are not managed keys.
+ */
+export const FILE_OWNER_TAG_LENGTH = 16;
+const STORAGE_KEY =
+  /^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{24}(?:\.[a-z0-9]{1,10})?$/;
 const URL_PARSE_BASE = "http://chatjs.local";
 
 export function isFileStorageKey(value: string): boolean {
   return STORAGE_KEY.test(value);
+}
+
+export function ownerTagFromFileKey(key: string): string | null {
+  return isFileStorageKey(key) ? key.slice(0, FILE_OWNER_TAG_LENGTH) : null;
 }
 
 function parseFileUrl(value: string): URL | null {

@@ -1,10 +1,34 @@
 import type { ModelMessage } from "ai";
+import { getEncoding } from "js-tiktoken";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   calculateMessagesTokens,
   countTextTokens,
+  countTokensFloor,
   truncateMessages,
 } from "./token-utils";
+
+// GUARD: past the exactly-counted length a count is bounded, not counted, and
+// the bound must point the way its caller can afford. A floor there once fed
+// every limit (the request-size check, the context and gate budgets), so an
+// oversized input was undercounted and let through.
+describe("counts past the exactly-counted length", () => {
+  const encoder = getEncoding("o200k_base");
+  const prose =
+    "The founder interviewed twelve buyers and three said they would pay. ".repeat(
+      5000
+    );
+
+  it("never undercount in limit mode, never overcount in floor mode", () => {
+    const exact = encoder.encode(prose, [], []).length;
+    expect(prose.length).toBeGreaterThan(300_000);
+    expect(countTextTokens(prose)).toBeGreaterThanOrEqual(exact);
+    expect(countTokensFloor(prose)).toBeLessThanOrEqual(exact);
+    expect(
+      calculateMessagesTokens([{ role: "user", content: prose }])
+    ).toBeGreaterThanOrEqual(exact);
+  });
+});
 
 // Mock js-tiktoken encoder for consistent testing
 const _mockEncoder = {

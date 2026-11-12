@@ -7,7 +7,7 @@ import { type AppModelId, getAppModelDefinition } from "@/lib/ai/app-models";
 import { selectContextWindow } from "@/lib/ai/context-window";
 import { markdownJoinerTransform } from "@/lib/ai/markdown-joiner-transform";
 import { getLanguageModel, getModelProviderOptions } from "@/lib/ai/providers";
-import { countTextTokens } from "@/lib/ai/token-utils";
+import { countTextTokens, countTokensFloor } from "@/lib/ai/token-utils";
 import type { ChatMessage, StreamWriter, ToolName } from "@/lib/ai/types";
 import { config } from "@/lib/config";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
@@ -225,7 +225,9 @@ export async function createCoreChatAgent({
   const recordMainChatUsage = createMainChatUsageMeter<typeof allTools>({
     costAccumulator,
     modelId: selectedModelId,
-    countTokens: countTextTokens,
+    // The floor counter: an estimate that bills the founder must never
+    // overcount. Every limit and budget uses `countTextTokens` instead.
+    countTokens: countTokensFloor,
     getPromptFloor: () => promptFloor(system, contextForLLM),
     onCutStepEstimated: (estimate) => {
       log.warn(

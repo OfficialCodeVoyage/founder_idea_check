@@ -18,25 +18,45 @@ const MAX_RUN_BYTES = 64;
 /**
  * The runs o200k's pre-tokenizer can make one long piece of: non-whitespace,
  * whitespace, and the `[\r\n/]*` tail it lets follow punctuation (its
- * ` ?[^\s\p{L}\p{N}]+[\r\n/]*` branch), which mixes the two. Any longer than
- * `MAX_RUN_BYTES` characters is sliced.
+ * ` ?[^\s\p{L}\p{N}]+[\r\n/]*` branch), which mixes the two. A run of more
+ * UTF-16 units than this could exceed `MAX_RUN_BYTES` (a unit is at most 3
+ * UTF-8 bytes), so it goes through `encodeInSlices`.
  */
+const LONG_RUN_UNITS = Math.floor(MAX_RUN_BYTES / 3) + 1;
 const LONG_RUN = new RegExp(
   ["\\S", "\\s", "[\\r\\n/]"]
-    .map((run) => `${run}{${MAX_RUN_BYTES + 1},}`)
+    .map((run) => `${run}{${LONG_RUN_UNITS},}`)
     .join("|"),
   "g"
 );
 const WHITESPACE = /\s/;
-/** Characters counted exactly; the rest of a longer text is a floor. */
-const MAX_EXACT_CHARS = 100_000;
 /**
- * The floor for characters past `MAX_EXACT_CHARS`. English prose runs about
- * 4.5 characters per o200k token, code fewer and Chinese about one, so 8 is
- * under the real count for text of every kind; only a long repeat of one
- * character packs more characters into a token.
+ * UTF-8 bytes counted exactly. Past it, a text is bounded instead of counted,
+ * in the direction its caller can afford (`TokenCountMode`). Bytes, not
+ * characters, because the merge's cost follows bytes: at the limit the worst
+ * text measured (one run of a single letter, or of Chinese) takes about 0.8 s.
+ * 250,000 bytes is more than any message that fits the app's limits: English
+ * prose that long is about 55,000 tokens and Chinese about 83,000, above
+ * `MAX_INPUT_TOKENS` (50,000) and the 24,000-token context and gate budgets.
  */
-const FLOOR_CHARS_PER_TOKEN = 8;
+const MAX_EXACT_BYTES = 250_000;
+/**
+ * The longest o200k token, in UTF-8 bytes (measured over the rank table of
+ * js-tiktoken 1.0.21). A text of N bytes is at least N / 128 tokens, and at
+ * most N, since every token is at least one byte.
+ */
+const MAX_TOKEN_BYTES = 128;
+
+/**
+ * Which way a count may err past `MAX_EXACT_BYTES`:
+ *  - "ceiling" never undercounts (one token per UTF-8 byte), for every caller
+ *    that ENFORCES a limit or a budget: an undercount there lets oversized
+ *    input through, so those fail closed;
+ *  - "floor" never overcounts (one token per `MAX_TOKEN_BYTES` bytes), for the
+ *    usage meter's estimate of a cut-off step: an overcount there overcharges
+ *    the founder.
+ */
+type TokenCountMode = "ceiling" | "floor";
 
 /**
  * The tokens `encoder` makes of `text`, with special-token markers such as
@@ -54,9 +74,9 @@ const FLOOR_CHARS_PER_TOKEN = 8;
  * NO TEXT REACHES `encode` IN A PIECE LONG ENOUGH TO STALL IT. js-tiktoken's
  * byte-pair merge is quadratic in the length of one pre-tokenized piece, and
  * a run of letters, or of spaces, is one piece: 40,000 letters took 61 to 73 s
- * on js-tiktoken 1.0.21, synchronously, on the request's thread (pasted
- * base-32, a DNA string, a model looping on one character). So the cost is
- * bounded three ways:
+ * and 40,000 spaces 79 s on js-tiktoken 1.0.21, synchronously, on the
+ * request's thread (pasted base-32, a DNA string, a model looping on one
+ * character). So the cost is bounded three ways:
  *  - inside a chunk, every run the pre-tokenizer could make one long piece of
  *    (`LONG_RUN`) is encoded in slices of at most `MAX_RUN_BYTES` UTF-8
  *    bytes, so no piece is longer than about twice that;
@@ -67,18 +87,14 @@ const FLOOR_CHARS_PER_TOKEN = 8;
  *    every piece as one call would make it), else at the length, never inside
  *    a surrogate pair. A piece shape missed above costs at most one chunk's
  *    worth of quadratic work per chunk;
- *  - only the first `MAX_EXACT_CHARS` characters are counted exactly; the
- *    rest, which no prompt part in this app reaches in normal use, adds
- *    `FLOOR_CHARS_PER_TOKEN` characters per token.
+ *  - only the first `MAX_EXACT_BYTES` bytes are counted exactly; the rest is
+ *    bounded by its byte length as `mode` says.
  * Ordinary prose has few runs that long, so its count barely moves (+0.2%
  * over the repo's own docs and code); a sliced run can gain or lose about one
  * token per cut, since a real token is rarely that long.
  */
-function encodedLength(text: string): number {
-  const exactEnd = surrogateSafeEnd(
-    text,
-    Math.min(text.length, MAX_EXACT_CHARS)
-  );
+function encodedLength(text: string, mode: TokenCountMode): number {
+  const exactEnd = indexAfterBytes(text, MAX_EXACT_BYTES);
   let tokens = 0;
   let start = 0;
   while (start < exactEnd) {
@@ -86,7 +102,14 @@ function encodedLength(text: string): number {
     tokens += encodeChunk(text.slice(start, end));
     start = end;
   }
-  return tokens + Math.ceil((text.length - exactEnd) / FLOOR_CHARS_PER_TOKEN);
+  if (exactEnd === text.length) {
+    return tokens;
+  }
+  const restBytes = utf8Length(text.slice(exactEnd));
+  return (
+    tokens +
+    (mode === "ceiling" ? restBytes : Math.ceil(restBytes / MAX_TOKEN_BYTES))
+  );
 }
 
 function chunkEnd(text: string, start: number, limit: number): number {
@@ -125,7 +148,7 @@ function encodeInSlices(run: string): number {
   let i = 0;
   while (i < run.length) {
     const code = run.charCodeAt(i);
-    const isPair = code >= 0xd8_00 && code <= 0xdb_ff && i + 1 < run.length;
+    const isPair = isHighSurrogate(code) && i + 1 < run.length;
     const width = utf8Width(code, isPair);
     if (bytes + width > MAX_RUN_BYTES && i > start) {
       tokens += encodePlain(run.slice(start, i));
@@ -138,6 +161,34 @@ function encodeInSlices(run: string): number {
   return tokens + encodePlain(run.slice(start));
 }
 
+/** The index past the longest prefix of `text` that fits in `maxBytes`. */
+function indexAfterBytes(text: string, maxBytes: number): number {
+  let bytes = 0;
+  let i = 0;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    const isPair = isHighSurrogate(code) && i + 1 < text.length;
+    bytes += utf8Width(code, isPair);
+    if (bytes > maxBytes) {
+      return i;
+    }
+    i += isPair ? 2 : 1;
+  }
+  return i;
+}
+
+function utf8Length(text: string): number {
+  let bytes = 0;
+  let i = 0;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    const isPair = isHighSurrogate(code) && i + 1 < text.length;
+    bytes += utf8Width(code, isPair);
+    i += isPair ? 2 : 1;
+  }
+  return bytes;
+}
+
 function utf8Width(code: number, isSurrogatePair: boolean): number {
   if (isSurrogatePair) {
     return 4;
@@ -148,16 +199,21 @@ function utf8Width(code: number, isSurrogatePair: boolean): number {
   return code < 0x8_00 ? 2 : 3;
 }
 
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd8_00 && code <= 0xdb_ff;
+}
+
 /** `end`, or one past it when a cut there would split a surrogate pair. */
 function surrogateSafeEnd(text: string, end: number): number {
-  const code = text.charCodeAt(end - 1);
-  return end < text.length && code >= 0xd8_00 && code <= 0xdb_ff
+  return end < text.length && isHighSurrogate(text.charCodeAt(end - 1))
     ? end + 1
     : end;
 }
 
 /**
- * Token count of a bare string, with no message-envelope overhead.
+ * Token count of a bare string, with no message-envelope overhead, that
+ * never undercounts: the counter for every limit and budget (the "ceiling"
+ * mode of `encodedLength`).
  *
  * calculateMessagesTokens() adds the role tokens and a +5 structural overhead
  * per message, which is wrong for counting a prompt fragment such as a fact
@@ -166,7 +222,16 @@ function surrogateSafeEnd(text: string, end: number): number {
  * injects in production.
  */
 export function countTextTokens(text: string): number {
-  return encodedLength(text);
+  return encodedLength(text, "ceiling");
+}
+
+/**
+ * Token count of a bare string that never overcounts (the "floor" mode of
+ * `encodedLength`). For billing estimates only (the usage meter's cut-step
+ * estimate); a limit or a budget must use `countTextTokens`.
+ */
+export function countTokensFloor(text: string): number {
+  return encodedLength(text, "floor");
 }
 
 // Calculate total tokens from messages
@@ -175,15 +240,15 @@ export function calculateMessagesTokens(messages: ModelMessage[]): number {
 
   for (const message of messages) {
     // Count tokens for role
-    totalTokens += encodedLength(message.role);
+    totalTokens += encodedLength(message.role, "ceiling");
 
     // Count tokens for content - handle both string and array formats
     if (typeof message.content === "string") {
-      totalTokens += encodedLength(message.content);
+      totalTokens += encodedLength(message.content, "ceiling");
     } else if (Array.isArray(message.content)) {
       for (const part of message.content) {
         if (part.type === "text") {
-          totalTokens += encodedLength(part.text);
+          totalTokens += encodedLength(part.text, "ceiling");
         }
         // Add overhead for other part types (image, file, etc.)
         // Using GPT-4V approximation: ~765 tokens for typical image
@@ -206,7 +271,7 @@ function trimPrompt(prompt: string, contextSize: number) {
     return "";
   }
 
-  const length = encodedLength(prompt);
+  const length = encodedLength(prompt, "ceiling");
   if (length <= contextSize) {
     return prompt;
   }
@@ -319,7 +384,7 @@ function truncateToolResultPart(
     return { truncatedPart: part, tokensRemoved: 0 };
   }
 
-  const partTokens = encodedLength(part.output.value);
+  const partTokens = encodedLength(part.output.value, "ceiling");
   if (partTokens > 0) {
     const targetTokens = Math.max(0, partTokens - tokensToRemove);
     return {

@@ -284,7 +284,10 @@ export function createMainChatUsageMeter<TOOLS extends ToolSet>({
 }: {
   costAccumulator: CostAccumulator;
   modelId: AppModelId;
-  /** Tokens in a piece of streamed output. */
+  /**
+   * Tokens in a piece of text, never overcounted (`countTokensFloor` in
+   * production): the estimate is billed.
+   */
   countTokens: (text: string) => number;
   /**
    * The floor of the turn's prompt (`promptFloor`), counted as step 1's

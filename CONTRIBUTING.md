@@ -74,7 +74,8 @@ are never waived.
   `A clean clone could not install: bun.lock was stale against package.json`. The body says what
   changed and how you checked it.
 - Keep each commit to one concern.
-- Branch from `main` and open the pull request against `main`. Any branch name works.
+- Branch from `main` and name the branch `feat|fix|chore/<slug>-<YYMMDD>`, for example
+  `fix/stale-lockfile-261112`. Open the pull request against `main`; nothing is pushed to `main` directly.
 
 ## Pull requests
 
@@ -84,6 +85,9 @@ are never waived.
 - Update the documentation that owns the fact you changed (the schema in `docs/DATABASE.md`,
   environment variables in `.env.example` and `README-DEV.md`, a research source in
   `apps/research/README.md`).
+- `ci-success` must pass before a pull request can merge. Pull requests are squash-merged, so each one becomes a
+  single commit on `main`, and the merged branch is deleted. Write the pull request title as the commit subject
+  described above.
 - This repository is public. Never put a secret, a personal detail or a local path in a file, a
   commit message or a pull request.
 

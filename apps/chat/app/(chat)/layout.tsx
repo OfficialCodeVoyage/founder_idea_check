@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { getChatModels } from "@/app/actions/get-chat-models";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -45,13 +46,17 @@ export default async function ChatLayout({
 }
 
 async function ChatLayoutDynamic({ children }: { children: React.ReactNode }) {
-  const [cookieStore, chatModels] = await Promise.all([
+  // `connection()` is awaited even when the session lookup is skipped (the
+  // Playwright environment), so e2e runs behind the same request-time barrier
+  // as everyone else. Everything after this `Promise.all`, including the tRPC
+  // prefetches below whose context reads the clock, runs at request time
+  // rather than in a prerender stage (`lib/request-session.ts`).
+  const [cookieStore, chatModels, session] = await Promise.all([
     cookies(),
     getChatModels(),
+    isPlaywrightTestEnvironment ? null : getRequestSession(),
+    connection(),
   ]);
-  const session = isPlaywrightTestEnvironment
-    ? null
-    : await getRequestSession();
 
   const cookieModel = cookieStore.get("chat-model")?.value;
   const isAnonymous = !session?.user;
@@ -85,26 +90,10 @@ async function ChatLayoutDynamic({ children }: { children: React.ReactNode }) {
   if (session?.user?.id) {
     const queryClient = getQueryClient();
     // "Lazy prefetch": don't await; pending queries are dehydrated + streamed.
+    queryClient.prefetchQuery(trpc.settings.getModelPreferences.queryOptions());
     queryClient.prefetchQuery(trpc.project.list.queryOptions());
     queryClient.prefetchQuery(
       trpc.chat.getAllChats.queryOptions({ projectId: null })
-    );
-    // Model preferences are awaited, not lazy. A second HydrationBoundary
-    // carries the same query (`app/(chat)/settings/models/page.tsx::
-    // ModelsSettingsContent`), and React Query's HydrationBoundary applies
-    // data for a query already in the cache only in an effect after commit.
-    // When this boundary streamed the query pending, the page's resolved copy
-    // could not reach the first render, so `ModelsTable` showed data or its
-    // loading skeleton depending on whether the streamed promise had settled
-    // in that pass. The server and the browser settled it at different
-    // moments, and hydration failed. Resolved here, both boundaries carry the
-    // same data with the same `dataUpdatedAt`: this one hydrates during
-    // render on both sides, and the page's is skipped as not newer. It also
-    // gives `ChatModelsProvider` the user's model filter on first paint. The
-    // cost is one indexed read before the layout renders (in dev also the
-    // artificial delay of `trpc/init.ts::timingMiddleware`).
-    await queryClient.prefetchQuery(
-      trpc.settings.getModelPreferences.queryOptions()
     );
   }
 

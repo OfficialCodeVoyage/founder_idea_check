@@ -1,6 +1,10 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { Table, TableBody } from "@/components/ui/table";
@@ -21,7 +25,14 @@ export function ModelsTable({
   const queryClient = useQueryClient();
   const { allModels, models: enabledModels } = useChatModels();
 
-  const { data: preferences, isLoading: prefsLoading } = useQuery(
+  // Suspends instead of rendering a loading state. The (chat) layout streams
+  // this query pending and the page dehydrates it resolved, but
+  // HydrationBoundary applies a query already in the cache only in an effect,
+  // so on first load the server and the browser could each see it pending or
+  // resolved and render different markup. While a hydrating component
+  // suspends, React keeps the server HTML and hydrates once the data is in,
+  // so both sides render the same table and no skeleton flashes.
+  const { data: preferences } = useSuspenseQuery(
     trpc.settings.getModelPreferences.queryOptions()
   );
 
@@ -31,7 +42,7 @@ export function ModelsTable({
     trpc.settings.setModelEnabled.mutationOptions({
       onMutate: (newData) => {
         const prev = queryClient.getQueryData(queryKey);
-        queryClient.setQueryData(queryKey, (old: typeof preferences) => {
+        queryClient.setQueryData(queryKey, (old) => {
           if (!old) {
             return old;
           }
@@ -64,7 +75,7 @@ export function ModelsTable({
 
   const enabledModelsSet = useMemo(() => {
     const enabled = getDefaultEnabledModels(allModels);
-    for (const pref of preferences ?? []) {
+    for (const pref of preferences) {
       if (pref.enabled) {
         enabled.add(pref.modelId as AppModelId);
       } else {
@@ -116,16 +127,6 @@ export function ModelsTable({
     },
     [setModelEnabled]
   );
-
-  if (prefsLoading) {
-    return (
-      <div className="animate-pulse space-y-1">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div className="h-11 rounded bg-muted/50" key={i} />
-        ))}
-      </div>
-    );
-  }
 
   return (
     <>

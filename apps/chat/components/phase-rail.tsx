@@ -134,10 +134,17 @@ export function PhaseRail({
             The reason and the next question arrive whole (the 300-character
             cut is now the prompt's alone), so a long one scrolls inside the
             room Radix reports rather than running off the screen.
+
+            `collisionPadding` is the inset from the window's edge. Without it
+            Radix slides the popover until it touches the edge: at 640px the
+            trigger sits far enough right that the 24rem popover ended flush
+            with the window, while at 390px the `100vw - 2rem` width left the
+            16px it was meant to. The same 16px now holds at every width.
           */}
           <PopoverContent
             align="start"
             className="max-h-(--radix-popover-content-available-height) w-[min(24rem,calc(100vw-2rem))] overflow-y-auto text-xs"
+            collisionPadding={16}
           >
             <p className="font-medium">{rail.detail}</p>
             {reason && reason !== rail.detail ? (

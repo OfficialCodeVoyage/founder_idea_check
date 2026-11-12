@@ -92,6 +92,17 @@ the chain on an empty database (`.claude/rules/db.md`).
 reads bodies without a size limit. Only fixed source hosts are called, so the impact is low.
 **Clearing condition:** disable automatic redirects (or re-check each hop) and cap the body size.
 
+### SWEEP-F13 — A failed Redis subscribe leaves a background promise that never settles
+**Raised:** 2026-11-12, review of `executeChatRequest`'s resumable-stream fallback (pre-existing, upstream library).
+**Status:** OPEN (low)
+`resumable-stream@2.2.10` `createNewResumableStream` registers `ctx.waitUntil(new Promise(...))` and only then awaits
+`subscriber.subscribe`; the promise resolves at the end of its read loop. When `subscribe` rejects, `makeStream` never
+runs, the read loop never starts and that promise never settles. The route then serves the stream plain and charges it
+(`apps/chat/app/(chat)/api/chat/route.ts::executeChatRequest`), but `waitUntil` is `after`, so on Vercel the invocation
+is held open until its time limit. Locally nothing is held.
+**Clearing condition:** fixed upstream (register `waitUntil` after `subscribe`, or settle it on failure), or the route
+passes resumable-stream a `waitUntil` that bounds what it waits on.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

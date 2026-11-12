@@ -70,15 +70,19 @@ None: nothing is deployed.
 ### Branch, push & deploy
 - Default branch `main`. The public repo is `github.com/OfficialCodeVoyage/founder_idea_check`. The `upstream` remote
   is ChatJS with push disabled; never push to it.
-- Big or multi-file work goes on `feat|fix|chore/<slug>-<YYMMDD>`. Current release work lands on
-  `release/public-prep-261112`.
+- Big or multi-file work goes on `feat|fix|chore/<slug>-<YYMMDD>`.
+- `main` takes changes only through a PR with a green `ci-success`. Merges are squash-only and merged branches are
+  deleted automatically. Merge from the terminal with `gh pr merge <n> --squash --author-email "$(git config user.email)"`
+  so the merge commit carries the no-reply identity. A bare `gh` command must target this repo: `gh repo set-default`
+  is set; otherwise pass `-R OfficialCodeVoyage/founder_idea_check`, because the `upstream` remote makes `gh` default
+  to ChatJS.
 - A push to `main` is blocked while `.planning/STATE.md` → `### Blockers/Concerns` holds an unresolved push blocker
   (hook). Clear it with a `RESOLVED:` line inside the bullet; never delete the entry.
 - `/code-review` must cover changed ts/tsx/js/jsx/mjs/cjs/sql/css files before a push (global hook). Real but
   out-of-scope findings go to `.planning/DEFERRED-BY-BLOCKER.md` → Section F as `SWEEP-F<n>`. Python is outside that
   gate: `verify` (ruff) and pytest are its only automatic checks.
 - **CI:** `.github/workflows/ci.yml` is the only workflow and the only one with a `push` trigger; `ci-success` is the
-  one required check (`.github/rulesets/main.json`, applied on GitHub at go-live). Pin every action to a full commit
+  one required check (`.github/rulesets/main.json`, applied on GitHub). Pin every action to a full commit
   SHA with a version comment; no secrets, `schedule`, `workflow_run` or `release` triggers. Playwright e2e is local only.
   On PRs `scripts/test-integrity.sh` fails a deleted test file, an added `.only`/`.skip`/`pytest.mark.skip`, or a lower
   test-case count; never get a green run that way.

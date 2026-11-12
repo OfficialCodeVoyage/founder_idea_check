@@ -28,6 +28,13 @@ It applies every file in `apps/chat/lib/db/migrations/`, in order, in a single t
 `Migrations completed`. Run it against a database that has never been touched by `db:push`. Running it again is a
 no-op.
 
+On a fresh database it also prints a Postgres `NOTICE` that an identifier was truncated to 63 bytes. This is expected
+and harmless. It is the foreign key name `Suggestion_documentId_documentCreatedAt_Document_id_createdAt_fk` (64
+characters, in `0001_sparkling_blue_marvel.sql`), which Postgres stores as
+`Suggestion_documentId_documentCreatedAt_Document_id_createdAt_f`. Nothing refers to that key by name, no later
+migration touches it, and it is still unique on `Suggestion`, so the key works as written. See
+[push versus migrate](#push-versus-migrate-history-and-rule) for the one place the truncation shows.
+
 `bun run build` runs the same migrator first (`tsx lib/db/migrate`), but the migrator does nothing unless
 `VERCEL_ENV=production`, which Vercel sets on production deployments. Anywhere else, run `bun run db:migrate`
 yourself: it sets the variable for that one command.

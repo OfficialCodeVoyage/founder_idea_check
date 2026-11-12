@@ -1,26 +1,23 @@
 # Project State
-_Last updated: 2026-11-12 (`release/public-prep-261112`)_
+_Last updated: 2026-11-12 (`main`)_
 
 <!-- This file is public. Nothing private goes here: no personal data, no local paths, no secrets. -->
 
 ## Current focus
-- Branch: `release/public-prep-261112` (not pushed).
-- In flight: the first public open-source release of Founder Idea Check. Done on the branch: browser QA and its
-  fixes, the three product decisions, deploy-safety and security-review fixes, licences, rebrand, CI, docs for
-  strangers, the navigation map and deep dives.
-- Next: 1) rebuild the public history and run the release gate on it
-  2) a private dress-rehearsal push: a stranger's clone boots, CI is green
-  3) the public push, then the repository settings.
+- Branch: `main`. Founder Idea Check was released publicly on 2026-11-12. Every change now lands through a
+  squash-merged pull request with a green `ci-success`.
+- Next: 1) the open Dependabot updates 2) the market idea-finding spec (`docs/specs/`), then build it.
 - Waiting on owner: nothing.
 - Setup progress and the mapping table: `.planning/agent-setup.md`.
 
 ## Roadmap (next 3–5 items)
-- First public release: clean history, green CI, a stranger can clone and boot it.
+- ~~First public release: clean history, green CI, a stranger can clone and boot it.~~ Done 2026-11-12.
 - Idea finding for a market: a pre-project stage that returns ranked, evidence-backed problem
   candidates and hands the chosen one to phase 1. Starts with a one-page spec in `docs/specs/`.
 - Diagnose what freezes a tool-input stream mid-document (today it is loud and recoverable, not explained).
 
 ## Decisions in flight
+- 2026-11-12 — Merges to `main` are squash-only (one commit per PR, one identity).
 - 2026-11-12 — Release as Apache-2.0 open source. The public history starts with one commit holding the
   ChatJS code at the fork point, credited to ChatJS in its message, followed by a clean replay of our
   commits — keeps private material out; `NOTICE` and `LICENSE` carry the attribution.
@@ -37,4 +34,5 @@ _Last updated: 2026-11-12 (`release/public-prep-261112`)_
   private strings, secrets, per-commit verification), and the tested tree is the tip.
 
 ## Session log (newest first, one line each, keep ≤20)
+- 2026-11-12 — Public release: history rebuilt, release gate passed, pushed; rulesets and repo settings applied.
 - 2026-11-12 — Agent-operating structure installed (hooks, rules, state, docs skeleton).

@@ -149,7 +149,10 @@ bun run dev:local        # http://localhost:3100  (PORT=3210 to change it)
 bun run dev              # http://localhost:3000 plus 10 per worktree slot, through turbo
 ```
 
-Prefer `dev:local`: it bypasses turbo and sets `APP_URL` to the port it serves on.
+Prefer `dev:local`: it bypasses turbo and sets `APP_URL` to the port it serves on. It takes that port only from
+`PORT` and refuses to start when you pass one (`-p`, `--port`, `--port=…`): Next takes the last port it is given, so
+`bun run dev:local --port 4000` would listen on 4000 while `APP_URL`, the sign-in link and better-auth's trusted
+origin stayed on 3100, and every sign-in or sign-out POST would fail with 403 `INVALID_ORIGIN`.
 
 ### Sign in
 

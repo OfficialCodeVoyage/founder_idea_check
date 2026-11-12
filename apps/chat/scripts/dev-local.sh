@@ -21,8 +21,9 @@
 # Why IC_DEV_SERVER_LOCALHOST_ONLY=1: /api/dev-login answers 404 without it.
 # `scripts/next-dev-localhost.sh` sets it together with --hostname localhost
 # and refuses a hostname argument, so the sign-in shortcut only exists on a
-# server bound to this machine; a bare `next dev` lacks it. Other arguments
-# (`bun run dev:local --turbopack`) are passed on to `next dev`.
+# server bound to this machine; a bare `next dev` lacks it. A port argument is
+# refused too (set PORT instead), since APP_URL is built from PORT. Other
+# arguments (`bun run dev:local --turbopack`) are passed on to `next dev`.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,6 +42,13 @@ for arg in "$@"; do
   case "$arg" in
     -H* | --hostname | --hostname=*)
       echo "Refusing to start: dev:local binds to localhost for /api/dev-login, so it does not take a hostname ($arg)." >&2
+      exit 2
+      ;;
+    # A port argument would win over the `--port "$PORT"` passed below (Next
+    # keeps the last one) while APP_URL, the sign-in link and better-auth's
+    # trusted origin stay on $PORT, so every auth POST would fail with 403.
+    -p* | --port | --port=*)
+      echo "Refusing to start: dev:local takes its port from PORT, not an argument ($arg); run PORT=4000 bun run dev:local instead." >&2
       exit 2
       ;;
   esac

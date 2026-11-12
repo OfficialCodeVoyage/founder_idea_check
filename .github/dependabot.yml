@@ -27,6 +27,23 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@openrouter/ai-sdk-provider"
         update-types: ["version-update:semver-major"]
+      # Biome moves only together with the pinned ultracite: Biome 2.6 rejects the rule names
+      # in ultracite@7.4.3's config, so `verify` stops before linting anything. Patches still flow.
+      - dependency-name: "@biomejs/biome"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # lexical is pre-1.0, so each 0.x minor can break (0.32 → 0.53 retyped the
+      # KEY_ENTER_COMMAND payload and changed Markdown escaping). It runs the chat input and
+      # the text-document editor; upgrade it on purpose, with the editor checked by hand.
+      - dependency-name: "lexical"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "@lexical/*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # better-auth moves together with the `@better-auth/core` override in the root
+      # package.json; a lone bump installs a newer better-auth on top of the overridden core.
+      - dependency-name: "better-auth"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "@better-auth/*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   # Research sidecar. `mcp` stays below 2 because camel-ai, pulled in by the OASIS extra,
   # imports a name that mcp 2 removed; see apps/research/pyproject.toml.

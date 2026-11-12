@@ -199,8 +199,16 @@ describe("scaffoldFromTemplate", () => {
 			dependencies: Record<string, string>;
 			overrides?: Record<string, string>;
 		};
+		const repoRootPackageJson = JSON.parse(
+			await readFile(
+				join(getCliPackageRoot(), "..", "..", "package.json"),
+				"utf8",
+			),
+		) as { packageManager: string };
 
-		expect(packageJson.packageManager).toBe("bun@1.3.14");
+		expect(packageJson.packageManager).toBe(
+			repoRootPackageJson.packageManager,
+		);
 		expect(packageJson.dependencies["@better-auth/core"]).toBe("1.5.6");
 		expect(packageJson.dependencies["@better-auth/electron"]).toBe("1.5.6");
 		expect(packageJson.dependencies["better-auth"]).toBe("1.5.6");

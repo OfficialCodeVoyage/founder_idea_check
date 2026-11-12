@@ -683,6 +683,33 @@ export function estimateSimulationCostCents({
   );
 }
 
+/**
+ * PURE. Whether a run is known to have spent model calls, which is when it is
+ * charged. NOT the same as "the run was recorded": a NO RESULT run is recorded
+ * either way, but one whose agents never reached the model (the sidecar has no
+ * key, every call was refused) spent nothing on the operator's account.
+ *
+ *   - a judged run, or one with a single reaction: an agent answered, so yes;
+ *   - no reactions and `agentErrors === 0`: the sidecar measured that every
+ *     action went through and the agents posted nothing, so yes;
+ *   - no reactions with failed actions, or with no count (an older sidecar):
+ *     no. Some calls may still have succeeded beside the failures; that is
+ *     left uncharged rather than charging for a run that may have cost nothing.
+ *   - every other failure means the run never started: no.
+ */
+export function simulationReachedModel(outcome: SimulationOutcome): boolean {
+  if (outcome.ok) {
+    return true;
+  }
+  if (outcome.kind === "too-few-reactions") {
+    return true;
+  }
+  if (outcome.kind === "no-reactions") {
+    return outcome.agentErrors === 0;
+  }
+  return false;
+}
+
 export type SimulationInput = {
   personas: readonly ProjectPersona[];
   facts: readonly { key: string; value: string }[];

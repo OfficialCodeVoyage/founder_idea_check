@@ -22,6 +22,7 @@ import {
   MAX_SIMULATION_PITCH_CHARS,
   MAX_SIMULATION_SEATS,
   runSimulation,
+  simulationReachedModel,
 } from "@/lib/research/simulation";
 
 /**
@@ -213,11 +214,14 @@ export async function runProjectSimulation({
     revalidatePath(`/project/${projectId}/simulation`);
   }
 
-  // CHARGED EXACTLY WHEN A RUN IS RECORDED: the run happened, so its agents
-  // were called. A refusal before the sidecar (no seats, OASIS missing, the
-  // sidecar unreachable or refusing the app) spent nothing and costs nothing.
-  // The amount is an estimate — see `estimateSimulationCostCents`.
-  if (outcome.ok || RAN_BUT_PRODUCED_NOTHING.has(outcome.kind)) {
+  // CHARGED ONLY WHEN MODEL CALLS HAPPENED, which is narrower than "recorded":
+  // a NO RESULT run whose agents never reached the model (no key on the
+  // sidecar, every call refused) is recorded above and costs nothing. A
+  // refusal before the sidecar (no seats, OASIS missing, the sidecar
+  // unreachable or refusing the app) is neither recorded nor charged. The rule
+  // is `simulationReachedModel`; the amount is an estimate — see
+  // `estimateSimulationCostCents`.
+  if (simulationReachedModel(outcome)) {
     await deductCredits(
       userId,
       estimateSimulationCostCents({

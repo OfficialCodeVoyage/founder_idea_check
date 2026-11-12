@@ -10,6 +10,7 @@ import {
   type ProjectPersona,
   reactionSimilarity,
   runSimulation,
+  simulationReachedModel,
   toOasisPersonas,
   UNSPECIFIED_MBTI,
 } from "./simulation";
@@ -202,6 +203,69 @@ describe("estimateSimulationCostCents", () => {
     // operator's key and the founder's balance did not move.
     expect(estimateSimulationCostCents({ seats: 2, rounds: 2 })).toBe(1);
     expect(estimateSimulationCostCents({ seats: 10, rounds: 2 })).toBe(2);
+  });
+});
+
+describe("simulationReachedModel — when a run is charged", () => {
+  // Driven through runSimulation with the bodies the sidecar actually sends,
+  // so the rule is pinned against the wire shape and not a hand-built outcome.
+  const outcomeFor = (body: unknown) =>
+    runSimulation(
+      { run: () => Promise.resolve(body) },
+      {
+        personas: [persona(), persona({ id: "p2", name: "Other" })],
+        facts: [],
+        pitch: "an app for coordinating dog walkers",
+        rounds: 2,
+      }
+    );
+
+  it("does NOT charge a NO RESULT run whose agents never reached the model", async () => {
+    // The sidecar with no model key: every agent call fails, nothing is said.
+    const outcome = await outcomeFor({
+      ok: false,
+      kind: "no-reactions",
+      detail: "The simulation ran and produced no reactions at all.",
+      agentErrors: 4,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(simulationReachedModel(outcome)).toBe(false);
+  });
+
+  it("does not charge a NO RESULT run from a sidecar that reports no error count", async () => {
+    const outcome = await outcomeFor({
+      ok: false,
+      kind: "no-reactions",
+      detail: "no reactions",
+    });
+    expect(simulationReachedModel(outcome)).toBe(false);
+  });
+
+  it("charges a NO RESULT run in which every action went through", async () => {
+    const outcome = await outcomeFor({
+      ok: false,
+      kind: "no-reactions",
+      detail: "the personas were reached and simply posted nothing",
+      agentErrors: 0,
+    });
+    expect(simulationReachedModel(outcome)).toBe(true);
+  });
+
+  it("charges a run in which an agent answered, and not one that never started", async () => {
+    const single = await outcomeFor({
+      ok: false,
+      kind: "too-few-reactions",
+      detail: "a single reaction",
+      agentErrors: 1,
+    });
+    expect(simulationReachedModel(single)).toBe(true);
+
+    const neverStarted = await outcomeFor({
+      ok: false,
+      kind: "oasis-not-installed",
+      detail: "OASIS is not installed",
+    });
+    expect(simulationReachedModel(neverStarted)).toBe(false);
   });
 });
 

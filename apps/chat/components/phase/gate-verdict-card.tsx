@@ -416,7 +416,13 @@ export function GateVerdictCard({
   return (
     <output
       className={cn(
-        "mx-auto flex min-h-0 w-full flex-col px-2 pb-2 md:max-w-3xl",
+        // The composer is pulled up 16px from 500px wide (`MessagesPane`,
+        // `@[500px]:bottom-4`) and has 8px of its own top padding, so the
+        // visible gap between this card and the composer's box is this
+        // padding minus 8px: `pb-2` left them touching (0px at 768 and 1280).
+        // `pb-5` makes it 12px there; below 500px the composer is not pulled
+        // up and `pb-2` already leaves 16px.
+        "mx-auto flex min-h-0 w-full flex-col px-2 @[500px]:pb-5 pb-2 md:max-w-3xl",
         className
       )}
     >

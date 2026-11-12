@@ -541,6 +541,53 @@ describe("sweepDeadInputStreams", () => {
     expect(verdict.died && verdict.detail).toContain("Reload the chat");
   });
 
+  it("counts a live copy as what arrived here, and a Stop as stopped, not as a stream that failed", () => {
+    // REGRESSION (live QA, re-check 6): the live card said "stopped after 97
+    // characters" for a Stop whose server saved 463, and the reloaded card said
+    // 463. A count the server has not confirmed is a lower bound.
+    const chars = dead.input.content.length.toLocaleString("en-US");
+    const live = describeInputStream({
+      state: "input-streaming",
+      streamEnded: true,
+      input: dead.input,
+      errorText: null,
+      reloadMayAnswer: true,
+    });
+    expect(live.died && live.detail).toContain(
+      `stopped after at least ${chars} characters had arrived here`
+    );
+    expect(live.died && live.detail).toContain(
+      "may be shorter than the saved one"
+    );
+
+    const stopped = describeInputStream({
+      state: "input-streaming",
+      streamEnded: true,
+      input: dead.input,
+      errorText: null,
+      reloadMayAnswer: true,
+      stoppedHere: true,
+    });
+    expect(stopped.died && stopped.detail).toContain(
+      `the reply was stopped after at least ${chars} characters had arrived here`
+    );
+    expect(stopped.died && stopped.detail).not.toContain(
+      "the stream carrying it"
+    );
+
+    // A count the server has answered for stays exact, Stop or not.
+    const exact = describeInputStream({
+      state: "input-streaming",
+      streamEnded: true,
+      input: dead.input,
+      errorText: null,
+      reloadMayAnswer: false,
+      stoppedHere: true,
+    });
+    expect(exact.died && exact.detail).toContain(`after ${chars} characters.`);
+    expect(exact.died && exact.detail).not.toContain("at least");
+  });
+
   it("ignores non-tool parts that happen to carry a state field", () => {
     const swept = sweepDeadInputStreams([
       { type: "data-research", state: "input-streaming" },

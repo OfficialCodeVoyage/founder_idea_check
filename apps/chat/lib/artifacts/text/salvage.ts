@@ -411,21 +411,34 @@ function whereItWent(store: PartialDocumentStore): string {
       return "What arrived was NOT saved as a document. It survives only in this message, and the copy you can open here is unsaved and labelled partial.";
     default:
       // Only the live chat gets here: the server is still finishing the turn
-      // and will record its answer on the part, which a reload then shows.
-      return "What arrived is kept in this message. Reload the chat to see whether it was also saved as a document; until then, the copy you can open here is unsaved and labelled partial.";
+      // and will record its answer on the part, which a reload then shows. A
+      // Stop is acted on by the server up to a second after this page stops
+      // receiving, so its saved copy can be LONGER than this one (live QA,
+      // re-check 6: 97 characters here, 463 saved).
+      return "What arrived here is kept in this message, and the server may have kept writing after this page stopped receiving. Reload the chat to see whether it was saved as a document and how long the saved copy is; until then, the copy you can open here is unsaved, labelled partial, and may be shorter than the saved one.";
   }
 }
 
 function deadDetail(
   salvage: SalvagedTextDocument,
   toolType: string | undefined,
-  store: PartialDocumentStore
+  store: PartialDocumentStore,
+  stoppedHere: boolean
 ): string {
   if (!salvage.salvaged) {
     return `The model started ${whatWasBeingWritten(toolType)} and the stream carrying its input stopped before it finished, so the call never ran. ${salvage.why}`;
   }
+  const chars = salvage.contentChars.toLocaleString("en-US");
+  // The count is exact only when the server's own answer is known. In the live
+  // chat (`unknown`) it is what had arrived on this page, so it says "at least".
+  let opening = `The model started writing a document and the stream carrying it stopped after ${chars} characters.`;
+  if (store.state === "unknown") {
+    opening = stoppedHere
+      ? `The model started writing a document and the reply was stopped after at least ${chars} characters had arrived here.`
+      : `The model started writing a document and the stream carrying it stopped after at least ${chars} characters had arrived here.`;
+  }
   return [
-    `The model started writing a document and the stream carrying it stopped after ${salvage.contentChars.toLocaleString("en-US")} characters.`,
+    opening,
     whereItWent(store),
     `It stops after: “${salvage.stoppedAfter}”`,
   ].join(" ");
@@ -515,6 +528,7 @@ export function describeInputStream({
   toolType,
   saved,
   reloadMayAnswer = true,
+  stoppedHere = false,
 }: {
   state: string;
   streamEnded: boolean;
@@ -543,6 +557,12 @@ export function describeInputStream({
    * `unknown`. Ignored when `saved` or a marker already answers.
    */
   reloadMayAnswer?: boolean;
+  /**
+   * This tab's own Stop cut the stream (`metadata.streamStopped`). Only the
+   * wording of the live copy (`unknown`) uses it: a Stop is "stopped", not a
+   * stream that failed.
+   */
+  stoppedHere?: boolean;
 }): InputStreamVerdict {
   const markedDead =
     state === "output-error" &&
@@ -563,7 +583,7 @@ export function describeInputStream({
   return {
     died: true,
     headline: HEADLINE,
-    detail: deadDetail(salvage, toolType, store),
+    detail: deadDetail(salvage, toolType, store, stoppedHere),
     continueRequest: continueRequest(salvage, toolType),
     salvage,
     store,

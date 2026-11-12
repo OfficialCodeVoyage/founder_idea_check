@@ -271,6 +271,9 @@ function PureDocumentTool({
     // answer "was it saved". A part loaded from storage has no id and no
     // marker: the server finished with it long ago and recorded nothing.
     reloadMayAnswer: Boolean(metadata.activeStreamId),
+    // A Stop reads "stopped", and a count the server has not confirmed is a
+    // lower bound (`describeInputStream`).
+    stoppedHere: metadata.streamStopped === true,
   });
 
   // Sync streaming content to artifact panel

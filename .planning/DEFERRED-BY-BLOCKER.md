@@ -114,6 +114,18 @@ The turn's charge does not depend on any of these: the route drains its own tee 
 that what it hands `waitUntil` is bounded by the chat stream's own end and every rejection in the read loop is caught.
 Check all four paths above, not only the subscribe one.
 
+### SWEEP-F23 — The root `.env.example` does not name the Vercel Blob variables
+**Raised:** 2026-11-13, `fix/files-sdk-3-261112`, `/code-review` (high) of the files-sdk 3 update.
+**Status:** OPEN (low)
+This branch adds `BLOB_READ_WRITE_TOKEN` and `BLOB_STORE_ID` to `apps/chat/lib/env-schema.ts` and `BLOB_STORE_ID` to `turbo.json`, and check-env names both options, but the root `.env.example` has no Blob entry (`.claude/rules/env-config.md` wants one in the same change). Agents cannot edit that file; the owner adds the lines from the pull request description.
+**Clearing condition:** the root `.env.example` lists both options.
+
+### SWEEP-F24 — No test guards the rule that a file read is never redirected to a provider link
+**Raised:** 2026-11-13, `fix/files-sdk-3-261112`, `/code-review` (high) of the files-sdk 3 update.
+**Status:** OPEN (low)
+`lib/file-content-response.ts` now always streams an access-checked file and never answers 307 to a presigned URL; the existing tests use the memory store, which cannot sign, so re-adding a redirect would pass CI. Not added under the owner's no-new-tests rule.
+**Clearing condition:** the owner asks for the test, or a redirect is reintroduced.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

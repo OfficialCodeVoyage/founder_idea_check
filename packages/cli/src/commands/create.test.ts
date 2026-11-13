@@ -51,7 +51,7 @@ describe("create command", () => {
       "utf8"
     );
 
-    expect(packageJson.dependencies["@aws-sdk/client-s3"]).toBe("^3.700.0");
+    expect(packageJson.dependencies["@aws-sdk/client-s3"]).toBe("^3.1079.0");
     expect(packageJson.dependencies["@vercel/blob"]).toBeUndefined();
     expect(provider).toContain('from "files-sdk/s3"');
   });
@@ -87,7 +87,7 @@ describe("create command", () => {
         "@vercel/blob"
       ]
     ).toBeUndefined();
-    expect(packageJson.overrides?.["@better-auth/core"]).toBe("1.5.6");
+    expect(packageJson.overrides?.["@better-auth/core"]).toBeUndefined();
   });
 
   it("treats storage config as an explicit storage request", async () => {

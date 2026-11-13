@@ -260,7 +260,7 @@ export const chatRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const chat = await getChatById({ id: input.chatId });
 
-      if (!chat || chat.visibility !== "public") {
+      if (chat?.visibility !== "public") {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Public chat not found",
@@ -293,7 +293,7 @@ export const chatRouter = createTRPCRouter({
       // First verify the chat is public
       const chat = await getChatById({ id: input.chatId });
 
-      if (!chat || chat.visibility !== "public") {
+      if (chat?.visibility !== "public") {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Public chat not found",
@@ -314,7 +314,7 @@ export const chatRouter = createTRPCRouter({
       // First verify the chat is public
       const sourceChat = await getChatById({ id: input.chatId });
 
-      if (!sourceChat || sourceChat.visibility !== "public") {
+      if (sourceChat?.visibility !== "public") {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Public chat not found",

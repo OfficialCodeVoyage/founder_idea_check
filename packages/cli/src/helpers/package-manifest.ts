@@ -8,7 +8,6 @@ type PackageJson = {
   scripts?: ScriptMap;
   dependencies?: DependencyMap;
   devDependencies?: DependencyMap;
-  overrides?: Record<string, unknown>;
 };
 
 const ESBUILD_VERSION = "^0.28.0";
@@ -166,10 +165,6 @@ export function normalizeScaffoldedPackageJson(
   if (betterAuthVersion) {
     pinBetterAuthVersions(packageJson.dependencies, betterAuthVersion);
     pinBetterAuthVersions(packageJson.devDependencies, betterAuthVersion);
-    packageJson.overrides = {
-      ...(packageJson.overrides ?? {}),
-      "@better-auth/core": betterAuthVersion,
-    };
   }
 
   switch (options?.template) {

@@ -1,98 +1,200 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useRef } from "react";
+import {
+  useMutation,
+  useMutationState,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { inferInput } from "@trpc/tanstack-react-query";
+import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody } from "@/components/ui/table";
 import type { AppModelId } from "@/lib/ai/app-model-id";
-import { getDefaultEnabledModels } from "@/lib/ai/app-models";
+import { resolveEnabledModels } from "@/lib/ai/app-models";
+import type { UserModelPreference } from "@/lib/db/schema";
 import { useChatModels } from "@/providers/chat-models-provider";
 import { useTRPC } from "@/trpc/react";
 import { ModelRow } from "./model-row";
 
+// False on the server and during hydration, true after: the error block is
+// drawn only after mount. During SSR query-core does not retry, so a failed
+// preferences read is already `error` on the server while the browser is still
+// retrying it (still pending); drawing the block from that state would make
+// the two renders differ. Both render the disabled table first instead.
+const subscribeNothing = () => () => undefined;
+const isMountedSnapshot = () => true;
+const isServerSnapshot = () => false;
+
+type SetModelEnabledInput = inferInput<
+  ReturnType<typeof useTRPC>["settings"]["setModelEnabled"]
+>;
+
+/** `preferences` with `pref`'s model set to `pref.enabled`, added if absent. */
+function upsertPreference(
+  preferences: UserModelPreference[],
+  pref: Pick<UserModelPreference, "modelId" | "enabled"> &
+    Partial<UserModelPreference>
+): UserModelPreference[] {
+  const idx = preferences.findIndex((p) => p.modelId === pref.modelId);
+  if (idx >= 0) {
+    return preferences.with(idx, {
+      ...preferences[idx],
+      enabled: pref.enabled,
+    });
+  }
+  return [
+    ...preferences,
+    {
+      userId: "",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...pref,
+    },
+  ];
+}
+
 export function ModelsTable({
   search,
   className,
+  initialPreferences,
 }: {
   search: string;
   className?: string;
+  /** The server's read of the preferences; `null` when that read failed. */
+  initialPreferences: UserModelPreference[] | null;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const { allModels, models: enabledModels } = useChatModels();
+  const { allModels } = useChatModels();
 
-  const { data: preferences, isLoading: prefsLoading } = useQuery(
-    trpc.settings.getModelPreferences.queryOptions()
-  );
+  // The (chat) layout streams this query pending, and on first load the
+  // server and the browser could each see it pending or resolved and render
+  // different markup. The page reads the same rows on the server and passes
+  // them in, and the table renders the query's data when it has some and
+  // those rows otherwise, so both sides render the same thing and there is no
+  // loading state. Not `placeholderData`: it stops applying once the query
+  // errors with no data, and the table would drop to the defaults although it
+  // holds the saved preferences. Not `initialData`: that is written into the
+  // shared cache and marked fresh, which would hide an errored query from
+  // `ChatModelsProvider`.
+  const {
+    data: queryData,
+    isError: queryFailed,
+    isFetching,
+    refetch,
+  } = useQuery(trpc.settings.getModelPreferences.queryOptions());
+  const preferences = queryData ?? initialPreferences;
+  // With neither (the server read failed and the query has nothing yet) the
+  // saved preferences are unknown: the table shows the default set with every
+  // switch disabled, so a toggle can neither present defaults as saved nor
+  // cancel the real read. Both sides start in this state when the server read
+  // failed, so they still render the same markup. If the browser's read then
+  // fails too, the table is replaced by an error with a retry (below).
+  const preferencesKnown = preferences !== null && preferences !== undefined;
 
   const queryKey = trpc.settings.getModelPreferences.queryKey();
+  const mutationKey = trpc.settings.setModelEnabled.mutationKey();
 
   const { mutate: setModelEnabled } = useMutation(
     trpc.settings.setModelEnabled.mutationOptions({
-      onMutate: (newData) => {
-        const prev = queryClient.getQueryData(queryKey);
-        queryClient.setQueryData(queryKey, (old: typeof preferences) => {
-          if (!old) {
-            return old;
-          }
-          const idx = old.findIndex((p) => p.modelId === newData.modelId);
-          if (idx >= 0) {
-            return old.with(idx, { ...old[idx], enabled: newData.enabled });
-          }
-          return [
-            ...old,
-            {
-              modelId: newData.modelId,
-              enabled: newData.enabled,
-              userId: "",
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            },
-          ];
-        });
-        return { prev };
+      onMutate: async (newData) => {
+        // Stop an in-flight read from landing on top of the optimistic value.
+        await queryClient.cancelQueries({ queryKey });
+        // While the table renders `initialPreferences` the cache is empty;
+        // build on what is shown rather than skipping the update, or the
+        // switch would not move and a second click would flip it back.
+        const base =
+          queryClient.getQueryData(queryKey) ?? initialPreferences ?? [];
+        // Only this model's entry is remembered, so a failure reverts this
+        // row and leaves other rows' in-flight toggles alone.
+        const prevEntry = base.find((p) => p.modelId === newData.modelId);
+        queryClient.setQueryData(queryKey, (cached) =>
+          upsertPreference(cached ?? base, newData)
+        );
+        return { prevEntry };
       },
-      onError: (_err, _newData, context) => {
-        queryClient.setQueryData(queryKey, context?.prev);
+      onError: (_err, newData, context) => {
+        queryClient.setQueryData(queryKey, (cached) => {
+          if (!cached) {
+            return cached;
+          }
+          const prevEntry = context?.prevEntry;
+          return prevEntry
+            ? upsertPreference(cached, prevEntry)
+            : cached.filter((p) => p.modelId !== newData.modelId);
+        });
         toast.error("Failed to update model preference");
       },
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey });
+      onSettled: () => {
+        // One refetch, after the last toggle: a refetch while another toggle
+        // is in flight would overwrite that row's optimistic value. Checked
+        // on the next task, when every mutation that settled in this tick
+        // (one batched request answers several) has left `pending`, so the
+        // last of them always sees `0`. If two do, `cancelRefetch: false`
+        // makes the second join the first one's fetch.
+        setTimeout(() => {
+          if (queryClient.isMutating({ mutationKey }) === 0) {
+            queryClient.invalidateQueries(
+              { queryKey },
+              { cancelRefetch: false }
+            );
+          }
+        }, 0);
       },
     })
   );
 
-  const enabledModelsSet = useMemo(() => {
-    const enabled = getDefaultEnabledModels(allModels);
-    for (const pref of preferences ?? []) {
-      if (pref.enabled) {
-        enabled.add(pref.modelId as AppModelId);
-      } else {
-        enabled.delete(pref.modelId as AppModelId);
-      }
-    }
-    return enabled;
-  }, [allModels, preferences]);
+  // A row's switch is disabled while its own toggle is in flight: `onMutate`
+  // awaits `cancelQueries` before the optimistic write, so a fast second
+  // click would still read the old value and send the same change twice.
+  const pendingModelIds = useMutationState({
+    filters: { mutationKey, status: "pending" },
+    // The filter keeps only `setModelEnabled` mutations, whose variables are
+    // that procedure's input; the mutation cache types them as `unknown`.
+    select: (mutation) =>
+      (mutation.state.variables as SetModelEnabledInput | undefined)?.modelId,
+  });
+  const pendingModelIdSet = useMemo(
+    () => new Set(pendingModelIds),
+    [pendingModelIds]
+  );
 
-  // Stable sort order: computed once on initial load, never changes
-  const initialSortRef = useRef<AppModelId[] | null>(null);
+  const enabledModelsSet = useMemo(
+    () => resolveEnabledModels(allModels, preferences),
+    [allModels, preferences]
+  );
+
+  // Row order: enabled models first, then the rest, fixed once from real data
+  // and kept, so a row does not jump when it is toggled. `initialPreferences`
+  // comes first: the server read it for this request, while the cache can
+  // hold an older copy after a client-side navigation inside `staleTime`
+  // (the switches still follow the query, which refetches when stale).
+  // Without it (the server read failed), the query's first data; switches
+  // stay disabled until then, so no optimistic value can be the one the order
+  // is fixed from. Both sides get the same prop, so they order alike, and
+  // the order does not come from `useChatModels().models`, whose query can be
+  // pending on one side and resolved on the other.
+  const orderSource = initialPreferences ?? queryData;
+  const fixedOrderRef = useRef<AppModelId[] | null>(null);
   const sortedModels = useMemo(() => {
-    if (initialSortRef.current === null) {
-      // First render: enabled models first, then the rest
-      const enabledSet = new Set(enabledModels.map((m) => m.id));
+    if (fixedOrderRef.current === null) {
+      const orderEnabled = resolveEnabledModels(allModels, orderSource);
       const sorted = [
-        ...enabledModels,
-        ...allModels.filter((m) => !enabledSet.has(m.id)),
+        ...allModels.filter((m) => orderEnabled.has(m.id)),
+        ...allModels.filter((m) => !orderEnabled.has(m.id)),
       ];
-      initialSortRef.current = sorted.map((m) => m.id);
+      if (orderSource !== undefined) {
+        fixedOrderRef.current = sorted.map((m) => m.id);
+      }
       return sorted;
     }
-    // Subsequent renders: maintain original order
     const modelMap = new Map(allModels.map((m) => [m.id, m]));
-    return initialSortRef.current
+    return fixedOrderRef.current
       .map((id) => modelMap.get(id))
       .filter((m) => m !== undefined);
-  }, [allModels, enabledModels]);
+  }, [allModels, orderSource]);
 
   const filteredModels = useMemo(() => {
     if (!search.trim()) {
@@ -117,12 +219,26 @@ export function ModelsTable({
     [setModelEnabled]
   );
 
-  if (prefsLoading) {
+  const hasMounted = useSyncExternalStore(
+    subscribeNothing,
+    isMountedSnapshot,
+    isServerSnapshot
+  );
+
+  if (hasMounted && !preferencesKnown && queryFailed) {
     return (
-      <div className="animate-pulse space-y-1">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div className="h-11 rounded bg-muted/50" key={i} />
-        ))}
+      <div className="flex flex-col items-center gap-3 py-8 text-center">
+        <p className="text-muted-foreground text-sm">
+          Your model preferences could not be loaded.
+        </p>
+        <Button
+          disabled={isFetching}
+          onClick={() => refetch()}
+          size="sm"
+          variant="outline"
+        >
+          {isFetching ? "Retrying…" : "Retry"}
+        </Button>
       </div>
     );
   }
@@ -136,6 +252,7 @@ export function ModelsTable({
         <TableBody>
           {filteredModels.map((model) => (
             <ModelRow
+              disabled={!preferencesKnown || pendingModelIdSet.has(model.id)}
               isEnabled={enabledModelsSet.has(model.id)}
               key={model.id}
               model={model}

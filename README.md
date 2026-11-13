@@ -69,7 +69,7 @@ what comes back as leads to follow up, not as proof. The sources, their defaults
 
 ## Quick start
 
-You need [Bun](https://bun.sh) 1.3.14 or newer, Node.js 20.9 or newer, Docker with Compose v2, and an
+You need [Bun](https://bun.sh) 1.3.14 or newer, Node.js 22 or newer, Docker with Compose v2, and an
 [OpenAI API key](https://platform.openai.com/api-keys) on an account with billing enabled. The scripts are written for
 bash, so use macOS or Linux, or WSL 2 on Windows.
 

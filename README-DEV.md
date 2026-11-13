@@ -6,7 +6,7 @@ The reference for people who already have the app running. If you are starting f
 ## Prerequisites
 
 - Bun 1.3.14 or newer. The repo pins `packageManager: bun@1.3.14`; npm and pnpm refuse to install it.
-- Node.js 20.9 or newer (Next.js runs on it).
+- Node.js 22 or newer (Next.js runs on 20.9, but the file-storage library, files-sdk, needs 22).
 - Docker with Compose v2.
 - bash: the scripts are written for it, so on Windows use WSL 2.
 - Python 3.11 and [uv](https://docs.astral.sh/uv/), only if you run the research service outside Docker. It must be
@@ -128,9 +128,20 @@ Attachments and generated images and videos are stored in Vercel Blob through fi
 (`apps/chat/lib/storage-provider.ts`), as **private** blobs (`access: "private"`). A public blob can be read by anyone
 who has the store id and the key, straight from the Blob CDN, around the access checks in `/api/files/content`. A
 private blob is read only with the app's own credentials, so that route is the only way in. The Blob store must accept
-private blobs. Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a deployment:
+private blobs. Every read, from any store, is streamed through `/api/files/content` after its access check; no store
+is ever answered with a redirect to a provider link, because a presigned URL (files-sdk signs them for a private Vercel
+Blob, S3, GCS, Azure, R2 and more) works for whoever holds it, without the check, until it expires
+(`apps/chat/lib/file-content-response.ts::createFileContentResponse`). That is the price of the access check: every
+file passes through the app's function, so its bandwidth and run time grow with the file's size, and no browser fetches
+a byte range straight from the store. Each response carries `Cache-Control: private, no-store`, so no shared cache can
+replay a file to someone the check would refuse. The app needs `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` plus
+`VERCEL_OIDC_TOKEN`. Vercel builds set `VERCEL_OIDC_TOKEN` for you and `vercel env pull` writes it locally; it is a
+short-lived token, so do not paste a long-lived value. `check-env` (`apps/chat/scripts/check-env.ts`) names both
+options when neither is met, and fails when `BLOB_READ_WRITE_TOKEN` and `BLOB_STORE_ID` name different stores:
+`BLOB_STORE_ID` wins whenever an OIDC token is found, so a leftover id would silently take every read and write.
+Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a deployment:
 
-- **Blobs uploaded as public before this change will not load.** In private mode files-sdk 2.1.0 reads every file with
+- **Blobs uploaded as public before this change will not load.** In private mode files-sdk reads every file with
   `blob.get(key, { access: "private" })` and reports anything that does not come back that way as `NotFound`, so a
   store that already holds public blobs (one used by this app before the switch, or by upstream ChatJS) serves them as
   404. One-off fix, before going live on such a store: create a private Blob store; copy every blob into it under the

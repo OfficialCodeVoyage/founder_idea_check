@@ -109,16 +109,60 @@ class ThreadRunState<TMessage extends UIMessage>
 	}
 }
 
+/**
+ * One `resume()` call. It looks for a stream until the transport hands one
+ * over; `signal` is the one `ai` aborts when the request is stopped.
+ */
+type ResumeAttempt = {
+	lookingForStream: boolean;
+	signal: AbortSignal | undefined;
+};
+
 export class ThreadRunChat<
 	TMessage extends UIMessage,
 > extends AbstractChat<TMessage> {
+	readonly #resumes: { current: ResumeAttempt | undefined };
 	readonly #state: ThreadRunState<TMessage>;
 
 	constructor(host: ThreadRunHost<TMessage>, spec: ThreadRunSpec) {
 		const responseMessageId = host.generateMessageId();
 		const state = new ThreadRunState(host, spec);
+		const resumes: { current: ResumeAttempt | undefined } = {
+			current: undefined,
+		};
 		const transport: ChatTransport<TMessage> = {
-			reconnectToStream: (options) => host.transport.reconnectToStream(options),
+			// `ai` calls this synchronously from `resumeStream`, so `resumes.current` is
+			// the attempt that asked.
+			//
+			// `ai` 6.0.323 builds a resumed response from empty state: it seeds it from
+			// the stored message only for a tool call still streaming its input, or
+			// from state it kept itself after a network disconnect of the same chat
+			// instance (never after a reload). A stream that merely continues the
+			// stored response would therefore replace it with the continuation, and a
+			// continuation chunk for a part opened before the disconnect would find no
+			// part. Only a replay, which rebuilds the whole response, is correct, so a
+			// transport that does not replay is refused before it is asked for a
+			// stream.
+			reconnectToStream: async (options) => {
+				if (host.transport.resumeStreamIsReplay !== true) {
+					throw new Error(
+						"A run can only be resumed over a transport whose reconnectToStream replays the whole response (resumeStreamIsReplay: true): the AI SDK rebuilds a resumed response from empty state, so a stream that only continues the stored response would replace it.",
+					);
+				}
+				const attempt = resumes.current;
+				if (attempt) {
+					attempt.signal = options.abortSignal;
+				}
+				const stream = await host.transport.reconnectToStream(options);
+				if (stream && attempt) {
+					attempt.lookingForStream = false;
+				}
+				return stream;
+			},
+			// Read per resume, so a transport replaced on the thread applies to it.
+			get resumeStreamIsReplay() {
+				return host.transport.resumeStreamIsReplay;
+			},
 			sendMessages: (options) => {
 				return host.transport.sendMessages({
 					...options,
@@ -131,7 +175,11 @@ export class ThreadRunChat<
 		};
 		super({
 			dataPartSchemas: host.dataPartSchemas,
-			generateId: () => responseMessageId,
+			// `ai` builds a resumed response from empty state under this id, so a run
+			// rebuilt around an existing assistant must reuse that assistant's id: a
+			// replay whose `start` chunk carries no id would otherwise bind the run to
+			// a second message.
+			generateId: () => spec.messageId ?? responseMessageId,
 			id: host.id,
 			messageMetadataSchema: host.messageMetadataSchema,
 			onData: (event) => host.onData?.(event),
@@ -153,11 +201,50 @@ export class ThreadRunChat<
 			state,
 			transport,
 		});
+		this.#resumes = resumes;
 		this.#state = state;
 	}
 
 	refreshPath() {
 		this.#state.refreshPath();
+	}
+
+	/**
+	 * `resumeStream`, which on `ai` 6.0.323 reports a resume that finds no stream
+	 * as status "ready" and so drops the run's error. A failed run keeps its error
+	 * until the caller clears it: `setStatus` ignores that report while this
+	 * attempt is still looking for a stream, so the host never sees the error
+	 * leave. A stop is different: `ai` reports it as "ready" too, and that one
+	 * goes through. The attempt is per call: a newer `resume` replaces it, and a
+	 * superseded one neither decides nor clears anything.
+	 */
+	async resume(options?: ChatRequestOptions) {
+		const attempt: ResumeAttempt = {
+			lookingForStream: true,
+			signal: undefined,
+		};
+		this.#resumes.current = attempt;
+		try {
+			await this.resumeStream(options);
+		} finally {
+			if (this.#resumes.current === attempt) {
+				this.#resumes.current = undefined;
+			}
+		}
+	}
+
+	protected override setStatus(update: { error?: Error; status: ChatStatus }) {
+		const attempt = this.#resumes.current;
+		if (
+			update.status === "ready" &&
+			this.status === "error" &&
+			this.error !== undefined &&
+			attempt?.lookingForStream &&
+			!attempt.signal?.aborted
+		) {
+			return;
+		}
+		super.setStatus(update);
 	}
 
 	start(options?: ChatRequestOptions) {

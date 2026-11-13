@@ -5,7 +5,8 @@ import {
   SettingsPageHeader,
 } from "@/components/settings/settings-page";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getQueryClient, HydrateClient, trpc } from "@/trpc/server";
+import { getRequestQueryClient } from "@/lib/request-session";
+import { HydrateClient, trpc } from "@/trpc/server";
 
 function ConnectorDetailsHeader() {
   return (
@@ -54,7 +55,7 @@ async function ConnectorDetailsContent({
   params: Promise<{ connectorId: string }>;
 }) {
   const { connectorId } = await params;
-  const queryClient = getQueryClient();
+  const queryClient = await getRequestQueryClient();
   await queryClient.prefetchQuery(trpc.mcp.list.queryOptions());
   return (
     <HydrateClient>

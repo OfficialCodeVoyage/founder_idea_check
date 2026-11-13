@@ -19,6 +19,20 @@ function getCliPackageRoot(): string {
 	return resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 }
 
+/**
+ * The Better Auth version `apps/chat` pins. The scaffold pins `better-auth` and
+ * its two companion packages to it, so tests read it instead of repeating it.
+ */
+async function getPinnedBetterAuthVersion(): Promise<string> {
+	const { dependencies } = JSON.parse(
+		await readFile(
+			join(getCliPackageRoot(), "..", "..", "apps", "chat", "package.json"),
+			"utf8",
+		),
+	) as { dependencies: Record<string, string> };
+	return dependencies["@better-auth/core"].replace(/^[~^]/, "");
+}
+
 afterEach(async () => {
 	await Promise.all(
 		tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
@@ -169,9 +183,9 @@ describe("scaffoldFromTemplate", () => {
 			"utf8",
 		);
 
-		expect(packageJson.dependencies["files-sdk"]).toBe("2.1.0");
+		expect(packageJson.dependencies["files-sdk"]).toBe("3.1.2");
 		expect(packageJson.dependencies["@vercel/blob"]).toBeUndefined();
-		expect(packageJson.dependencies["@aws-sdk/client-s3"]).toBe("^3.700.0");
+		expect(packageJson.dependencies["@aws-sdk/client-s3"]).toBe("^3.1079.0");
 		expect(packageJson.dependencies["@aws-sdk/s3-presigned-post"]).toBe(
 			"^3.700.0",
 		);
@@ -206,10 +220,15 @@ describe("scaffoldFromTemplate", () => {
 		expect(packageJson.packageManager).toBe(
 			repoRootPackageJson.packageManager,
 		);
-		expect(packageJson.dependencies["@better-auth/core"]).toBe("1.5.6");
-		expect(packageJson.dependencies["@better-auth/electron"]).toBe("1.5.6");
-		expect(packageJson.dependencies["better-auth"]).toBe("1.5.6");
-		expect(packageJson.overrides?.["@better-auth/core"]).toBe("1.5.6");
+		const betterAuthVersion = await getPinnedBetterAuthVersion();
+		expect(packageJson.dependencies["@better-auth/core"]).toBe(
+			betterAuthVersion,
+		);
+		expect(packageJson.dependencies["@better-auth/electron"]).toBe(
+			betterAuthVersion,
+		);
+		expect(packageJson.dependencies["better-auth"]).toBe(betterAuthVersion);
+		expect(packageJson.overrides?.["@better-auth/core"]).toBeUndefined();
 	});
 
 	it("rewrites the generated web app to be npm-friendly", async () => {
@@ -324,9 +343,12 @@ describe("scaffoldFromTemplate", () => {
 				devDependencies: Record<string, string>;
 			};
 
-			expect(packageJson.dependencies["@better-auth/core"]).toBe("1.5.6");
+			const betterAuthVersion = await getPinnedBetterAuthVersion();
+			expect(packageJson.dependencies["@better-auth/core"]).toBe(
+				betterAuthVersion,
+			);
 			expect(electronPackageJson.devDependencies["@better-auth/electron"]).toBe(
-				"1.5.6",
+				betterAuthVersion,
 			);
 		} finally {
 			if (existsSync(backupDir)) {
@@ -400,8 +422,13 @@ describe.skip("scaffoldElectron", () => {
 
 		expect(packageJson.packageManager).toBeUndefined();
 		expect(packageJson.pnpm).toBeUndefined();
-		expect(packageJson.devDependencies["@better-auth/electron"]).toBe("1.5.6");
-		expect(packageJson.devDependencies["better-auth"]).toBe("1.5.6");
+		const betterAuthVersion = await getPinnedBetterAuthVersion();
+		expect(packageJson.devDependencies["@better-auth/electron"]).toBe(
+			betterAuthVersion,
+		);
+		expect(packageJson.devDependencies["better-auth"]).toBe(
+			betterAuthVersion,
+		);
 		expect(packageJson.devDependencies.esbuild).toBeDefined();
 		const rootPackageJson = JSON.parse(
 			await readFile(join(projectDir, "package.json"), "utf8"),
@@ -421,7 +448,7 @@ describe.skip("scaffoldElectron", () => {
 			expect(script).not.toContain("bun ");
 			expect(script).not.toContain("bunx");
 		}
-		expect(packageJson.overrides?.["@better-auth/core"]).toBe("1.5.6");
+		expect(packageJson.overrides?.["@better-auth/core"]).toBeUndefined();
 		expect(
 			await readFile(join(projectDir, "electron", "README.md"), "utf8"),
 		).not.toContain("bun ");

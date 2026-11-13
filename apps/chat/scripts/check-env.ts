@@ -26,6 +26,7 @@ import { isPlaywrightTestEnvironment } from "../lib/playwright-test-environment"
 import { storageProvider } from "../lib/storage-provider";
 import {
   getStorageEnvironmentRequirements,
+  STORAGE_VARIABLE_HINTS,
   type StorageEnvironmentVariable,
 } from "../lib/storage-provider-metadata";
 
@@ -262,6 +263,47 @@ function validateStorage(env: NodeJS.ProcessEnv): ValidationError | null {
     };
   }
 
+  // Our requirement check runs before the adapter is built: files-sdk 3's
+  // `vercelBlob()` throws on missing credentials in its constructor, and its
+  // message says BLOB_STORE_ID alone is enough on Vercel, which is not the
+  // rule this app checks.
+  const missing = getStorageEnvironmentRequirements(
+    storageProvider.slug,
+    storageProvider.options
+  )
+    .filter(
+      (requirement) =>
+        !requirement.options.some((option) =>
+          option.every((variable) => hasStorageEnvVariable(variable, env))
+        )
+    )
+    .map((requirement) => {
+      const options = requirement.options
+        .map((option) => option.map(({ key }) => key).join(" + "))
+        .join(" or ");
+      const hinted = new Set(
+        requirement.options
+          .flat()
+          .map(({ key }) => key)
+          .filter((key) => STORAGE_VARIABLE_HINTS[key])
+      );
+      const hints = [...hinted].map(
+        (key) => `${key}: ${STORAGE_VARIABLE_HINTS[key]}`
+      );
+      return hints.length > 0 ? `${options} (${hints.join("; ")})` : options;
+    });
+  if (missing.length > 0) {
+    return { feature: `fileStorage (${metadata.name})`, missing };
+  }
+
+  // Widened: a generated lib/storage-provider.ts narrows `slug` to its one
+  // provider, and comparing two different literals does not type-check.
+  const slug: string = storageProvider.slug;
+  const conflict = slug === "vercel-blob" ? getBlobStoreConflict(env) : null;
+  if (conflict) {
+    return { feature: `fileStorage (${metadata.name})`, missing: [conflict] };
+  }
+
   try {
     storageProvider.createAdapter();
   } catch (error) {
@@ -273,25 +315,32 @@ function validateStorage(env: NodeJS.ProcessEnv): ValidationError | null {
     };
   }
 
-  const missing = getStorageEnvironmentRequirements(
-    storageProvider.slug,
-    storageProvider.options
-  )
-    .filter(
-      (requirement) =>
-        !requirement.options.some((option) =>
-          option.every((variable) => hasStorageEnvVariable(variable, env))
-        )
-    )
-    .map((requirement) =>
-      requirement.options
-        .map((option) => option.map(({ key }) => key).join(" + "))
-        .join(" or ")
-    );
+  return null;
+}
 
-  return missing.length > 0
-    ? { feature: `fileStorage (${metadata.name})`, missing }
-    : null;
+const STORE_ID_PREFIX = /^store_/;
+
+/**
+ * Both Vercel Blob credentials set, naming different stores. files-sdk
+ * (`vercelBlob`'s auth resolution) prefers BLOB_STORE_ID, and @vercel/blob
+ * then uses it whenever it finds an OIDC token (VERCEL_OIDC_TOKEN, or the
+ * request header on Vercel Functions), falling back to BLOB_READ_WRITE_TOKEN
+ * otherwise; a leftover id for another store would silently take every read
+ * and write. Both set for the SAME store is fine (the token embeds its store
+ * id: `vercel_blob_rw_<storeId>_<secret>`), so only a mismatch fails.
+ */
+function getBlobStoreConflict(env: NodeJS.ProcessEnv): string | null {
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  const storeId = env.BLOB_STORE_ID;
+  if (!(token && storeId)) {
+    return null;
+  }
+  const normalize = (id: string) => id.trim().replace(STORE_ID_PREFIX, "");
+  const tokenStoreId = normalize(token.split("_")[3] ?? "");
+  if (tokenStoreId && tokenStoreId === normalize(storeId)) {
+    return null;
+  }
+  return "BLOB_READ_WRITE_TOKEN and BLOB_STORE_ID are both set but name different stores. BLOB_STORE_ID wins whenever an OIDC token is found (VERCEL_OIDC_TOKEN, or the request header on Vercel), BLOB_READ_WRITE_TOKEN otherwise. Unset one of them.";
 }
 
 function validateAiTools(env: NodeJS.ProcessEnv): ValidationError[] {

@@ -19,7 +19,7 @@ Every rule below carries one of three labels. Trust the label before the prose.
 | Rule | Label | What enforces it | Runs where |
 |---|---|---|---|
 | Biome format, lint and import order for `apps/chat` | ENFORCED | `apps/chat/biome.jsonc` extends `ultracite/core`, `ultracite/react`, `ultracite/next`; script `lint` = `ultracite check` (`apps/chat/package.json`) | `bun run verify`, CI |
-| Biome lint for `packages/thread` (format with tabs, `recommended` rules) | ENFORCED | `packages/thread/biome.jsonc`, script `lint` in `packages/thread/package.json` (Biome pinned to 2.4.10) | `bun run verify`, CI |
+| Biome lint for `packages/thread` (format with tabs, `recommended` rules) | ENFORCED | `packages/thread/biome.jsonc`, script `lint` in `packages/thread/package.json` (Biome 2.4.16, a devDependency of the package) | `bun run verify`, CI |
 | `packages/cli`, `packages/registry`, `.agents/skills/**/scripts` are neither linted nor type-checked | NOT ENFORCED | No `lint` or `test:types` script in `packages/cli/package.json` or `packages/registry/package.json`; `scripts/verify.sh` lists its steps | n/a |
 | TypeScript `strict` for `apps/chat`, tests and evals included | ENFORCED | `apps/chat/tsconfig.json` (`strict`, `include: **/*.ts`); `verify` runs `next typegen . && tsc --noEmit` | `bun run verify`, CI |
 | Kebab-case file names | ENFORCED | `useFilenamingConvention` (`kebab-case`) in `ultracite/core` | `ultracite check` |

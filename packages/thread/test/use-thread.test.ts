@@ -60,6 +60,7 @@ class ControlledTransport implements ChatTransport<UIMessage> {
 
 class ResumeTransport implements ChatTransport<UIMessage> {
 	reconnects = 0;
+	readonly resumeStreamIsReplay = true;
 
 	sendMessages: ChatTransport<UIMessage>["sendMessages"] = () =>
 		Promise.reject(new Error("Unexpected send"));

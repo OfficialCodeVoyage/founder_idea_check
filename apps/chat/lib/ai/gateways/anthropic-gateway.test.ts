@@ -129,7 +129,6 @@ describe("AnthropicGateway", () => {
   });
 
   it("returns the static catalog with no API key and no network", async () => {
-    // biome-ignore lint/performance/noDelete: the var must be absent, not "undefined"
     delete process.env.ANTHROPIC_API_KEY;
 
     const models = await new AnthropicGateway().fetchModels();
@@ -158,7 +157,6 @@ describe("AnthropicGateway", () => {
   });
 
   it("throws a named error when ANTHROPIC_API_KEY is missing", () => {
-    // biome-ignore lint/performance/noDelete: the var must be absent, not "undefined"
     delete process.env.ANTHROPIC_API_KEY;
 
     expect(() =>

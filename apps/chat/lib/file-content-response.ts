@@ -3,12 +3,22 @@ import { canReadStoredFile } from "./file-access";
 import {
   downloadFile,
   getFileMetadata,
-  getFileProviderUrl,
   storageSupportsRange,
 } from "./file-storage";
 import { fileRequestFromUrl } from "./file-url";
 
 const RANGE_HEADER = /^bytes=(?:(\d+)-(\d*)|-(\d+))$/;
+
+// On every response, not only on a served file: whether a key answers 200,
+// 401 or 404 depends on who asks, so no shared cache may store any of them.
+const CACHE_CONTROL = "private, no-store";
+
+function textResponse(body: string, status: number) {
+  return new Response(body, {
+    headers: { "Cache-Control": CACHE_CONTROL },
+    status,
+  });
+}
 
 function parseRange(value: string, size: number) {
   const match = RANGE_HEADER.exec(value);
@@ -42,6 +52,11 @@ function parseRange(value: string, size: number) {
  * signed-out request with no chat to check answers 401; any refused key
  * answers 404, the same as a missing file, so the response does not reveal
  * whether someone else's key exists.
+ *
+ * An allowed file is always streamed from here, never answered with a
+ * redirect to a provider link: a presigned URL (files-sdk signs them for a
+ * private Vercel Blob, S3, GCS, Azure, R2 and more) is a bearer link that
+ * works for whoever holds it, without this check, until it expires.
  */
 export async function createFileContentResponse(
   request: Request,
@@ -49,28 +64,17 @@ export async function createFileContentResponse(
 ) {
   const fileRequest = fileRequestFromUrl(request.url);
   if (!fileRequest) {
-    return new Response("Invalid file URL", { status: 400 });
+    return textResponse("Invalid file URL", 400);
   }
   const { key, chatId } = fileRequest;
   if (!(viewerId || chatId)) {
-    return new Response("Unauthorized", { status: 401 });
+    return textResponse("Unauthorized", 401);
   }
   if (!(await canReadStoredFile({ key, viewerId, chatId }))) {
-    return new Response("Not found", { status: 404 });
+    return textResponse("Not found", 404);
   }
 
   try {
-    const providerUrl = await getFileProviderUrl(key);
-    if (providerUrl) {
-      return new Response(null, {
-        headers: {
-          Location: providerUrl,
-          "Cache-Control": "private, no-store",
-        },
-        status: 307,
-      });
-    }
-
     const rangeHeader = request.headers.get("range");
     const supportsRange = storageSupportsRange();
     let range: { start: number; end: number } | undefined;
@@ -81,7 +85,10 @@ export async function createFileContentResponse(
       const parsed = parseRange(rangeHeader, fullSize);
       if (!parsed) {
         return new Response(null, {
-          headers: { "Content-Range": `bytes */${fullSize}` },
+          headers: {
+            "Cache-Control": CACHE_CONTROL,
+            "Content-Range": `bytes */${fullSize}`,
+          },
           status: 416,
         });
       }
@@ -91,6 +98,7 @@ export async function createFileContentResponse(
     const file = await downloadFile(key, range);
     const headers = new Headers({
       "Accept-Ranges": supportsRange ? "bytes" : "none",
+      "Cache-Control": CACHE_CONTROL,
       "Content-Length": String(file.size),
       "Content-Type": file.type || "application/octet-stream",
       "X-Content-Type-Options": "nosniff",
@@ -107,8 +115,8 @@ export async function createFileContentResponse(
     });
   } catch (error) {
     if (error instanceof FilesError && error.code === "NotFound") {
-      return new Response("File not found", { status: 404 });
+      return textResponse("File not found", 404);
     }
-    return new Response("File download failed", { status: 500 });
+    return textResponse("File download failed", 500);
   }
 }

@@ -44,6 +44,7 @@
     "DEBUG",
     "APP_URL",
     "PORT",
+    "VERCEL",
     "VERCEL_URL",
     "VERCEL_ENV",
     "VERCEL_PROJECT_PRODUCTION_URL"

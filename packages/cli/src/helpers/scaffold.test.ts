@@ -183,9 +183,9 @@ describe("scaffoldFromTemplate", () => {
 			"utf8",
 		);
 
-		expect(packageJson.dependencies["files-sdk"]).toBe("2.1.0");
+		expect(packageJson.dependencies["files-sdk"]).toBe("3.1.2");
 		expect(packageJson.dependencies["@vercel/blob"]).toBeUndefined();
-		expect(packageJson.dependencies["@aws-sdk/client-s3"]).toBe("^3.700.0");
+		expect(packageJson.dependencies["@aws-sdk/client-s3"]).toBe("^3.1079.0");
 		expect(packageJson.dependencies["@aws-sdk/s3-presigned-post"]).toBe(
 			"^3.700.0",
 		);

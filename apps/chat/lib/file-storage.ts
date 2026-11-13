@@ -175,13 +175,3 @@ export function getFileMetadata(key: string) {
 export function storageSupportsRange(): boolean {
   return getFiles().capabilities.rangeRead;
 }
-
-export async function getFileProviderUrl(key: string): Promise<string | null> {
-  const fileService = getFiles();
-  if (!fileService.capabilities.signedUrl.supported) {
-    return null;
-  }
-  const value = await fileService.url(key);
-  const url = new URL(value);
-  return url.protocol === "http:" || url.protocol === "https:" ? value : null;
-}

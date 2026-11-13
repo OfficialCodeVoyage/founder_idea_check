@@ -158,7 +158,7 @@ describe("storage provider configuration", () => {
 			) as { dependencies: Record<string, string> };
 			expect(packageJson.dependencies["@vercel/blob"]).toBeUndefined();
 			expect(packageJson.dependencies["@google-cloud/storage"]).toBe("^7.19.0");
-			expect(packageJson.dependencies["@aws-sdk/client-s3"]).toBe("^3.700.0");
+			expect(packageJson.dependencies["@aws-sdk/client-s3"]).toBe("^3.1079.0");
 			const providerSource = await readFile(
 				join(destination, "lib", "storage-provider.ts"),
 				"utf8",

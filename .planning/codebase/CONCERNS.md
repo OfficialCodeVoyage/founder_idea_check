@@ -123,15 +123,6 @@ in the last section.
 
 **Privacy page prints empty parentheses** where processors belong (`apps/chat/app/privacy/page.tsx`).
 
-**Server-side tRPC prefetches can still read the clock while prerendering (open, not observed):**
-- Layouts and pages look the session up through `apps/chat/lib/request-session.ts::getRequestSession`, which awaits
-  `connection()` first. Server-side tRPC prefetches do not: `apps/chat/trpc/init.ts::createTRPCContext` calls
-  `auth.api.getSession` directly, and better-auth reads the clock. On a page whose own render runs alongside a gated
-  layout (`/settings/models`, `/settings/connectors`, `/share/[id]`) that read can land in a runtime prerender stage and
-  raise Next's `blocking-prerender-current-time` error. Not seen in testing.
-- Deferred: both systemic fixes (`connection()` in the tRPC context, or the session lookup inside the (chat) layout's
-  `Promise.all`) made the Next 16.4.5 dev server reload `/` dozens of times after sign-in. Revisit once that is understood.
-
 ## Security Considerations
 
 **1. Cross-user writes (rank 1, both known cases fixed):**
@@ -423,6 +414,14 @@ beyond each side's own tests.
   the turn and without a pre-check, by design. The title is charged (on the turn's accumulator, or on its own from `prepare`);
   the follow-up suggestion call and the fact-ranking query embedding are in the turn's accumulator. What remains is Security 2:
   no reserve before a chat turn, and an unpriced model is charged as zero.
+- **The session lookup's clock read while prerendering (Next 16.4 `blocking-prerender-current-time`)**
+  (`apps/chat/lib/request-session.ts`): better-auth reads the clock, so every Server Component that looks the session up
+  must first await `connection()`. Layouts and pages do it through `getRequestSession`. Server-side tRPC shares the same
+  per-request lookup (`lookupRequestSession`) with no barrier of its own, so each page that prefetches through tRPC
+  (`/settings/models`, `/settings/connectors`, `/settings/connectors/[connectorId]`, `/share/[id]`) awaits `connection()`
+  before it: a page renders alongside its layouts, so theirs does not cover it. A new server-side prefetch without that
+  await brings the error back, and nothing checks for it. Putting the barrier in the tRPC context, or inside the (chat)
+  layout's `Promise.all`, made the Next 16.4.5 dev server reload `/` dozens of times after sign-in; both stay out.
 
 ## Tooling
 

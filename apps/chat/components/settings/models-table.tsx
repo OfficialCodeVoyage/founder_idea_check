@@ -22,7 +22,7 @@ export function ModelsTable({
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const { allModels, models: enabledModels } = useChatModels();
+  const { allModels } = useChatModels();
 
   // The (chat) layout streams this query pending and the page dehydrates it
   // resolved, but HydrationBoundary applies a query already in the cache only
@@ -45,12 +45,15 @@ export function ModelsTable({
 
   const { mutate: setModelEnabled } = useMutation(
     trpc.settings.setModelEnabled.mutationOptions({
-      onMutate: (newData) => {
+      onMutate: async (newData) => {
+        // Stop an in-flight read from landing on top of the optimistic value.
+        await queryClient.cancelQueries({ queryKey });
         const prev = queryClient.getQueryData(queryKey);
-        queryClient.setQueryData(queryKey, (old) => {
-          if (!old) {
-            return old;
-          }
+        // While the table shows `initialPreferences` as placeholder data the
+        // cache is empty; build on those rows rather than skipping the update,
+        // or the switch would not move and a second click would flip it back.
+        queryClient.setQueryData(queryKey, (cached) => {
+          const old = cached ?? initialPreferences;
           const idx = old.findIndex((p) => p.modelId === newData.modelId);
           if (idx >= 0) {
             return old.with(idx, { ...old[idx], enabled: newData.enabled });
@@ -69,10 +72,12 @@ export function ModelsTable({
         return { prev };
       },
       onError: (_err, _newData, context) => {
+        // With nothing cached before the toggle there is nothing to restore
+        // (`setQueryData` ignores `undefined`); `onSettled` refetches instead.
         queryClient.setQueryData(queryKey, context?.prev);
         toast.error("Failed to update model preference");
       },
-      onSuccess: () => {
+      onSettled: () => {
         queryClient.invalidateQueries({ queryKey });
       },
     })
@@ -90,25 +95,28 @@ export function ModelsTable({
     return enabled;
   }, [allModels, preferences]);
 
-  // Stable sort order: computed once on initial load, never changes
+  // Stable sort order, computed once on the first render and kept, so a row
+  // does not jump when it is toggled: enabled models first, then the rest.
+  // Built from `enabledModelsSet`, the same preferences this table renders,
+  // not from `useChatModels().models`: that query has no placeholder and can
+  // be pending on the server but resolved in the browser (or the reverse),
+  // which would order the rows differently on each side and freeze the order
+  // on the default set.
   const initialSortRef = useRef<AppModelId[] | null>(null);
   const sortedModels = useMemo(() => {
     if (initialSortRef.current === null) {
-      // First render: enabled models first, then the rest
-      const enabledSet = new Set(enabledModels.map((m) => m.id));
       const sorted = [
-        ...enabledModels,
-        ...allModels.filter((m) => !enabledSet.has(m.id)),
+        ...allModels.filter((m) => enabledModelsSet.has(m.id)),
+        ...allModels.filter((m) => !enabledModelsSet.has(m.id)),
       ];
       initialSortRef.current = sorted.map((m) => m.id);
       return sorted;
     }
-    // Subsequent renders: maintain original order
     const modelMap = new Map(allModels.map((m) => [m.id, m]));
     return initialSortRef.current
       .map((id) => modelMap.get(id))
       .filter((m) => m !== undefined);
-  }, [allModels, enabledModels]);
+  }, [allModels, enabledModelsSet]);
 
   const filteredModels = useMemo(() => {
     if (!search.trim()) {

@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { ConnectorsSettings } from "@/components/settings/connectors-settings";
 import {
@@ -39,6 +40,10 @@ export default function ConnectorsSettingsPage() {
 }
 
 async function ConnectorsSettingsContent() {
+  // Before the prefetch: its tRPC context looks the session up without a
+  // barrier, and this page renders alongside the layouts that have one
+  // (`lib/request-session.ts::lookupRequestSession`).
+  await connection();
   const queryClient = getQueryClient();
   await queryClient.prefetchQuery(trpc.mcp.list.queryOptions());
 

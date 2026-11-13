@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { ChatLoadingShell } from "@/components/chat-loading-shell";
 import { HydrateClient, prefetch, trpc } from "@/trpc/server";
@@ -22,6 +23,10 @@ async function SharedChatPageContent({
 }) {
   const { id } = await params;
 
+  // Before the prefetch: its tRPC context looks the session up without a
+  // barrier, and this page renders alongside the layouts that have one
+  // (`lib/request-session.ts::lookupRequestSession`).
+  await connection();
   // Prefetch the queries used in shared-chat-page.tsx
   prefetch(trpc.chat.getPublicChat.queryOptions({ chatId: id }));
   prefetch(trpc.chat.getPublicChatMessages.queryOptions({ chatId: id }));

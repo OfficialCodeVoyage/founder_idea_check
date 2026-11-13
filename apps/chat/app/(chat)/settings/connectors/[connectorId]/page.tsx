@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { McpDetailsPage } from "@/components/settings/mcp-details-page";
 import {
@@ -54,6 +55,10 @@ async function ConnectorDetailsContent({
   params: Promise<{ connectorId: string }>;
 }) {
   const { connectorId } = await params;
+  // Before the prefetch: its tRPC context looks the session up without a
+  // barrier, and this page renders alongside the layouts that have one
+  // (`lib/request-session.ts::lookupRequestSession`).
+  await connection();
   const queryClient = getQueryClient();
   await queryClient.prefetchQuery(trpc.mcp.list.queryOptions());
   return (

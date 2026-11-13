@@ -50,21 +50,17 @@ async function ChatLayoutDynamic({ children }: { children: React.ReactNode }) {
     cookies(),
     getChatModels(),
   ]);
-  // The request-time barrier (`connection()`, inside `getRequestSession`) runs
-  // AFTER `cookies()`, never alongside it in the `Promise.all` above: started
-  // in parallel, it made the Next 16.4.5 dev server reload `/` 26–47 times in
-  // a row on the first load after sign-in (clean restarts, checked by hand;
-  // sequential: one load, no clock error). The Playwright environment skips
-  // the session lookup but still waits on the same barrier, so e2e renders
-  // the rest of this layout at request time too. With no session it never
-  // runs the tRPC prefetches below, so e2e does not cover those
-  // (`lib/request-session.ts`).
-  let session: Awaited<ReturnType<typeof getRequestSession>> = null;
-  if (isPlaywrightTestEnvironment) {
-    await connection();
-  } else {
-    session = await getRequestSession();
-  }
+  // The request-time barrier comes after the `Promise.all`, never inside it:
+  // started alongside `cookies()`, it made the Next 16.4.5 dev server reload
+  // `/` 26–47 times in a row on the first load after sign-in (clean restarts,
+  // checked by hand). Awaited here as well as inside `getRequestSession` so
+  // the Playwright environment, which has no session, renders this layout at
+  // request time too; with no session it skips the tRPC prefetches below, so
+  // e2e does not cover them (`lib/request-session.ts`).
+  await connection();
+  const session = isPlaywrightTestEnvironment
+    ? null
+    : await getRequestSession();
 
   const cookieModel = cookieStore.get("chat-model")?.value;
   const isAnonymous = !session?.user;

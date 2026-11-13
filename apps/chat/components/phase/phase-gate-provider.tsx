@@ -104,6 +104,15 @@ export type PhaseGateData = {
 
 const PhaseGateContext = createContext<PhaseGateState | null>(null);
 
+/**
+ * THE PHASE KEY ALONE, in a context of its own. A consumer that needs only
+ * which phase the gate is on (the composer, to drop a criterion target from
+ * another phase) would otherwise re-render on every change of `PhaseGateContext`,
+ * and that value changes on every poll tick while a verdict is awaited. A string
+ * is compared by value, so this one changes only when the phase does.
+ */
+const PhaseKeyContext = createContext<string | null>(null);
+
 export function PhaseGateProvider({
   projectId,
   isStreaming,
@@ -186,9 +195,16 @@ export function PhaseGateProvider({
 
   return (
     <PhaseGateContext.Provider value={value}>
-      {children}
+      <PhaseKeyContext.Provider value={data?.phaseKey ?? null}>
+        {children}
+      </PhaseKeyContext.Provider>
     </PhaseGateContext.Provider>
   );
+}
+
+/** Null outside a project, and until the first read lands. */
+export function usePhaseKey(): string | null {
+  return useContext(PhaseKeyContext);
 }
 
 /**

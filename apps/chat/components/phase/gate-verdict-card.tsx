@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useId, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { config } from "@/lib/config";
 import {
   buildDraftChatSubmission,
@@ -340,15 +341,16 @@ function planRequestText(title: string): string {
  * ONE CLICK, ONE REQUEST, ACROSS EVERY SENDER. The chat status turns busy a
  * frame or two after `sendMessage` runs, so a second click, or Enter in the
  * composer, in that window would send again. The send flight in
- * `send-draft-chat-submission.ts` is set the moment a send returns and cleared
- * when the status has gone busy and come back; the button reads it (disabled
- * while it is set) and the click checks it again synchronously. The tool
- * selection is not carried: a founder who has deep research switched on for
- * their own next message did not ask for it here.
+ * `send-draft-chat-submission.ts` is set in the same tick as the send and
+ * cleared when the request settles; the button reads it (disabled while it is
+ * set) and the click checks it again synchronously. The tool selection is not
+ * carried: a founder who has deep research switched on for their own next
+ * message did not ask for it here.
  *
- * FOCUS GOES TO THE EDITOR after the send. The button disables itself the moment
- * it is pressed, and a focused control that disables strands keyboard and
- * screen-reader focus on nothing.
+ * FOCUS GOES TO THE EDITOR after the send, where the composer refocuses after
+ * its own (not on mobile). The button disables itself the moment it is pressed,
+ * and a focused control that disables strands keyboard and screen-reader focus
+ * on nothing.
  *
  * THIS HOOK LIVES IN `ChecklistBody`, not in the card, on purpose: it reads the
  * composer's context, which changes as the founder types, and everything above
@@ -371,6 +373,7 @@ function useCriterionActions({
   const lastMessageId = useLastMessageId();
   const sendDraftChatSubmission = useSendDraftChatSubmission(chatId);
   const sending = useSendInFlight(chatId);
+  const isMobile = useIsMobile();
 
   const canSend = (status === "ready" || status === "error") && !sending;
 
@@ -380,9 +383,10 @@ function useCriterionActions({
       setCriterionTarget({
         phaseKey,
         criterionId: row.id,
-        title: humanizeCriterionId(row.id),
         closure: row.closure,
       });
+      // Always, on mobile too: the founder asked to answer, and the keyboard is
+      // how they do it.
       editorRef.current?.focus();
     },
     planFieldwork(row: GroupedChecklistRow) {
@@ -404,7 +408,12 @@ function useCriterionActions({
       // The send flight starts when this returns, so a send that throws leaves
       // the buttons enabled.
       sendDraftChatSubmission({ message, requestSpecs });
-      editorRef.current?.focus();
+      // Where the composer refocuses after its own send, and not where it does
+      // not: on mobile that would raise the keyboard over a reply that is
+      // about to stream in.
+      if (!isMobile) {
+        editorRef.current?.focus();
+      }
     },
   };
 }
@@ -923,33 +932,20 @@ function headlineText(view: AssessedView, carried: boolean): string | null {
  * reconstruct from the conversation, so nothing sits in front of it.
  */
 function VerdictDetails({
+  card: { carried, checklist, gaps, groups, headline, standing, view },
   chatId,
-  checklist,
   data,
   expanded,
   projectId,
   regionId,
-  standing,
-  view,
 }: {
+  card: VerdictCard;
   chatId: string;
-  checklist: CriterionChecklist;
   data: PhaseGateData;
   expanded: boolean;
   projectId: string;
   regionId: string;
-  standing: AttemptStandingView;
-  view: AssessedView;
 }) {
-  const groups = checklist.available
-    ? groupChecklistRows(checklist.rows, data.criteria)
-    : null;
-  const { carried, gaps } = placeGaps({
-    groups,
-    obstacle: data.obstacle,
-    view,
-  });
-  const headline = headlineText(view, carried);
   return (
     <section
       aria-label="Verdict details"
@@ -1038,12 +1034,23 @@ type CardView =
     }
   | {
       kind: "verdict";
+      /** Every gap is on its own row, so the flat list is not printed. */
+      carried: boolean;
       checklist: CriterionChecklist;
+      /** Gap text per criterion id, set only when `carried`. */
+      gaps: ReadonlyMap<string, string> | null;
+      /** Null when the checklist cannot be drawn. */
+      groups: ChecklistGroups | null;
+      /** The gate's own sentence above the rows, or null. */
+      headline: string | null;
+      /** The one truncated line on the closed row. */
       line: string | null;
       standing: AttemptStandingView;
       strip: StatusStrip;
       view: AssessedView;
     };
+
+type VerdictCard = Extract<CardView, { kind: "verdict" }>;
 
 function deriveCardView(
   data: PhaseGateData,
@@ -1077,9 +1084,21 @@ function deriveCardView(
     verdictReadable: data.verdictReadable,
     obstacle: data.obstacle,
   });
+  const groups = checklist.available
+    ? groupChecklistRows(checklist.rows)
+    : null;
+  const { carried, gaps } = placeGaps({
+    groups,
+    obstacle: data.obstacle,
+    view,
+  });
   return {
     kind: "verdict",
+    carried,
     checklist,
+    gaps,
+    groups,
+    headline: headlineText(view, carried),
     line: summaryLine(view),
     standing,
     strip: describeStatusStrip(checklist),
@@ -1168,7 +1187,7 @@ export function GateVerdictCard({
     ) : null;
   }
 
-  const { checklist, line, standing, strip, view } = card;
+  const { line, standing, strip, view } = card;
   return (
     <output
       className={cn(
@@ -1199,14 +1218,12 @@ export function GateVerdictCard({
           view={view}
         />
         <VerdictDetails
+          card={card}
           chatId={chatId}
-          checklist={checklist}
           data={data}
           expanded={expanded}
           projectId={projectId}
           regionId={regionId}
-          standing={standing}
-          view={view}
         />
       </div>
     </output>

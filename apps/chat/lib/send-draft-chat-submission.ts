@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import type { ChatMessage } from "@/lib/ai/types";
 import { useCurrentChatRoute } from "@/lib/chat-route";
@@ -13,7 +13,7 @@ import {
   runParallelRequestSpecs,
 } from "@/lib/parallel-chat-requests";
 import { useStartProvisionalChat } from "@/lib/start-provisional-chat";
-import { useChatActions, useChatStatus } from "@/lib/stores/base";
+import { useChatActions } from "@/lib/stores/base";
 import { useAddMessageToTree } from "@/lib/stores/hooks-threads";
 import { useChatInput } from "@/providers/chat-input-provider";
 import { useTRPC } from "@/trpc/react";
@@ -21,23 +21,26 @@ import { useTRPC } from "@/trpc/react";
 /**
  * A SEND THE CHAT STATUS HAS NOT CAUGHT UP WITH YET, shared by every sender.
  *
- * The chat status is mirrored into the store by an effect (and, when batching
- * is on, an animation frame), so for a frame or two after `sendMessage` runs
- * every reader still sees `ready`. Two senders in that window both send: the
- * gate card's "Plan how to find out" and then Enter in the composer, or the
- * other way round. Each sender's own check (the composer's `submission`, the
- * card's disabled button) reads a render-time status and cannot see the other.
+ * Two senders in the window after `sendMessage` runs both send: the gate card's
+ * "Plan how to find out" and then Enter in the composer, or the other way
+ * round. Each sender's own check (the composer's `submission`, the card's
+ * disabled button) reads a render-time status, and that status still reads
+ * `ready` for a frame or two after the send.
  *
- * So the flight is a module-level fact keyed on the chat id, set synchronously
- * the moment a send returns, and cleared when the chat status has gone busy and
- * come back (`settleSendFlight`). A send that never turns the status busy (a
- * dropped request) would otherwise block the chat for good, so an unseen flight
- * also expires on its own after `UNSEEN_FLIGHT_MS`.
+ * WHY THIS READS NO STATUS. No synchronous source of the real status is
+ * reachable from here. The AI SDK's `Chat` instance flips to "submitted"
+ * synchronously inside `sendMessage`, but it is private to `useChat` (which
+ * returns helpers, not the instance), and the store mirrors `status` through an
+ * effect and, with batching on, an animation frame
+ * (`lib/stores/base/use-chat.ts`), so `getState().status` is exactly as late as
+ * the render-time value. What IS synchronous and exact is the promise
+ * `sendMessage` returns: the SDK resolves it when the request, and any
+ * automatic follow-up, has finished or failed (`makeRequest` handles its own
+ * errors and always returns). So the flight is that promise, keyed on the chat
+ * id: set in the same tick as the send, cleared the moment the request settles.
+ * No timer, no expiry, and nothing to get out of step with the status mirror.
  */
-type SendFlight = { sawBusy: boolean };
-
-const UNSEEN_FLIGHT_MS = 1500;
-const sendFlights = new Map<string, SendFlight>();
+const sendFlights = new Map<string, object>();
 const flightListeners = new Set<() => void>();
 
 function notifyFlightListeners() {
@@ -53,31 +56,23 @@ function subscribeToFlights(listener: () => void) {
   };
 }
 
-function beginSendFlight(chatId: string) {
-  const flight: SendFlight = { sawBusy: false };
+/**
+ * Track one send until its promise settles. A later send for the same chat
+ * replaces the flight, so an earlier promise settling cannot clear it.
+ *
+ * `finally` hands back a promise that rejects with the same reason, so a send
+ * that rejects is reported once, as it was before the flight existed.
+ */
+function trackSendFlight(chatId: string, sent: Promise<unknown>) {
+  const flight = {};
   sendFlights.set(chatId, flight);
   notifyFlightListeners();
-  setTimeout(() => {
-    if (sendFlights.get(chatId) === flight && !flight.sawBusy) {
+  sent.finally(() => {
+    if (sendFlights.get(chatId) === flight) {
       sendFlights.delete(chatId);
       notifyFlightListeners();
     }
-  }, UNSEEN_FLIGHT_MS);
-}
-
-function settleSendFlight(chatId: string, busy: boolean) {
-  const flight = sendFlights.get(chatId);
-  if (!flight) {
-    return;
-  }
-  if (busy) {
-    flight.sawBusy = true;
-    return;
-  }
-  if (flight.sawBusy) {
-    sendFlights.delete(chatId);
-    notifyFlightListeners();
-  }
+  });
 }
 
 /** Synchronous, for a click or key handler that must not send twice. */
@@ -106,37 +101,18 @@ export function useSendInFlight(chatId: string): boolean {
  * project's first message. A second copy of this would drift, and a send that
  * skipped the placeholder is a send whose reply has nowhere to render.
  *
- * It starts a send flight (above) once the send has returned, so a send that
- * throws leaves nothing locked. It does NOT refuse a send itself: the composer
- * clears its editor after calling this, and a silent refusal would lose what the
- * founder typed. Callers check `isSendInFlight` first. A provisional chat starts
- * no flight: it changes the route and remounts the chat, so the flight would
- * outlive the store whose status settles it.
+ * It starts a send flight (above) from the promise `sendMessage` returns, after
+ * the call, so a send that throws leaves nothing locked. It does NOT refuse a
+ * send itself: the composer clears its editor after calling this, and a silent
+ * refusal would lose what the founder typed. Callers check `isSendInFlight`
+ * first. A provisional chat starts no flight: `startProvisionalChat` calls
+ * `sendMessage` itself and returns no promise, and it changes the route and
+ * remounts the chat.
  *
  * Returns true when it started a provisional chat (the route changes and the
  * caller's own refocus has already been done through `onStarted`).
  */
 export function useSendDraftChatSubmission(chatId: string) {
-  const status = useChatStatus();
-  const busy = status === "submitted" || status === "streaming";
-  useEffect(() => {
-    settleSendFlight(chatId, busy);
-  }, [busy, chatId]);
-
-  const send = useDispatchDraftChatSubmission(chatId);
-  return useCallback(
-    (submission: Parameters<typeof send>[0]): boolean => {
-      const startedProvisionalChat = send(submission);
-      if (!startedProvisionalChat) {
-        beginSendFlight(chatId);
-      }
-      return startedProvisionalChat;
-    },
-    [chatId, send]
-  );
-}
-
-function useDispatchDraftChatSubmission(chatId: string) {
   const queryClient = useQueryClient();
   const trpc = useTRPC();
   const currentRoute = useCurrentChatRoute();
@@ -162,22 +138,28 @@ function useDispatchDraftChatSubmission(chatId: string) {
       }
 
       if (!primaryRequest) {
-        sendMessage(
-          message,
-          currentRoute.projectId
-            ? { body: { projectId: currentRoute.projectId } }
-            : undefined
+        trackSendFlight(
+          chatId,
+          sendMessage(
+            message,
+            currentRoute.projectId
+              ? { body: { projectId: currentRoute.projectId } }
+              : undefined
+          )
         );
         addMessageToTree(message);
         return false;
       }
 
-      sendMessage(message, {
-        body: {
-          ...createParallelRequestBody(primaryRequest, true),
-          projectId: currentRoute.projectId ?? undefined,
-        },
-      });
+      trackSendFlight(
+        chatId,
+        sendMessage(message, {
+          body: {
+            ...createParallelRequestBody(primaryRequest, true),
+            projectId: currentRoute.projectId ?? undefined,
+          },
+        })
+      );
 
       addMessageToTree(message);
       handleModelChange(primaryRequest.modelId);

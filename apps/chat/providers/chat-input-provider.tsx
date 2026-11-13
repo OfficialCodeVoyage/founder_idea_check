@@ -35,8 +35,11 @@ import { useDefaultModel, useModelChange } from "./default-model-provider";
 export type CriterionTarget = {
   phaseKey: string;
   criterionId: string;
-  /** The humanised id, as printed on the card and on the chip. */
-  title: string;
+  /**
+   * Kept because the hint depends on it and the composer has no phase
+   * definition to look it up in. The title is NOT stored: it is
+   * `humanizeCriterionId(criterionId)`, computed where it is shown.
+   */
   closure: CriterionClosure;
 };
 

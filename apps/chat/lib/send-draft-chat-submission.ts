@@ -15,7 +15,7 @@ import {
 import { useStartProvisionalChat } from "@/lib/start-provisional-chat";
 import { useChatActions } from "@/lib/stores/base";
 import { useAddMessageToTree } from "@/lib/stores/hooks-threads";
-import { useChatInput } from "@/providers/chat-input-provider";
+import { useStableChatInput } from "@/providers/chat-input-provider";
 import { useTRPC } from "@/trpc/react";
 
 /**
@@ -39,8 +39,19 @@ import { useTRPC } from "@/trpc/react";
  * errors and always returns). So the flight is that promise, keyed on the chat
  * id: set in the same tick as the send, cleared the moment the request settles.
  * No timer, no expiry, and nothing to get out of step with the status mirror.
+ *
+ * A FLIGHT BELONGS TO ONE CHAT INSTANCE. The promise can outlive the chat it
+ * stands for: a sibling switch or a store re-init replaces the AI SDK `Chat`,
+ * and a fetch that stalls keeps its promise pending until reload. So each
+ * flight records its `owner` — the `sendMessage` that made the send, whose
+ * identity is per `Chat` instance — and `ChatSync`, which owns that instance,
+ * releases the owner's flight when the instance is replaced or unmounted
+ * (`releaseSendFlight`). A stalled send can then block only the instance it
+ * was sent through, never the one that replaced it.
  */
-const sendFlights = new Map<string, object>();
+type SendFlight = { owner: unknown };
+
+const sendFlights = new Map<string, SendFlight>();
 const flightListeners = new Set<() => void>();
 
 function notifyFlightListeners() {
@@ -63,8 +74,12 @@ function subscribeToFlights(listener: () => void) {
  * `finally` hands back a promise that rejects with the same reason, so a send
  * that rejects is reported once, as it was before the flight existed.
  */
-function trackSendFlight(chatId: string, sent: Promise<unknown>) {
-  const flight = {};
+function trackSendFlight(
+  chatId: string,
+  sent: Promise<unknown>,
+  owner: unknown
+) {
+  const flight: SendFlight = { owner };
   sendFlights.set(chatId, flight);
   notifyFlightListeners();
   sent.finally(() => {
@@ -73,6 +88,18 @@ function trackSendFlight(chatId: string, sent: Promise<unknown>) {
       notifyFlightListeners();
     }
   });
+}
+
+/**
+ * Drop `chatId`'s flight if `owner` (a `Chat` instance's `sendMessage`) made
+ * it. Called by `ChatSync` when that instance is replaced or unmounted; a
+ * flight a newer instance has started since is left alone.
+ */
+export function releaseSendFlight(chatId: string, owner: unknown) {
+  if (sendFlights.get(chatId)?.owner === owner) {
+    sendFlights.delete(chatId);
+    notifyFlightListeners();
+  }
 }
 
 /** Synchronous, for a click or key handler that must not send twice. */
@@ -105,9 +132,10 @@ export function useSendInFlight(chatId: string): boolean {
  * the call, so a send that throws leaves nothing locked. It does NOT refuse a
  * send itself: the composer clears its editor after calling this, and a silent
  * refusal would lose what the founder typed. Callers check `isSendInFlight`
- * first. A provisional chat starts no flight: `startProvisionalChat` calls
- * `sendMessage` itself and returns no promise, and it changes the route and
- * remounts the chat.
+ * first. A provisional chat (a project's first message) gets a flight too:
+ * `startProvisionalChat` returns its send's promise. Without it two Enters
+ * before the status mirror leaves `ready` sent the first message twice — two
+ * user turns and two charged replies.
  *
  * Returns true when it started a provisional chat (the route changes and the
  * caller's own refocus has already been done through `onStarted`).
@@ -119,7 +147,7 @@ export function useSendDraftChatSubmission(chatId: string) {
   const startProvisionalChat = useStartProvisionalChat(chatId);
   const { sendMessage } = useChatActions<ChatMessage>();
   const addMessageToTree = useAddMessageToTree();
-  const { handleModelChange } = useChatInput();
+  const { handleModelChange } = useStableChatInput();
 
   return useCallback(
     ({
@@ -133,7 +161,13 @@ export function useSendDraftChatSubmission(chatId: string) {
     }): boolean => {
       const primaryRequest = requestSpecs[0] ?? null;
 
-      if (startProvisionalChat({ message, onStarted, requestSpecs })) {
+      const provisional = startProvisionalChat({
+        message,
+        onStarted,
+        requestSpecs,
+      });
+      if (provisional) {
+        trackSendFlight(chatId, provisional, sendMessage);
         return true;
       }
 
@@ -145,7 +179,8 @@ export function useSendDraftChatSubmission(chatId: string) {
             currentRoute.projectId
               ? { body: { projectId: currentRoute.projectId } }
               : undefined
-          )
+          ),
+          sendMessage
         );
         addMessageToTree(message);
         return false;
@@ -158,7 +193,8 @@ export function useSendDraftChatSubmission(chatId: string) {
             ...createParallelRequestBody(primaryRequest, true),
             projectId: currentRoute.projectId ?? undefined,
           },
-        })
+        }),
+        sendMessage
       );
 
       addMessageToTree(message);

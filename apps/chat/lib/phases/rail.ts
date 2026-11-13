@@ -951,11 +951,11 @@ export function describeCriterionChecklist(input: {
   /** From describeAttemptStanding. Absent when nothing has repeated. */
   repeats?: readonly CriterionRepeat[];
   /**
-   * Which rule fired. Optional: an older caller that does not pass it gets the
-   * rows it always got. `judge-incomplete` makes the whole checklist
-   * unavailable, see below.
+   * Which rule fired; NULL when the stored verdict predates the field or the
+   * gate passed. `judge-incomplete` makes the whole checklist unavailable, see
+   * below.
    */
-  obstacle?: GateObstacle | null;
+  obstacle: GateObstacle | null;
 }): CriterionChecklist {
   if (!input.verdictReadable) {
     return { available: false, note: CANNOT_READ };
@@ -993,7 +993,7 @@ export function describeCriterionChecklist(input: {
   // NO ROW SCORED is the same fact as "nothing was scored", reached another way:
   // every id the judge returned belongs to some other phase. Eight "not scored"
   // rows, each offering an answer, would be the "0 of 8 met" this arm exists to
-  // prevent, whatever obstacle the caller did or did not pass.
+  // prevent, whatever obstacle the verdict recorded.
   if (rows.every((r) => r.state === "unscored")) {
     return { available: false, note: NONE_MATCHED };
   }

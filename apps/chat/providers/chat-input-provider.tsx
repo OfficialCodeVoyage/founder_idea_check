@@ -8,6 +8,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -66,6 +67,30 @@ interface ChatInputContextType {
 const ChatInputContext = createContext<ChatInputContextType | undefined>(
   undefined
 );
+
+/**
+ * THE PIECES OF THE COMPOSER THAT DO NOT CHANGE AS THE FOUNDER TYPES.
+ *
+ * `ChatInputContext`'s value is a new object on every provider render, and the
+ * provider renders as the founder types (`isEmpty`), so every consumer of
+ * `useChatInput` re-renders with each keystroke. The gate card's checklist rows
+ * only need to aim the composer and send a request (`useCriterionActions`,
+ * `useSendDraftChatSubmission`): the editor handle, the target setter and the
+ * model selection. This context carries exactly those, memoised, so a row
+ * re-renders when the model changes and not when a letter is typed.
+ */
+type ChatInputStableContextType = Pick<
+  ChatInputContextType,
+  | "editorRef"
+  | "handleModelChange"
+  | "selectedModelId"
+  | "selectedModelSelection"
+  | "setCriterionTarget"
+>;
+
+const ChatInputStableContext = createContext<
+  ChatInputStableContextType | undefined
+>(undefined);
 
 interface ChatInputProviderProps {
   children: ReactNode;
@@ -259,6 +284,17 @@ export function ChatInputProvider({
     [clearAttachments, clearInput, selectedTool, resetData]
   );
 
+  const stableValue = useMemo<ChatInputStableContextType>(
+    () => ({
+      editorRef,
+      handleModelChange,
+      selectedModelId,
+      selectedModelSelection,
+      setCriterionTarget,
+    }),
+    [handleModelChange, selectedModelId, selectedModelSelection]
+  );
+
   return (
     <ChatInputContext.Provider
       value={{
@@ -281,9 +317,22 @@ export function ChatInputProvider({
         isProjectContext,
       }}
     >
-      {children}
+      <ChatInputStableContext.Provider value={stableValue}>
+        {children}
+      </ChatInputStableContext.Provider>
     </ChatInputContext.Provider>
   );
+}
+
+/** The composer pieces that stay put while the founder types; see above. */
+export function useStableChatInput() {
+  const context = useContext(ChatInputStableContext);
+  if (context === undefined) {
+    throw new Error(
+      "useStableChatInput must be used within a ChatInputProvider"
+    );
+  }
+  return context;
 }
 
 export function useChatInput() {

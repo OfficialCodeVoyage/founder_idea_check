@@ -126,6 +126,20 @@ export function expandSelectedModelValue(
   return expanded;
 }
 
+/**
+ * THE SHAPE OF A CRITERION TARGET (CONTEXT.md), the one definition in code.
+ *
+ * `lib/message-conversion.ts::chatMessageToDbMessage` stores a target only when
+ * it matches, and `messageMetadataSchema` below types the field with it. The
+ * database's `Message_target_criterion_shape` CHECK (`lib/db/schema.ts`,
+ * migration 0054) has to spell the same pattern in SQL; change all three
+ * together. Shape only: whether an id names an exit criterion of the current
+ * phase is decided per turn, by an exact lookup in
+ * `lib/phases/runtime.ts::buildPhaseSystemBlock`.
+ */
+export const TARGET_CRITERION_ID_MAX_LENGTH = 64;
+export const TARGET_CRITERION_ID_PATTERN = /^[a-z0-9-]{1,64}$/;
+
 const messageMetadataSchema = z.object({
   createdAt: z.date(),
   parentMessageId: z.string().nullable(),
@@ -155,8 +169,19 @@ const messageMetadataSchema = z.object({
    * find out", which sends a fixed request for help (like a follow-up
    * suggestion) and states no claim about the criterion. An id the phase
    * definitions do not carry is ignored by every reader.
+   *
+   * LENIENT ON PURPOSE: `.catch(undefined)` turns a malformed id into "no
+   * target" rather than a parse failure. Nothing parses a request's metadata
+   * with this schema today (it only types the field), but if anything ever
+   * does, a spoofed id must still be dropped silently and never refuse the
+   * founder's message.
    */
-  targetCriterionId: z.string().max(64).optional(),
+  targetCriterionId: z
+    .string()
+    .max(TARGET_CRITERION_ID_MAX_LENGTH)
+    .regex(TARGET_CRITERION_ID_PATTERN)
+    .optional()
+    .catch(undefined),
   usage: z.custom<LanguageModelUsage | undefined>((_val) => true).optional(),
 });
 

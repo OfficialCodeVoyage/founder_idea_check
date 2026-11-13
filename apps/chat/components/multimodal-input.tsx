@@ -667,9 +667,10 @@ function PureMultimodalInput({
   const composerTestId = isActive
     ? `multimodal-input${surfaceSuffix}`
     : undefined;
-  const defaultPlaceholder = isMobile
-    ? "Send a message... (Ctrl+Enter to send)"
-    : "Send a message...";
+  // On mobile Enter is a newline and Ctrl+Enter sends, so the hint stays on
+  // every placeholder there, the armed target's included.
+  const mobileSendHint = isMobile ? " (Ctrl+Enter to send)" : "";
+  const defaultPlaceholder = `Send a message...${mobileSendHint}`;
   const modelSelectorTestId = isActive
     ? `model-selector${surfaceSuffix}`
     : undefined;
@@ -774,7 +775,7 @@ function PureMultimodalInput({
             onPaste={handlePaste}
             placeholder={
               criterionTarget
-                ? TARGET_HINT[criterionTarget.closure]
+                ? `${TARGET_HINT[criterionTarget.closure]}${mobileSendHint}`
                 : defaultPlaceholder
             }
             ref={isActive ? editorRef : undefined}

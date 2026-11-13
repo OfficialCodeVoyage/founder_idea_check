@@ -38,7 +38,7 @@ import {
 import { useChatStatus } from "@/lib/stores/base";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
 import { cn } from "@/lib/utils";
-import { useChatInput } from "@/providers/chat-input-provider";
+import { useStableChatInput } from "@/providers/chat-input-provider";
 import { type PhaseGateData, usePhaseGate } from "./phase-gate-provider";
 
 /**
@@ -363,12 +363,14 @@ function useCriterionActions({
   chatId: string;
   phaseKey: string;
 }) {
+  // The narrow context: the full `useChatInput` value changes as the founder
+  // types, and would re-render every checklist row with each keystroke.
   const {
     editorRef,
     setCriterionTarget,
     selectedModelId,
     selectedModelSelection,
-  } = useChatInput();
+  } = useStableChatInput();
   const status = useChatStatus();
   const lastMessageId = useLastMessageId();
   const sendDraftChatSubmission = useSendDraftChatSubmission(chatId);

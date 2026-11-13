@@ -57,7 +57,7 @@ export function useStartProvisionalChat(chatId: string) {
       message: ChatMessage;
       onStarted?: () => void;
       requestSpecs: ParallelRequestSpec[];
-    }) => {
+    }): false | Promise<void> => {
       if (!(session?.user && isInitialRoute(currentRoute))) {
         return false;
       }
@@ -105,7 +105,7 @@ export function useStartProvisionalChat(chatId: string) {
         };
       }
 
-      sendMessage(message, requestOptions);
+      const sent = sendMessage(message, requestOptions);
 
       addMessageToTree(message);
 
@@ -118,7 +118,11 @@ export function useStartProvisionalChat(chatId: string) {
       window.history.pushState(null, "", href);
       onStarted?.();
 
-      return true;
+      // The send's own promise, so a caller can hold a send flight on it
+      // (`lib/send-draft-chat-submission.ts::trackSendFlight`) exactly as for a
+      // send into an existing chat. Truthy, so a "did it start" check still
+      // reads it as a boolean.
+      return sent;
     },
     [
       addMessageToTree,

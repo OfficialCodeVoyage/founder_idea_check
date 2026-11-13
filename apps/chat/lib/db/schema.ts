@@ -127,24 +127,25 @@ export const message = pgTable(
     /** Timestamp when this message's stream was canceled by the user. Null means not canceled. */
     canceledAt: timestamp("canceledAt"),
     /**
-     * The exit criterion the founder marked this user message as answering, as
-     * the client sent it; NULL means no mark. Every write goes through
-     * `lib/message-conversion.ts::chatMessageToDbMessage`, whose
-     * shape check stores anything else as NULL; the CHECK
-     * below is the backstop for a writer that skips it. It is a CLAIM about
-     * intent, not a link: it is not checked against a phase here, because the
-     * phase moves on and the mark must still read back as what the founder said
-     * at the time. Whether it names a criterion of the current phase is decided
-     * per turn, in `lib/phases/runtime.ts::buildPhaseSystemBlock`.
+     * This user message's criterion target (CONTEXT.md): the exit criterion
+     * the founder said it answers, as the client sent it; NULL means none.
+     * Every write goes through `lib/message-conversion.ts::chatMessageToDbMessage`,
+     * whose shape check stores anything else as NULL; the CHECK below is the
+     * backstop for a writer that skips it. It is a CLAIM about intent, not a
+     * link: it is not checked against a phase here, because the phase moves on
+     * and the target must still read back as what the founder said at the
+     * time. Whether it names a criterion of the current phase is decided per
+     * turn, in `lib/phases/runtime.ts::buildPhaseSystemBlock`.
      */
     targetCriterionId: varchar("targetCriterionId", { length: 64 }),
   },
   (t) => ({
     /**
-     * The shape `lib/message-conversion.ts::chatMessageToDbMessage` stores, so
-     * a row written by any path that skips it (a script, a hand repair, a
-     * future writer) cannot store text the bubble and the prompt would then
-     * replay.
+     * `lib/ai/types.ts::TARGET_CRITERION_ID_PATTERN`, spelled in SQL: the
+     * shape `lib/message-conversion.ts::chatMessageToDbMessage` stores, so a
+     * row written by any path that skips it (a script, a hand repair, a future
+     * writer) cannot store text the bubble and the prompt would then replay.
+     * Change the two together.
      */
     target_criterion_shape_chk: check(
       "Message_target_criterion_shape",

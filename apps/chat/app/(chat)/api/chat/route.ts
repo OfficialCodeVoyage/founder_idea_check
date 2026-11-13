@@ -70,6 +70,7 @@ import type { McpConnector } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { MAX_INPUT_TOKENS } from "@/lib/limits/tokens";
 import { createModuleLogger } from "@/lib/logger";
+import { chatMessageToDbMessage } from "@/lib/message-conversion";
 import { runPostTurnPersonaPass } from "@/lib/personas/post-turn";
 import {
   buildPhaseSystemBlock,
@@ -235,7 +236,12 @@ async function handleChatValidation({
   projectId?: string;
   /** The turn's accumulator; a new chat's title call is recorded on it. */
   costAccumulator: CostAccumulator;
-}): Promise<{ error: Response | null; isNewChat: boolean }> {
+}): Promise<{
+  error: Response | null;
+  isNewChat: boolean;
+  /** The message's criterion target as saved on its row; see below. */
+  storedTarget: string | null;
+}> {
   const log = createModuleLogger("api:chat:validation");
 
   const chat = await getChatById({ id: chatId });
@@ -254,6 +260,7 @@ async function handleChatValidation({
       return {
         error: new Response("Unauthorized", { status: 401 }),
         isNewChat,
+        storedTarget: null,
       };
     }
   } else {
@@ -284,6 +291,7 @@ async function handleChatValidation({
         return {
           error: new Response("Unauthorized", { status: 401 }),
           isNewChat,
+          storedTarget: null,
         };
       }
     }
@@ -304,7 +312,7 @@ async function handleChatValidation({
     // turn's only balance check (`handleUserValidationAndCredits`).
     const creditError = await checkUserCanSpend(userId);
     if (creditError) {
-      return { error: creditError, isNewChat };
+      return { error: creditError, isNewChat, storedTarget: null };
     }
 
     isNewChat = true;
@@ -328,7 +336,11 @@ async function handleChatValidation({
       },
       "Unauthorized - message chatId mismatch"
     );
-    return { error: new Response("Unauthorized", { status: 401 }), isNewChat };
+    return {
+      error: new Response("Unauthorized", { status: 401 }),
+      isNewChat,
+      storedTarget: null,
+    };
   }
 
   await saveMessageIfNotExists({
@@ -337,7 +349,19 @@ async function handleChatValidation({
     message: userMessage,
   });
 
-  return { error: null, isNewChat };
+  // THE TARGET THE PROMPT USES IS THE ONE ON THE ROW. `saveMessageIfNotExists`
+  // keeps the first write, so when the message already existed (saved by the
+  // prepare route, or by an earlier attempt of a retry or regenerate) the
+  // request's copy of the target may not be what is stored — and the
+  // "Answering:" label the founder sees is read from the row. So the prompt
+  // takes the row's value when there was a row, and otherwise the value this
+  // request just wrote, which is what `chatMessageToDbMessage` stores (a
+  // malformed target becomes NULL there). One read, already made above.
+  const storedTarget = existentMessage
+    ? existentMessage.targetCriterionId
+    : chatMessageToDbMessage(userMessage, chatId).targetCriterionId;
+
+  return { error: null, isNewChat, storedTarget };
 }
 
 function resolveSelectedModelId({
@@ -382,7 +406,9 @@ async function handleUserValidationAndCredits({
   userMessage: ChatMessage;
   projectId?: string;
   costAccumulator: CostAccumulator;
-}): Promise<{ error: Response } | { isNewChat: boolean }> {
+}): Promise<
+  { error: Response } | { isNewChat: boolean; storedTarget: string | null }
+> {
   const validationResult = await handleChatValidation({
     chatId,
     userId,
@@ -404,7 +430,10 @@ async function handleUserValidationAndCredits({
     }
   }
 
-  return { isNewChat: validationResult.isNewChat };
+  return {
+    isNewChat: validationResult.isNewChat,
+    storedTarget: validationResult.storedTarget,
+  };
 }
 
 /** The plain text of a message, for ranking the fact block against this turn. */
@@ -420,11 +449,18 @@ async function getSystemPrompt({
   isAnonymous,
   chatId,
   userMessage,
+  storedTarget,
   costAccumulator,
 }: {
   isAnonymous: boolean;
   chatId: string;
   userMessage: ChatMessage;
+  /**
+   * The criterion target as saved on `userMessage`'s row, from
+   * `handleChatValidation`, never the request's copy: the prompt and the
+   * "Answering:" label read the same value.
+   */
+  storedTarget: string | null;
   costAccumulator: CostAccumulator;
 }): Promise<string> {
   let system = systemPrompt();
@@ -451,24 +487,10 @@ async function getSystemPrompt({
       //
       // Anonymous chats have no project, so they never enter a phase — that is
       // the deliberate answer to "what happens to the gate for anonymous users".
-      //
-      // THE CRITERION MARK COMES FROM THE SAVED ROW, NOT THE REQUEST. By now
-      // the founder's message is persisted: `handleChatValidation` saved it,
-      // or found it already saved by the prepare route or an earlier attempt
-      // (`saveMessageIfNotExists` keeps the first write). On a retry or a
-      // regenerate the request's copy can differ from that row, and the
-      // "Answering:" label the founder sees is read from the row — so the
-      // prompt reads the row too, and the two can never disagree. A row in
-      // another chat contributes nothing (`handleChatValidation` has already
-      // refused that request; this is the same defence in depth as above).
-      const [storedMessage] = await getMessageById({ id: userMessage.id });
       const phaseBlock = await buildPhaseSystemBlock({
         projectId: currentChat.projectId,
         latestUserMessage: messageText(userMessage),
-        targetCriterionId:
-          storedMessage?.chatId === chatId
-            ? storedMessage.targetCriterionId
-            : null,
+        targetCriterionId: storedTarget,
         costAccumulator,
       });
       system = `${system}\n\n${phaseBlock}`;
@@ -539,6 +561,7 @@ async function createChatStream({
   requestDeadlineAt,
   isAnonymous,
   isNewChat,
+  storedTarget,
   timeoutId,
   mcpConnectors,
   streamId,
@@ -559,6 +582,7 @@ async function createChatStream({
   requestDeadlineAt: number;
   isAnonymous: boolean;
   isNewChat: boolean;
+  storedTarget: string | null;
   timeoutId: NodeJS.Timeout;
   mcpConnectors: McpConnector[];
   streamId: string;
@@ -602,6 +626,7 @@ async function createChatStream({
     isAnonymous,
     chatId,
     userMessage,
+    storedTarget,
     costAccumulator,
   });
 
@@ -921,6 +946,7 @@ async function executeChatRequest({
   userId,
   isAnonymous,
   isNewChat,
+  storedTarget,
   abortController,
   requestDeadlineAt,
   timeoutId,
@@ -939,6 +965,8 @@ async function executeChatRequest({
   userId: string | null;
   isAnonymous: boolean;
   isNewChat: boolean;
+  /** The criterion target as saved on the user message's row (`handleChatValidation`). */
+  storedTarget: string | null;
   abortController: AbortController;
   /** Epoch ms at which `abortController` is aborted by the route's timer. */
   requestDeadlineAt: number;
@@ -1011,6 +1039,7 @@ async function executeChatRequest({
     requestDeadlineAt,
     isAnonymous,
     isNewChat,
+    storedTarget,
     timeoutId,
     mcpConnectors,
     streamId,
@@ -1933,7 +1962,9 @@ async function prepareChatPersistenceAndCredits({
   userId: string | null;
   userMessage: ChatMessage;
   costAccumulator: CostAccumulator;
-}): Promise<{ error: Response } | { isNewChat: boolean }> {
+}): Promise<
+  { error: Response } | { isNewChat: boolean; storedTarget: string | null }
+> {
   if (userId) {
     return await handleUserValidationAndCredits({
       chatId,
@@ -1944,7 +1975,8 @@ async function prepareChatPersistenceAndCredits({
     });
   }
 
-  return { isNewChat: false };
+  // Anonymous chats have no project, so a criterion target never reaches a prompt.
+  return { isNewChat: false, storedTarget: null };
 }
 
 async function consumeAnonymousCreditBeforeStream(
@@ -2103,6 +2135,7 @@ export async function POST(request: NextRequest) {
       userId,
       isAnonymous,
       isNewChat: persistenceResult.isNewChat,
+      storedTarget: persistenceResult.storedTarget,
       abortController,
       requestDeadlineAt,
       timeoutId,

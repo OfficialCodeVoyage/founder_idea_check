@@ -49,6 +49,7 @@ import {
   createModelFactExtractor,
   createModelGateJudge,
 } from "./model-adapters";
+import { humanizeCriterionId } from "./rail";
 import type { GateVerdict, PhaseDefinition, TranscriptTurn } from "./types";
 
 const log = createModuleLogger("phases:runtime");
@@ -291,9 +292,9 @@ function toStoredFacts(
  * allowlist of the phase's own ids is stricter than any shape check. What the
  * prompt receives is that criterion's own definition text.
  *
- * Fails closed to "no target": an id of another phase (a stale mark from
+ * Fails closed to "no target": an id of another phase (a stale target from
  * before an advance) or an id that names nothing yields null, and the turn
- * renders exactly as it would have with no mark. A dropped mark costs the
+ * renders exactly as it would have with no target. A dropped target costs the
  * founder a hint; an accepted wrong one would aim the interviewer at the wrong
  * criterion.
  *
@@ -312,9 +313,9 @@ function resolveTarget(
   if (!criterion) {
     return null;
   }
-  const words = criterion.id.replaceAll("-", " ");
   return {
-    title: `${words.charAt(0).toUpperCase()}${words.slice(1)}`,
+    // The same label the gate card shows for this criterion.
+    title: humanizeCriterionId(criterion.id),
     description: criterion.description,
     closure: criterion.closure,
     alreadyMet:
@@ -347,9 +348,9 @@ export async function buildPhaseSystemBlock({
   latestUserMessage?: string;
   /**
    * The saved row of the message this turn answers: its `targetCriterionId`,
-   * the exit criterion the founder marked it as answering (the gate card's
+   * its criterion target, the exit criterion the founder said it answers (the gate card's
    * "Answer" / "Report what you found", sent by the composer). NULL or absent
-   * means no mark. `resolveTarget` is the only reader.
+   * means no target. `resolveTarget` is the only reader.
    */
   targetCriterionId?: string | null;
   /**

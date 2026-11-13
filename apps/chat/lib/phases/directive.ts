@@ -284,9 +284,9 @@ export type PhaseDirectiveInput = {
   /** Every phase is passed. `phase` is then the last one. */
   workflowComplete: boolean;
   /**
-   * The exit criterion the founder marked their latest message as answering,
+   * The criterion target of the founder's latest message (CONTEXT.md),
    * already resolved against `phase` by the caller. Absent when nothing was
-   * marked or the mark did not name a criterion of this phase.
+   * targeted or the target did not name a criterion of this phase.
    */
   target?: DirectiveTarget | null;
 };
@@ -368,18 +368,18 @@ const FIELDWORK_INSTRUCTION =
   "WHAT IS LEFT CANNOT BE ANSWERED FROM MEMORY. Every criterion still open needs field data that does not exist yet, so do NOT ask the founder to score, estimate, guess or 'ballpark' any of it, and do not accept a number they produce on the spot — a figure invented to clear this gate is the exact fabrication this phase exists to prevent, and you would be the one who asked for it. Help them build the instrument instead: the recruiting plan, the sample size, the questions asked verbatim, and the pass/fail threshold committed to BEFORE any data arrives. Treat a defined protocol with a pre-registered threshold as real progress and say so — it is not a pass, and you must still not advance the phase, but it is the work that makes a pass possible.";
 
 /**
- * THE FOUNDER'S MARK IS INTENT, NOT EVIDENCE.
+ * A CRITERION TARGET IS INTENT, NOT EVIDENCE.
  *
  * A founder can tag a message as answering one exit criterion. That tells the
  * interviewer what the message is FOR; it does not make the message adequate.
- * Read as "the founder says this closes it", the mark would be a one-click way
+ * Read as "the founder says this closes it", the target would be a one-click way
  * to talk the interviewer into treating a criterion as settled.
  *
- * THIS PARAGRAPH ADDS ONLY WHAT THE MARK CHANGES, and leaves everything else to
+ * THIS PARAGRAPH ADDS ONLY WHAT THE TARGET CHANGES, and leaves everything else to
  * the text around it. How to acknowledge what a message establishes is already
  * said by the BLOCK paragraph and by `askLine`; restating that rule here, or
  * contradicting it, gives the model two instructions to choose between. What
- * the mark adds is narrow: it is not evidence, it does not mean the message
+ * the target adds is narrow: it is not evidence, it does not mean the message
  * answers the criterion, and only the gate decides whether a criterion is met.
  * That last part matters beyond tone — the judge (`lib/phases/gate.ts`) quotes
  * transcript text, assistant turns included, as evidence, so an interviewer
@@ -388,7 +388,7 @@ const FIELDWORK_INSTRUCTION =
  *
  * IT SETS NO QUESTION. The one question of the turn comes from `askLine`, which
  * may not be swapped for an easier one. A paragraph that said "ask about the
- * marked criterion" would let a founder mark an easy criterion and pull the
+ * targeted criterion" would let a founder target an easy criterion and pull the
  * interviewer off the blocking question — the gate's leverage, given away by
  * a chip.
  *
@@ -399,7 +399,7 @@ const FIELDWORK_INSTRUCTION =
  * criterion it counted as met is not reopened by the founder pointing at it.)
  *
  * An OFFLINE-ONLY criterion still open gets Incident 2's rule restated at the
- * point of use. Marking a message "this is my willingness-to-pay evidence" is
+ * point of use. Targeting a message as "my willingness-to-pay evidence" is
  * exactly where a founder is likeliest to type a number to clear the gate, and
  * the interviewer must not accept one produced on the spot.
  *

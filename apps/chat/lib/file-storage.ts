@@ -176,17 +176,34 @@ export function storageSupportsRange(): boolean {
   return getFiles().capabilities.rangeRead;
 }
 
+/**
+ * Whether the provider options declare the store public in so many words
+ * (`access: "public"`). Widened to a record because the generated
+ * `lib/storage-provider.ts` types its options per provider, and most
+ * providers have no `access` option at all.
+ */
+function isStoreExplicitlyPublic(): boolean {
+  const options: Record<string, unknown> = storageProvider.options;
+  return options.access === "public";
+}
+
+/**
+ * A provider link to redirect a read to, or null to stream the file through
+ * this app. Null unless the store is explicitly public.
+ */
 export async function getFileProviderUrl(key: string): Promise<string | null> {
-  // A private store is read only through this app's own credentials, so that
-  // `lib/file-content-response.ts::createFileContentResponse` stays the only
-  // way in (README-DEV.md, "File storage"). files-sdk 2.x never signed URLs
-  // for a private Vercel Blob; 3.x does (`signedUrl.supported` is true), which
-  // would turn every read into a 307 to a bearer link that works without the
-  // access check until it expires. Never hand one out for a private store.
-  if (
-    "access" in storageProvider.options &&
-    storageProvider.options.access === "private"
-  ) {
+  // Every read of a stored file goes through
+  // `lib/file-content-response.ts::createFileContentResponse`, which asks
+  // `lib/file-access.ts::canReadStoredFile` first (README-DEV.md, "File
+  // storage"). A provider link answers whoever holds it: a presigned URL (S3,
+  // GCS, Azure, R2 and the other S3-compatible stores, and a private Vercel
+  // Blob since files-sdk 3) is a bearer link that works without that check
+  // until it expires, and a 307 hands it to the browser, which can pass it on.
+  // So a read is redirected only when the provider options say
+  // `access: "public"`: such a store already serves every key to anyone, and
+  // its link gives away nothing more. Any other store, including one that
+  // leaves `access` unset or has no such option, is streamed through the app.
+  if (!isStoreExplicitlyPublic()) {
     return null;
   }
   const fileService = getFiles();

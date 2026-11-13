@@ -136,6 +136,36 @@ query's 60-second `staleTime`, a change made in another tab or device shows in t
 **Clearing condition:** the switches are seen disagreeing with the saved state, or the page writes its server read into
 the cache when it is newer than the cached copy.
 
+### SWEEP-F16 — A model toggle cancels an in-flight preferences fetch, including a refresh the user started
+**Raised:** 2026-11-13, `fix/next-16-4-render-errors-261112`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`components/settings/models-table.tsx::ModelsTable` awaits `cancelQueries` on the shared `getModelPreferences` key before its optimistic write (the documented TanStack pattern). A refresh the user clicked just before toggling, or the hydrated first fetch `ChatModelsProvider` waits on, is cancelled; the post-settle refetch restores the data, with no message about the dropped refresh.
+**Clearing condition:** a lost refresh is seen, or the toggle stops cancelling fetches it did not start.
+
+### SWEEP-F17 — The lint rule for the request-time barrier misses several ways to bypass it
+**Raised:** 2026-11-13, `fix/next-16-4-render-errors-261112`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`apps/chat/biome.jsonc` restricts `getQueryClient` from `trpc/server` outside `lib/request-session.ts` and the (chat) layout. It cannot see a new `getQueryClient()` inside the allowed layout, `getRequestQueryClient()` placed inside a `Promise.all`, or a server component reaching tRPC through the exported `trpc` proxy or `HydrateClient`; any of these can bring back `blocking-prerender-current-time`.
+**Clearing condition:** a structural check (ast-grep in `verify`) covers these, or the tRPC context gets a barrier that does not loop the dev server.
+
+### SWEEP-F18 — Each request looks the session up twice
+**Raised:** 2026-11-13, `fix/next-16-4-render-errors-261112`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`lib/request-session.ts::getRequestSession` and `trpc/init.ts::createTRPCContext` each call better-auth's `getSession`; with a stale cookie cache that is two session reads per (chat) render. Both ways of sharing one lookup made the Next 16.4.5 dev server reload pages in a loop (`.planning/codebase/CONCERNS.md`).
+**Clearing condition:** a shared lookup is found that loads each page once on a clean dev restart.
+
+### SWEEP-F19 — Pages that only need the session also load the tRPC router
+**Raised:** 2026-11-13, `fix/next-16-4-render-errors-261112`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`lib/request-session.ts` imports `getQueryClient` from `@/trpc/server` for `getRequestQueryClient`, so the login, device-login and project screens pull the router graph into their server bundles. Its two other homes looped the dev server (71 and 51 reloads of `/`).
+**Clearing condition:** a home for `getRequestQueryClient` outside this module loads each page once on a clean dev restart.
+
+### SWEEP-F20 — The models page passes the request-time barrier twice
+**Raised:** 2026-11-13, `fix/next-16-4-render-errors-261112`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`app/(chat)/settings/models/page.tsx::readInitialPreferences` awaits `getRequestSession()` (to skip the protected read for signed-out visitors) and then `getRequestQueryClient()`, so `connection()` is awaited twice. Harmless (it is idempotent); a simplification only.
+**Clearing condition:** the page is next edited.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

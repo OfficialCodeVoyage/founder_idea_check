@@ -54,7 +54,7 @@ the map.
 | `UserCredit` | One balance per user, in cents | Default 50, which is $0.50. `canSpend` is `credits > 0`; a turn in flight may take it slightly negative. |
 | `UserModelPreference` | Which models a user turned on | |
 | `Project` | One idea a founder is validating | Owns facts, phases, tasks, personas and simulation data; all of those cascade on delete. |
-| `Chat`, `Message`, `Vote` | Conversations | `Chat.projectId` is `ON DELETE SET NULL`: deleting a project keeps its chats. |
+| `Chat`, `Message`, `Vote` | Conversations | `Chat.projectId` is `ON DELETE SET NULL`: deleting a project keeps its chats. `Message.targetCriterionId` is a user message's criterion target (the exit criterion the founder said it answers), or NULL; it is a claim about intent, not a foreign key, and is not tied to a phase. |
 | `Part` | One row per message part | Typed, prefix-named columns (`text_*`, `tool_*`, `data_*`, ...) instead of a JSON blob. Seven CHECK constraints (below). |
 | `Document`, `Suggestion` | Artifacts the assistant writes, and edit suggestions | Versioned: the primary key is `(id, createdAt)`, so every save is a new row. Persona documents are `kind = 'persona'` with a `projectId`. |
 | `McpConnector`, `McpOAuthSession` | MCP connector settings | Inherited from ChatJS. Connectors are disabled in `chat.config.ts`; the tables remain. |
@@ -104,12 +104,13 @@ The width is a schema decision: changing it is a migration plus a full re-embed 
 
 ## CHECK constraints
 
-Thirteen CHECK constraints are declared in `schema.ts`. Each one makes a state that would mislead a reader
+Fourteen CHECK constraints are declared in `schema.ts`. Each one makes a state that would mislead a reader
 unstorable instead of merely discouraged.
 
 | Constraint | Table | Refuses |
 |---|---|---|
 | `Part_text_required_if_type_text`, `Part_reasoning_required_if_type_reasoning`, `Part_file_required_if_type_file`, `Part_source_url_required_if_type_source_url`, `Part_source_document_required_if_type_source_document`, `Part_tool_required_if_type_tool`, `Part_data_required_if_type_data` | `Part` | A part whose type needs fields it does not have: a text part with no text, a tool part with no `toolCallId` or `state`, a file part with no URL. |
+| `Message_target_criterion_shape` | `Message` | A criterion target that is not a criterion-id-shaped string (`^[a-z0-9-]{1,64}$`, `lib/ai/types.ts::TARGET_CRITERION_ID_PATTERN`). Every write through `lib/message-conversion.ts::chatMessageToDbMessage` already stores such a value as NULL, so a spoofed target is dropped rather than failing the save; this stops any writer that skips that mapping from storing text the message bubble and the prompt would replay. The prompt reads the target from this column, never from the request. |
 | `ProjectFact_confidence_range` | `ProjectFact` | A confidence outside 0 to 100. |
 | `ProjectFact_embedding_labelled` | `ProjectFact` | An embedding without its model and width, or labels without an embedding. |
 | `ProjectFact_origin_coherent` | `ProjectFact` | A founder-asserted fact with no correction time, or an extracted fact that has one. |
@@ -136,7 +137,7 @@ Rules that have each cost someone time:
 
 - **A migration that needs something drizzle-kit never emits is hand-written, and says so in its header.**
   `0046` creates the `vector` extension. `0048` backfills the ledger from existing phase rows. `0051` adds the seven
-  `Part` constraints. `0052` and `0053` are written to be re-runnable (`ADD COLUMN IF NOT EXISTS`, guarded
+  `Part` constraints. `0052`, `0053` and `0054` are written to be re-runnable (`ADD COLUMN IF NOT EXISTS`, guarded
   `ADD CONSTRAINT` in `DO` blocks) so they also run on a database that `push` already changed.
 - **Split a rename-looking change into two migrations.** One diff that drops one table and creates a similar one
   makes drizzle-kit ask whether it was a rename, which needs a terminal and, answered wrongly, carries the dead
@@ -161,7 +162,7 @@ DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/replay bun run db:migr
 
 Use the pgvector image: plain `postgres` fails at migration `0046`. A value already in the environment wins over
 `.env.local`, so the throwaway `DATABASE_URL` is the one used. Then check the result against the schema: the
-number of CHECK constraints should match the number declared in `schema.ts` (13 today),
+number of CHECK constraints should match the number declared in `schema.ts` (14 today),
 
 ```sql
 SELECT count(*) FROM pg_constraint WHERE contype = 'c' AND connamespace = 'public'::regnamespace;

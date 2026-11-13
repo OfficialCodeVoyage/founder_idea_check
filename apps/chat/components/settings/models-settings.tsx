@@ -13,7 +13,7 @@ import { SettingsPageContent, SettingsPageScrollArea } from "./settings-page";
 export function ModelsSettings({
   initialPreferences,
 }: {
-  initialPreferences: UserModelPreference[];
+  initialPreferences: UserModelPreference[] | null;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();

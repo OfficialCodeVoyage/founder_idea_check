@@ -8,10 +8,12 @@ import { Switch } from "../ui/switch";
 export const ModelRow = memo(function PureModelRow({
   model,
   isEnabled,
+  isPending,
   onToggle,
 }: {
   model: { id: string; name: string; reasoning?: boolean };
   isEnabled: boolean;
+  isPending: boolean;
   onToggle: (modelId: string, isEnabled: boolean) => void;
 }) {
   const ReasoningIcon = AVAILABLE_FEATURES.reasoning.icon;
@@ -36,6 +38,7 @@ export const ModelRow = memo(function PureModelRow({
       <TableCell className="py-2.5 pr-0">
         <Switch
           checked={isEnabled}
+          disabled={isPending}
           onCheckedChange={() => onToggle(model.id, isEnabled)}
         />
       </TableCell>

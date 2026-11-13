@@ -1,4 +1,3 @@
-import { connection } from "next/server";
 import { Suspense } from "react";
 import { McpDetailsPage } from "@/components/settings/mcp-details-page";
 import {
@@ -6,7 +5,7 @@ import {
   SettingsPageHeader,
 } from "@/components/settings/settings-page";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getQueryClient, HydrateClient, trpc } from "@/trpc/server";
+import { getRequestQueryClient, HydrateClient, trpc } from "@/trpc/server";
 
 function ConnectorDetailsHeader() {
   return (
@@ -55,11 +54,7 @@ async function ConnectorDetailsContent({
   params: Promise<{ connectorId: string }>;
 }) {
   const { connectorId } = await params;
-  // Before the prefetch: its tRPC context looks the session up without a
-  // barrier, and this page renders alongside the layouts that have one
-  // (`lib/request-session.ts`, `trpc/init.ts::createTRPCContext`).
-  await connection();
-  const queryClient = getQueryClient();
+  const queryClient = await getRequestQueryClient();
   await queryClient.prefetchQuery(trpc.mcp.list.queryOptions());
   return (
     <HydrateClient>

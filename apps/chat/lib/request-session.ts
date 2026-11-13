@@ -30,9 +30,9 @@ import { auth } from "@/lib/auth";
  * restarts, checked by hand): `connection()` inside the tRPC context reloaded
  * `/` about 25 times in a row, and having the context share a `cache()`d
  * lookup with this helper reloaded it 435 times before the test stopped it.
- * So every Server Component that calls server-side tRPC awaits `connection()`
- * itself before the call: the (chat) layout before its prefetches, and the
- * models, connectors, connector-details and shared-chat pages before theirs.
+ * So every Server Component that calls server-side tRPC passes the barrier
+ * itself before the call: the (chat) layout through this helper before its
+ * prefetches, and each page through `trpc/server.tsx::getRequestQueryClient`.
  */
 export const getRequestSession = cache(async () => {
   await connection();

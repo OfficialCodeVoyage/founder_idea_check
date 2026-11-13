@@ -1,6 +1,6 @@
 "use client";
 
-import { DefaultChatTransport, isToolUIPart } from "ai";
+import { DefaultChatTransport } from "ai";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useSaveMessageMutation } from "@/hooks/chat-sync-hooks";
@@ -19,37 +19,6 @@ import { useSession } from "@/providers/session-provider";
 
 function isResumableActiveStreamId(activeStreamId: string | null | undefined) {
   return !!(activeStreamId && !activeStreamId.startsWith("pending:"));
-}
-
-type ChatPart = ChatMessage["parts"][number];
-
-/** Whether `part` holds nothing `stored` lacks: the same part, text grown no further, or a tool call at no later state. */
-function isCarriedBy(part: ChatPart, stored: ChatPart | undefined) {
-  if (!stored || part.type !== stored.type) {
-    return false;
-  }
-  if (
-    (part.type === "text" || part.type === "reasoning") &&
-    (stored.type === "text" || stored.type === "reasoning")
-  ) {
-    return stored.text.startsWith(part.text);
-  }
-  if (isToolUIPart(part) && isToolUIPart(stored)) {
-    return (
-      part.toolCallId === stored.toolCallId &&
-      (part.state === stored.state || part.state === "input-streaming")
-    );
-  }
-  return JSON.stringify(part) === JSON.stringify(stored);
-}
-
-function holdsNothingBeyond(finished: ChatMessage, stored: ChatMessage) {
-  return (
-    finished.parts.length <= stored.parts.length &&
-    finished.parts.every((part, index) =>
-      isCarriedBy(part, stored.parts[index])
-    )
-  );
 }
 
 export function ChatSync({ id }: { id: string }) {
@@ -74,8 +43,9 @@ export function ChatSync({ id }: { id: string }) {
       ? `${lastMessage.id}:${activeStreamId}`
       : null;
 
-  // The reply a resume started from, for `onFinish` to compare with what it rebuilt.
-  const resumedFromRef = useRef<ChatMessage | undefined>(undefined);
+  // The reply each running resume started from, by message id, for `onFinish`.
+  // An entry belongs to one resume and goes when that resume settles.
+  const resumedRepliesRef = useRef(new Map<string, { reply: ChatMessage }>());
   // `onFinish` is built before `useChat` returns `setMessages`, so it reads it here.
   const setMessagesRef = useRef<UseChatHelpers<ChatMessage>["setMessages"]>(
     () => undefined
@@ -96,8 +66,6 @@ export function ChatSync({ id }: { id: string }) {
       isDisconnect,
       isError,
     }) => {
-      const resumedFrom = resumedFromRef.current;
-      resumedFromRef.current = undefined;
       // A RESUME THAT STREAMED NOTHING HANDS BACK A MESSAGE THAT DOES NOT EXIST.
       // Since ai 6.0.323 a resumed stream is rebuilt from empty state under
       // `generateId()`, not seeded with the last message. The one-shot stream
@@ -126,19 +94,18 @@ export function ChatSync({ id }: { id: string }) {
         return;
       }
 
-      // A RESUME THAT ENDS EARLY MUST NOT SHRINK THE STORED REPLY. The replay
-      // rebuilds the message from empty state (the SDK no longer seeds it with the
-      // stored parts), so a Stop, an error or a dropped fetch before the buffered
-      // chunks have rebuilt it finishes with a message that is empty or cut short,
-      // under the real id, and the chat already holds that copy. When the finished
-      // message adds nothing to the reply the resume started from, that reply stays
-      // the message of record: put it back in the chat and do not record the
-      // short copy.
+      // A RESUME THAT ENDS EARLY NEVER RECORDS ITS OWN COPY. The replay rebuilds
+      // the message from empty state (the SDK no longer seeds it with the stored
+      // parts), so a Stop, an error or a dropped fetch before the buffered chunks
+      // have rebuilt it finishes with a message that is empty or cut short under
+      // the real id, and the chat already holds that copy. Telling a short copy
+      // from a complete one is not reliable (parts loaded from the database differ
+      // in shape from streamed ones), so none is recorded: the reply the resume
+      // started from goes back into the chat and the server's own save of the
+      // generation wins later. A Stop below still marks that reply as stopped.
+      const resumedFrom = resumedRepliesRef.current.get(finished.id)?.reply;
       const stored =
-        resumedFrom &&
-        resumedFrom.id === finished.id &&
-        (isAbort || isDisconnect || isError) &&
-        holdsNothingBeyond(finished, resumedFrom)
+        resumedFrom && (isAbort || isDisconnect || isError)
           ? resumedFrom
           : undefined;
       if (stored && !isAbort) {
@@ -252,8 +219,20 @@ export function ChatSync({ id }: { id: string }) {
       return;
     }
     resumedKeyRef.current = resumeKey;
-    resumedFromRef.current = lastMessageRef.current;
-    resumeStream();
+    const reply = lastMessageRef.current;
+    if (!reply) {
+      return;
+    }
+    // One entry per resume: it is dropped when this resume settles, whether it
+    // streamed, found no stream (204) or failed, and a newer resume of the same
+    // message that replaced it keeps its own.
+    const entry = { reply };
+    resumedRepliesRef.current.set(reply.id, entry);
+    resumeStream().finally(() => {
+      if (resumedRepliesRef.current.get(reply.id) === entry) {
+        resumedRepliesRef.current.delete(reply.id);
+      }
+    });
   }, [resumeKey, resumeStream]);
 
   useCompleteDataPart();

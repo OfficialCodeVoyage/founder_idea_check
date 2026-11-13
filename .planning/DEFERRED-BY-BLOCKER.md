@@ -236,6 +236,12 @@ For an offline-only criterion target, `lib/phases/directive.ts::targetLines` and
 `components/phase/gate-verdict-card.tsx::useCriterionActions` subscribes `ChecklistBody` to the last message id and the chat status, which it needs only at click time, and returns a new actions object each render, so each send step re-renders the 8 to 10 rows.
 **Clearing condition:** a measured slowdown, or the handler reads the last message id from the store at click time and the actions are memoised.
 
+### SWEEP-F31 — The registry's retrieve-url item calls the Firecrawl v1 API on an unpinned dependency
+**Raised:** 2026-11-14, `fix/firecrawl-js-4-261114`, while upgrading `@mendable/firecrawl-js` to 4.
+**Status:** OPEN (low, pre-existing)
+`packages/registry/items/retrieve-url.json` embeds a tool that default-imports the client and calls `scrapeUrl` and `extract`, and it declares `@mendable/firecrawl-js` without a version. The current release's default export is the v2 client, which has neither method, so a project scaffolded with that item breaks however this repo's own pin moves. The tool's source file is no longer in the repo, so the item cannot be rebuilt from it.
+**Clearing condition:** the item is rewritten against the v2 client (`scrape`) with a pinned major, or removed from the registry.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

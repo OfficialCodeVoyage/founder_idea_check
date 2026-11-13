@@ -1,17 +1,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# PYTHON 3.11, AND THE REASON IS OASIS. DO NOT BUMP THIS CASUALLY.
+# PYTHON 3.11, THE VERSION THIS IMAGE IS TESTED ON. DO NOT BUMP THIS CASUALLY.
 #
-# `camel-ai/oasis` @ 40bf1705 declares, in its own pyproject.toml line 25:
+# It was pinned for OASIS, whose camel-oasis 0.2.5 declared
+# `python = ">=3.10.0,<3.12"`. camel-oasis 0.2.6 and camel-ai 0.2.90 now declare
+# `>=3.10,<3.15` (PyPI metadata, read 2026-11-13), so OASIS no longer forces
+# <3.12; 3.11 stays because it is what is tested, and loosening it is a separate
+# change. Everything else here runs on 3.13 happily. See `pyproject.toml`.
 #
-#     python = ">=3.10.0,<3.12"
-#
-# That is a hard upper bound on 3.12, not a preference, and it is the binding
-# constraint on this entire image. Everything else here runs on 3.13 happily.
-# 3.11 is chosen over 3.10 because it is the newest version inside OASIS's
-# window, so the pin buys the most runtime and stdlib improvement available
-# without leaving the range.
-#
-# Changing this later is expensive: OASIS's dependency table is exact-pinned
+# Changing this later is not free: OASIS's dependency table is still exact-pinned
 # (camel-ai==0.2.90, sentence-transformers==3.0.0, igraph==0.11.6) with no
 # extras mechanism, so a Python bump means resolving that whole tree again.
 #

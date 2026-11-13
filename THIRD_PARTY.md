@@ -68,7 +68,7 @@ its own.
 | Image | Licence | Role | Notes |
 |---|---|---|---|
 | `pgvector/pgvector:pg17` | PostgreSQL licence (PostgreSQL and the pgvector extension) | The default database (`docker-compose.yml`) | |
-| `valkey/valkey:8.1.11-alpine3.24` | BSD-3-Clause | The default cache and resumable-stream store (`docker-compose.yml`) | Replaced `redis:7-alpine`. That tag moves, and it now resolves to Redis 7.4.12; Redis has been source-available (RSALv2 / SSPLv1) rather than open source since 7.4. Valkey speaks the same protocol. The exact tag was the newest 8.x on Docker Hub on 2026-11-12. |
+| `valkey/valkey:9.1.3-alpine3.24` | BSD-3-Clause | The default cache and resumable-stream store (`docker-compose.yml`) | Replaced `redis:7-alpine`. That tag moves, and it now resolves to Redis 7.4.12; Redis has been source-available (RSALv2 / SSPLv1) rather than open source since 7.4. Valkey speaks the same protocol. The exact tag was the newest stable 9.x on Docker Hub on 2026-11-12 (9.2 was still a release candidate). |
 | `searxng/searxng:latest` | AGPL-3.0 (source files: AGPL-3.0-or-later) | **Opt-in** web search for the research sidecar (`docker-compose.searxng.yml`) | Not started by the default stack. This repository contains only a configuration file for it, `docker/searxng/settings.yml`, and never patches the image. If you modify SearXNG or run it for other people, read AGPL-3.0 section 13 first. |
 | The research sidecar, built from `apps/research` | Apache-2.0 plus its dependencies | The default stack builds it locally | The `simulation` build target also installs `igraph` (GPL-2.0-or-later). No simulation image is published; see `THIRD_PARTY-research.md`. |
 

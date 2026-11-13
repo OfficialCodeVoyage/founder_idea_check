@@ -101,7 +101,7 @@ A FastAPI service the app reaches only over HTTP; it owns every call to a demand
   configured by `docker/searxng/settings.yml` (JSON output on, limiter off). Compose variable: `SEARXNG_SECRET`.
 
 **Simulation (`apps/research/app/simulation/oasis_runner.py`):**
-- OASIS (`camel-oasis` 0.2.5, extra `simulation`) drives the model through CAMEL's OpenAI platform; the agent graph is in-memory igraph
+- OASIS (`camel-oasis` 0.2.6, extra `simulation`) drives the model through CAMEL's OpenAI platform; the agent graph is in-memory igraph
   and each run writes a SQLite `simulation.db` (`OASIS_DB_PATH`). No graph database.
 - Provider: OpenAI chat completions, or any OpenAI-compatible gateway at `RESEARCH_SIM_BASE_URL`. The model id is checked with
   `GET {base}/models/{id}` before a run.
@@ -132,7 +132,7 @@ A FastAPI service the app reaches only over HTTP; it owns every call to a demand
 - The export is never written on the server: the app returns a plan and the browser downloads files (`apps/chat/lib/export/handoff.ts`).
 
 **Caching:**
-- Valkey 8.1 (protocol-compatible with Redis; container `ic-redis`, host port 6380 on loopback), client `redis` 5.x.
+- Valkey 9.1 (protocol-compatible with Redis; container `ic-redis`, host port 6380 on loopback), client `redis` 5.x.
   - Connection: `REDIS_URL` (optional)
   - Uses: resumable chat streams (`resumable-stream`, key prefix `ideacheck:resumable-stream`, `apps/chat/app/(chat)/api/chat/route.ts`)
     and anonymous-visitor rate-limit counters (`apps/chat/lib/utils/rate-limit.ts`).

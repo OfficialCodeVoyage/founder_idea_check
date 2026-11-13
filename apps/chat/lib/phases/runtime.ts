@@ -48,6 +48,7 @@ import {
   createModelFactExtractor,
   createModelGateJudge,
 } from "./model-adapters";
+import { isTargetCriterionId } from "./target-criterion";
 import type { GateVerdict, PhaseDefinition, TranscriptTurn } from "./types";
 
 const log = createModuleLogger("phases:runtime");
@@ -277,17 +278,14 @@ function toStoredFacts(
   }));
 }
 
-/** Longest criterion id the client may name; matches `CRITERION_ID_PATTERN`'s ceiling. */
-const MAX_TARGET_ID_LENGTH = 64;
-const TARGET_ID_SHAPE = /^[a-z0-9-]+$/;
-
 /**
  * THE ONE PLACE A CLIENT'S "THIS MESSAGE ANSWERS CRITERION X" IS READ.
  *
  * `raw` comes from the request's message metadata, so it is whatever a client
  * chose to send: any type, any length, any text. It is never interpolated. It
- * is only ever COMPARED, after a cheap shape check, against the ids of the exit
- * criteria of `phase` — the phase this turn resolved as current — and what the
+ * is only ever COMPARED, after the shared shape check
+ * (`lib/phases/target-criterion.ts::isTargetCriterionId`), against the ids of
+ * the exit criteria of `phase` — the phase this turn resolved as current — and what the
  * prompt receives is that criterion's own definition text.
  *
  * Fails closed to "no target": a non-string, an oversized or odd-shaped string,
@@ -300,11 +298,7 @@ function resolveTarget(
   phase: PhaseDefinition,
   raw: unknown
 ): DirectiveTarget | null {
-  if (
-    typeof raw !== "string" ||
-    raw.length > MAX_TARGET_ID_LENGTH ||
-    !TARGET_ID_SHAPE.test(raw)
-  ) {
+  if (!isTargetCriterionId(raw)) {
     return null;
   }
   const criterion = phase.exitCriteria.find((c) => c.id === raw);
@@ -423,15 +417,20 @@ export async function buildPhaseSystemBlock({
     );
   }
 
+  const state = toPhaseGateState(row);
   const target = resolveTarget(phase, targetCriterionId);
   if (targetCriterionId !== undefined) {
-    // The outcome only, never the value: a dropped id is client text.
+    // The outcome only, never the value: a dropped id is client text. An
+    // accepted target renders only under a BLOCK or WARN verdict
+    // (`buildPhaseDirective`); before the first verdict and after a PASS it is
+    // valid but unused, and the log says so rather than claiming it was shown.
+    const shown = state?.decision === "BLOCK" || state?.decision === "WARN";
+    let outcome = "dropped";
+    if (target) {
+      outcome = shown ? "accepted" : "accepted-not-shown";
+    }
     log.debug(
-      {
-        projectId,
-        phaseKey: phase.key,
-        target: target ? "accepted" : "dropped",
-      },
+      { projectId, phaseKey: phase.key, target: outcome },
       "criterion target"
     );
   }
@@ -442,7 +441,7 @@ export async function buildPhaseSystemBlock({
     factBlock: block.text,
     directive: buildPhaseDirective({
       phase,
-      state: toPhaseGateState(row),
+      state,
       previousPhase: resolution.previousPhase,
       nextPhase: resolution.nextPhase,
       workflowComplete: resolution.workflowComplete,

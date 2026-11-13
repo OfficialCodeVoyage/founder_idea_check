@@ -17,7 +17,7 @@ Versions below are the ones resolved in `bun.lock` for the TypeScript side, and 
   `apps/research`. The upper bound is OASIS's own bound; see Pins below.
 
 **Secondary:**
-- SQL - hand-reviewed Drizzle migrations in `apps/chat/lib/db/migrations/` (files `0000` to `0053`, ordered by
+- SQL - hand-reviewed Drizzle migrations in `apps/chat/lib/db/migrations/` (files `0000` to `0054`, ordered by
   `apps/chat/lib/db/migrations/meta/_journal.json`, not by file number: there is no `0035` and two files are numbered `0036`).
 - Bash - `scripts/verify.sh`, `scripts/test-integrity.sh`, `apps/chat/scripts/dev-local.sh`, `apps/chat/scripts/with-db.sh`.
 - CSS (Tailwind 4) - `apps/chat/app/globals.css`.

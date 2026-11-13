@@ -124,6 +124,9 @@ const MAX_GAP_LENGTH = 300;
 const MAX_PROJECTED_LENGTH = 2000;
 /** Punctuation and space left dangling once a sentence is cut at a word. */
 const TRAILING_BREAK = /[\s,;:—-]+$/;
+
+/** A description's own full stop, dropped so it can sit inside parentheses. */
+const TRAILING_STOP = /[.\s]+$/;
 /**
  * Most gaps that reach the MODEL. `missing[0]` is the one that matters there.
  *
@@ -367,10 +370,20 @@ const FIELDWORK_INSTRUCTION =
  * A founder can tag a message as answering one exit criterion. That tells the
  * interviewer what the message is FOR; it does not make the message adequate.
  * Read as "the founder says this closes it", the mark would be a one-click way
- * to talk the interviewer into treating a criterion as settled — so the
- * paragraph asks for the honest delta (what the message establishes, what it
- * still lacks) and keeps the one-question rule. The gate itself never sees the
- * mark: the judge and the extractor read the transcript, not this prompt.
+ * to talk the interviewer into treating a criterion as settled.
+ *
+ * THE INTERVIEWER'S REPLY IS ITSELF EVIDENCE, which is why this paragraph does
+ * not ask it to assess the message. The gate never sees the mark, but the judge
+ * (`lib/phases/gate.ts`) quotes transcript text as evidence and the extractor
+ * (`lib/phases/extract.ts`) reads the assistant's reply, both of them assistant
+ * turns included. An earlier wording asked the interviewer to "say what the
+ * message establishes" for the criterion, which produced a quotable
+ * restatement of the founder's claim in the interviewer's own voice ("this
+ * establishes that early users would pay about $20") — the founder's
+ * assertion laundered into an assessment one turn later — and "do not re-ask
+ * what it answered" presumed it had answered something. So the interviewer
+ * restates nothing, never calls the criterion met, and names only what is
+ * still missing: a gap is safe to quote, a verdict is not.
  *
  * An OFFLINE-ONLY criterion gets Incident 2's rule restated at the point of
  * use. Marking a message "this is my willingness-to-pay evidence" is exactly
@@ -382,9 +395,6 @@ const FIELDWORK_INSTRUCTION =
  * a WARN with no stored question renders no ask line, and the paragraph must
  * not point at one that is not there.
  */
-/** A description's own full stop, dropped so it can sit inside parentheses. */
-const TRAILING_STOP = /[.\s]+$/;
-
 function targetLines(
   target: DirectiveTarget | null | undefined,
   questionFollows: boolean
@@ -398,12 +408,12 @@ function targetLines(
     : "otherwise the next thing this phase needs";
   const lines = [
     "",
-    `The founder marked their latest message as addressing the exit criterion "${target.title}" (${description}). Treat that as their intent, not as evidence: say in one sentence what the message establishes for that criterion and what it still lacks, and do not re-ask what it answered. Then ask one question: about this criterion if it is still short, ${fallback}.`,
+    `The founder marked their latest message as addressing the exit criterion "${target.title}" (${description}). That mark is their intent, not evidence, and it does not mean the message answers the criterion. Do not restate or summarise their claim as established, and never say this criterion is met; the gate decides that, not you. Name only what this criterion still needs that the message does not give. Then ask one question: about this criterion if anything is still missing, ${fallback}.`,
   ];
   if (target.closure === "offline-only") {
     lines.push(
       "",
-      "This criterion needs field data. Count only a report of fieldwork already done (who, how many, when, in their own words). If the message is an estimate, a score or an opinion, say plainly that it cannot count and help plan how to collect it; never ask for or accept a number produced on the spot."
+      "This criterion needs field data: only a report of fieldwork already done (who, how many, when, in their own words) can go toward it. If the message is an estimate, a score or an opinion, say plainly that it cannot count and help plan how to collect it; never ask for or accept a number produced on the spot."
     );
   }
   return lines;

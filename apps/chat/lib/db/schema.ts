@@ -128,20 +128,23 @@ export const message = pgTable(
     canceledAt: timestamp("canceledAt"),
     /**
      * The exit criterion the founder marked this user message as answering, as
-     * the client sent it and `normalizeChatMessage` (the chat route) let it
-     * through. NULL means no mark. It is a CLAIM about intent, not a link: it is
-     * not checked against a phase here, because the phase moves on and the mark
-     * must still read back as what the founder said at the time. Whether it names
-     * a criterion of the current phase is decided per turn, in
-     * `lib/phases/runtime.ts::buildPhaseSystemBlock`.
+     * the client sent it; NULL means no mark. Every write goes through
+     * `lib/message-conversion.ts::chatMessageToDbMessage`, whose
+     * `isTargetCriterionId` re-check stores anything else as NULL; the CHECK
+     * below is the backstop for a writer that skips it. It is a CLAIM about
+     * intent, not a link: it is not checked against a phase here, because the
+     * phase moves on and the mark must still read back as what the founder said
+     * at the time. Whether it names a criterion of the current phase is decided
+     * per turn, in `lib/phases/runtime.ts::buildPhaseSystemBlock`.
      */
     targetCriterionId: varchar("targetCriterionId", { length: 64 }),
   },
   (t) => ({
     /**
-     * The same shape the route accepts, so a row written by any other path
-     * (a script, a hand repair, a future writer that skips the route) cannot
-     * store text the bubble and the prompt would then replay.
+     * The shape `lib/phases/target-criterion.ts::isTargetCriterionId` accepts,
+     * so a row written by any path that skips `chatMessageToDbMessage` (a
+     * script, a hand repair, a future writer) cannot store text the bubble and
+     * the prompt would then replay.
      */
     target_criterion_shape_chk: check(
       "Message_target_criterion_shape",

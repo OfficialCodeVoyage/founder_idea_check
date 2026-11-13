@@ -1,5 +1,6 @@
 import type { ModelId } from "@/lib/ai/app-models";
 import type { Chat, DBMessage } from "@/lib/db/schema";
+import { isTargetCriterionId } from "@/lib/phases/target-criterion";
 import type { UIChat } from "@/lib/types/ui-chat";
 import {
   type ChatMessage,
@@ -19,18 +20,6 @@ export function dbChatToUIChat(chat: Chat): UIChat {
     isPinned: chat.isPinned,
     projectId: chat.projectId ?? null,
   };
-}
-
-/**
- * The shape a criterion mark must have to be stored on a message: what the chat
- * route keeps (`normalizeChatMessage`) and what the `Message_target_criterion_shape`
- * CHECK allows. One definition, so the route can never let through a value the
- * database would then refuse mid-save.
- */
-const TARGET_CRITERION_ID_SHAPE = /^[a-z0-9-]{1,64}$/;
-
-export function isTargetCriterionId(value: unknown): value is string {
-  return typeof value === "string" && TARGET_CRITERION_ID_SHAPE.test(value);
 }
 
 /**
@@ -87,9 +76,12 @@ export function chatMessageToDbMessage(
     createdAt = new Date();
   }
 
-  // Read as unknown and re-checked: this mapping also saves assistant turns
-  // and cloned chats, not only what the chat route already normalised, and a
-  // value the CHECK refuses would fail the whole save instead of losing a hint.
+  // THE GUARD ON EVERY WRITE of a criterion mark. Read as unknown and checked
+  // here, not trusted from upstream: this mapping saves whatever reaches it —
+  // the chat route's message, the prepare route's (which never passes through
+  // normalizeChatMessage), assistant turns and cloned chats. A value the
+  // Message_target_criterion_shape CHECK refuses would fail the whole save, so
+  // it is stored as NULL instead: losing the mark costs a hint.
   const target = (message.metadata as Record<string, unknown>)
     .targetCriterionId;
 

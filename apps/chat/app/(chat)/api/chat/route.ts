@@ -70,12 +70,12 @@ import type { McpConnector } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { MAX_INPUT_TOKENS } from "@/lib/limits/tokens";
 import { createModuleLogger } from "@/lib/logger";
-import { isTargetCriterionId } from "@/lib/message-conversion";
 import { runPostTurnPersonaPass } from "@/lib/personas/post-turn";
 import {
   buildPhaseSystemBlock,
   runPostTurnPhasePass,
 } from "@/lib/phases/runtime";
+import { isTargetCriterionId } from "@/lib/phases/target-criterion";
 import type { AnonymousSession } from "@/lib/types/anonymous";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { generateUUID } from "@/lib/utils";
@@ -455,8 +455,11 @@ async function getSystemPrompt({
       const phaseBlock = await buildPhaseSystemBlock({
         projectId: currentChat.projectId,
         latestUserMessage: messageText(userMessage),
-        // The client's "this message answers criterion X", passed through
-        // unread: buildPhaseSystemBlock is the one place that validates it.
+        // The client's "this message answers criterion X". Shape-filtered by
+        // normalizeChatMessage, but still typed unknown here:
+        // buildPhaseSystemBlock checks it again and resolves it against the
+        // current phase's exit criteria, and only it decides what reaches the
+        // prompt.
         targetCriterionId: (userMessage.metadata as Record<string, unknown>)
           .targetCriterionId,
         costAccumulator,
@@ -1825,12 +1828,14 @@ function normalizeChatMessage(value: unknown): ChatMessage | null {
       selectedModel: metadata.selectedModel,
     },
   };
-  // THE MARK IS SAVED WITH THE MESSAGE, so it is checked before it can be. The
-  // spread above copies whatever metadata the client sent; a non-string or
-  // oversized `targetCriterionId` would otherwise be persisted and replayed to
-  // the bubble. Dropped rather than refused: losing the mark costs a hint,
-  // refusing the turn would cost the founder their message. Whether the id
-  // names a criterion of the current phase is decided later, in
+  // AN EARLY FILTER, NOT THE SAVE GUARD. The spread above copies whatever
+  // metadata the client sent, so a non-string or oversized `targetCriterionId`
+  // is dropped here and this request's message never carries it into the
+  // prompt path. Dropped rather than refused: losing the mark costs a hint,
+  // refusing the turn would cost the founder their message. The guard on every
+  // write is `lib/message-conversion.ts::chatMessageToDbMessage`, which other
+  // routes reach without passing through here; whether the id names a
+  // criterion of the current phase is decided in
   // `lib/phases/runtime.ts::buildPhaseSystemBlock`.
   if (
     "targetCriterionId" in metadata &&

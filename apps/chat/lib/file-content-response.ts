@@ -84,6 +84,9 @@ export async function createFileContentResponse(
     const file = await downloadFile(key, range);
     const headers = new Headers({
       "Accept-Ranges": supportsRange ? "bytes" : "none",
+      // The body was allowed for this viewer only (`canReadStoredFile`); a
+      // shared cache must never replay it to someone the check would refuse.
+      "Cache-Control": "private, no-store",
       "Content-Length": String(file.size),
       "Content-Type": file.type || "application/octet-stream",
       "X-Content-Type-Options": "nosniff",

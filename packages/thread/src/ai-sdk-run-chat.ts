@@ -6,7 +6,6 @@ import {
 	type ChatStatus,
 	type ChatTransport,
 	type UIMessage,
-	type UIMessageChunk,
 } from "ai";
 
 export type ThreadRunSpec = {
@@ -37,41 +36,10 @@ export interface ThreadRunHost<TMessage extends UIMessage> {
 	writeRunMessage: (runId: string, message: TMessage) => void;
 }
 
-type MessagePart = UIMessage["parts"][number];
-
-/** Whether `resumed` is `stored` carried on: the same tool call, or the same text grown. */
-function continuesPart(stored: MessagePart, resumed: MessagePart) {
-	if (stored.type !== resumed.type) return false;
-	if ("toolCallId" in stored && "toolCallId" in resumed) {
-		return stored.toolCallId === resumed.toolCallId;
-	}
-	if (
-		(stored.type === "text" || stored.type === "reasoning") &&
-		(resumed.type === "text" || resumed.type === "reasoning")
-	) {
-		return resumed.text.startsWith(stored.text);
-	}
-	return JSON.stringify(stored) === JSON.stringify(resumed);
-}
-
-function includesParts(resumed: MessagePart[], stored: MessagePart[]) {
-	return (
-		resumed.length >= stored.length &&
-		stored.every((part, index) => {
-			const carried = resumed[index];
-			return carried !== undefined && continuesPart(part, carried);
-		})
-	);
-}
-
 class ThreadRunState<TMessage extends UIMessage>
 	implements ChatState<TMessage>
 {
 	#error: Error | undefined;
-	/** The stored response a resume must extend, and whether `ai` already seeded it. */
-	#extension: { base: TMessage; seeded: boolean | undefined } | undefined;
-	/** What the host was last told, kept while `ai`'s own writes are not passed on. */
-	#held: { error: Error | undefined; status: ChatStatus } | undefined;
 	readonly #host: ThreadRunHost<TMessage>;
 	#messages: TMessage[];
 	readonly #spec: ThreadRunSpec;
@@ -89,7 +57,7 @@ class ThreadRunState<TMessage extends UIMessage>
 
 	set error(error: Error | undefined) {
 		this.#error = error;
-		if (!this.#held) this.#host.setRunError(this.#spec.id, error);
+		this.#host.setRunError(this.#spec.id, error);
 	}
 
 	get messages() {
@@ -107,32 +75,7 @@ class ThreadRunState<TMessage extends UIMessage>
 
 	set status(status: ChatStatus) {
 		this.#status = status;
-		if (!this.#held) this.#host.setRunStatus(this.#spec.id, status);
-	}
-
-	/** Stop passing status and error to the host; it keeps what it was told last. */
-	hold() {
-		this.#held ??= { error: this.#error, status: this.#status };
-	}
-
-	/** Tell the host what the held run ended up with. */
-	release() {
-		if (!this.#held) return;
-		this.#held = undefined;
-		this.#host.setRunStatus(this.#spec.id, this.#status);
-		this.#host.setRunError(this.#spec.id, this.#error);
-	}
-
-	/** Forget what `ai` did while held: the host never saw it. */
-	restore() {
-		if (!this.#held) return;
-		({ error: this.#error, status: this.#status } = this.#held);
-		this.#held = undefined;
-	}
-
-	/** Extend `base` with what a resumed stream adds, or stop doing so for `undefined`. */
-	extendResponse(base: TMessage | undefined) {
-		this.#extension = base ? { base, seeded: undefined } : undefined;
+		this.#host.setRunStatus(this.#spec.id, status);
 	}
 
 	refreshPath() {
@@ -147,62 +90,31 @@ class ThreadRunState<TMessage extends UIMessage>
 	};
 
 	pushMessage = (message: TMessage) => {
-		const written = this.withExtension(message);
-		this.#messages.push(written);
-		this.writeMessage(written);
+		this.#messages.push(message);
+		this.writeMessage(message);
 	};
 
 	replaceMessage = (index: number, message: TMessage) => {
 		if (index !== this.#messages.length - 1) {
 			throw new Error("A thread run can only replace its current response");
 		}
-		const written = this.withExtension(message);
-		this.#messages[index] = written;
-		this.writeMessage(written);
+		this.#messages[index] = message;
+		this.writeMessage(message);
 	};
 
 	snapshot = <T>(thing: T): T => structuredClone(thing);
-
-	/**
-	 * `ai` rebuilds a resumed response from empty state, so a stream that carries
-	 * on from the stored message (a transport that is not a replay) would replace
-	 * it and drop every part streamed before the disconnect. Put the stored parts
-	 * back in front of the new ones. When `ai` seeded its state from the stored
-	 * message itself (a retained interrupted state, or a tool call still
-	 * streaming its input) the written message already carries them: decide that
-	 * once, on the first write, so a later write cannot flip it.
-	 */
-	private withExtension(message: TMessage): TMessage {
-		const extension = this.#extension;
-		if (!extension || message.id !== extension.base.id) return message;
-		extension.seeded ??= includesParts(message.parts, extension.base.parts);
-		if (extension.seeded) return message;
-		const { metadata: stored } = extension.base;
-		const resumed = message.metadata;
-		const metadata =
-			resumed === undefined
-				? stored
-				: typeof stored === "object" && typeof resumed === "object"
-					? { ...stored, ...resumed }
-					: resumed;
-		return {
-			...message,
-			metadata,
-			parts: [...extension.base.parts, ...message.parts],
-		};
-	}
 
 	private writeMessage(message: TMessage) {
 		this.#host.writeRunMessage(this.#spec.id, message);
 	}
 }
 
-type ResumeAttempt = { foundNoStream: boolean };
+/** One `resume()` call; it looks for a stream until the transport hands one over. */
+type ResumeAttempt = { lookingForStream: boolean };
 
 export class ThreadRunChat<
 	TMessage extends UIMessage,
 > extends AbstractChat<TMessage> {
-	readonly #replays: boolean;
 	readonly #resumes: { current: ResumeAttempt | undefined };
 	readonly #state: ThreadRunState<TMessage>;
 
@@ -214,28 +126,40 @@ export class ThreadRunChat<
 		};
 		const transport: ChatTransport<TMessage> = {
 			// `ai` calls this synchronously from `resumeStream`, so `resumes.current` is
-			// the attempt that asked. Once the answer is known the run either goes on
-			// to resume (`ai` reports it) or stays as it was; a superseded attempt
-			// (a newer `resume` replaced it) leaves the decision to the newer one.
+			// the attempt that asked.
+			//
+			// `ai` 6.0.323 builds a resumed response from empty state: it seeds it from
+			// the stored message only for a tool call still streaming its input, or
+			// from state it kept itself after a network disconnect of the same chat
+			// instance (never after a reload). A stream that merely continues the
+			// stored response would therefore replace it with the continuation, and a
+			// continuation chunk for a part opened before the disconnect would find no
+			// part. Only a replay, which rebuilds the whole response, is correct, so
+			// anything else that carries a stream is refused instead of attempted.
 			reconnectToStream: async (options) => {
 				const attempt = resumes.current;
-				let stream: ReadableStream<UIMessageChunk> | null;
-				try {
-					stream = await host.transport.reconnectToStream(options);
-				} catch (error) {
-					if (resumes.current === attempt) state.release();
-					throw error;
+				const stream = await host.transport.reconnectToStream(options);
+				if (!stream) {
+					return stream;
 				}
-				if (attempt && resumes.current === attempt) {
-					if (stream === null && !options.abortSignal?.aborted) {
-						attempt.foundNoStream = true;
-					} else {
-						state.release();
-					}
+				if (attempt) {
+					attempt.lookingForStream = false;
+				}
+				if (
+					host.transport.resumeStreamIsReplay !== true &&
+					!options.abortSignal?.aborted
+				) {
+					await stream.cancel().catch(() => undefined);
+					throw new Error(
+						"A run can only be resumed over a transport whose reconnectToStream replays the whole response (resumeStreamIsReplay: true): the AI SDK rebuilds a resumed response from empty state, so a stream that only continues the stored response would replace it.",
+					);
 				}
 				return stream;
 			},
-			resumeStreamIsReplay: host.transport.resumeStreamIsReplay,
+			// Read per resume, so a transport replaced on the thread applies to it.
+			get resumeStreamIsReplay() {
+				return host.transport.resumeStreamIsReplay;
+			},
 			sendMessages: (options) => {
 				return host.transport.sendMessages({
 					...options,
@@ -249,7 +173,9 @@ export class ThreadRunChat<
 		super({
 			dataPartSchemas: host.dataPartSchemas,
 			// `ai` builds a resumed response from empty state under this id, so a run
-			// rebuilt around an existing assistant must reuse that assistant's id.
+			// rebuilt around an existing assistant must reuse that assistant's id: a
+			// replay whose `start` chunk carries no id would otherwise bind the run to
+			// a second message.
 			generateId: () => spec.messageId ?? responseMessageId,
 			id: host.id,
 			messageMetadataSchema: host.messageMetadataSchema,
@@ -272,7 +198,6 @@ export class ThreadRunChat<
 			state,
 			transport,
 		});
-		this.#replays = host.transport.resumeStreamIsReplay === true;
 		this.#resumes = resumes;
 		this.#state = state;
 	}
@@ -282,37 +207,35 @@ export class ThreadRunChat<
 	}
 
 	/**
-	 * `resumeStream` with the two things `ai` 6.0.323 no longer does for a run
-	 * resumed from its stored message:
-	 *
-	 * - A resume that finds no stream ends in status "ready" with the run's error
-	 *   cleared. A failed run keeps its error until the caller clears it, so the
-	 *   host is told nothing while that is undecided and nothing at all when no
-	 *   stream turns up (it never sees "ready"), instead of seeing the error
-	 *   vanish and come back.
-	 * - A stream that carries on from the stored message (a transport that is not
-	 *   a replay) extends that message instead of replacing it.
+	 * `resumeStream`, which on `ai` 6.0.323 reports a resume that finds no stream
+	 * as status "ready" and so drops the run's error. A failed run keeps its error
+	 * until the caller clears it: `setStatus` ignores that report while this
+	 * attempt is still looking for a stream, so the host never sees the error
+	 * leave. The attempt is per call: a newer `resume` replaces it, and a
+	 * superseded one neither decides nor clears anything.
 	 */
 	async resume(options?: ChatRequestOptions) {
-		const attempt: ResumeAttempt = { foundNoStream: false };
+		const attempt: ResumeAttempt = { lookingForStream: true };
 		this.#resumes.current = attempt;
-		if (this.error) this.#state.hold();
-		const stored = this.lastMessage;
-		this.#state.extendResponse(
-			!this.#replays && stored?.role === "assistant"
-				? structuredClone(stored)
-				: undefined,
-		);
 		try {
 			await this.resumeStream(options);
 		} finally {
 			if (this.#resumes.current === attempt) {
 				this.#resumes.current = undefined;
-				this.#state.extendResponse(undefined);
-				if (attempt.foundNoStream) this.#state.restore();
-				else this.#state.release();
 			}
 		}
+	}
+
+	protected override setStatus(update: { error?: Error; status: ChatStatus }) {
+		if (
+			update.status === "ready" &&
+			this.status === "error" &&
+			this.error !== undefined &&
+			this.#resumes.current?.lookingForStream
+		) {
+			return;
+		}
+		super.setStatus(update);
 	}
 
 	start(options?: ChatRequestOptions) {

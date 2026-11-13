@@ -44,10 +44,17 @@ import { useTRPC } from "@/trpc/react";
  * stands for: a sibling switch or a store re-init replaces the AI SDK `Chat`,
  * and a fetch that stalls keeps its promise pending until reload. So each
  * flight records its `owner` — the `sendMessage` that made the send, whose
- * identity is per `Chat` instance — and `ChatSync`, which owns that instance,
- * releases the owner's flight when the instance is replaced or unmounted
- * (`releaseSendFlight`). A stalled send can then block only the instance it
- * was sent through, never the one that replaced it.
+ * identity is per `Chat` instance (`ai`'s `Chat` assigns it in its
+ * constructor) — and every read asks with the CURRENT instance's
+ * `sendMessage` (`useSendFlight`). A flight whose owner is not the current
+ * instance is ignored and dropped on that read, so a stalled send blocks only
+ * the instance it was sent through, never the one that replaced it.
+ *
+ * NOTHING IN `ChatSync` TAKES PART. An earlier version released the flight from
+ * an effect in `components/chat-sync.tsx`, importing this module there, and
+ * the dev app reloaded in a loop (bisected to that change alone). The owner
+ * check needs no help from the instance, so this module stays out of the chat
+ * runtime's import graph.
  */
 type SendFlight = { owner: unknown };
 
@@ -91,29 +98,44 @@ function trackSendFlight(
 }
 
 /**
- * Drop `chatId`'s flight if `owner` (a `Chat` instance's `sendMessage`) made
- * it. Called by `ChatSync` when that instance is replaced or unmounted; a
- * flight a newer instance has started since is left alone.
+ * Is a send `owner` made for `chatId` still in flight? A flight some other
+ * owner made belongs to a `Chat` instance that has since been replaced: it is
+ * dropped here, without notifying, because this runs inside a render-time
+ * snapshot read and every reader of the current instance already gets `false`
+ * from it.
  */
-export function releaseSendFlight(chatId: string, owner: unknown) {
-  if (sendFlights.get(chatId)?.owner === owner) {
-    sendFlights.delete(chatId);
-    notifyFlightListeners();
+function hasOwnFlight(chatId: string, owner: unknown): boolean {
+  const flight = sendFlights.get(chatId);
+  if (!flight) {
+    return false;
   }
+  if (flight.owner !== owner) {
+    sendFlights.delete(chatId);
+    return false;
+  }
+  return true;
 }
 
-/** Synchronous, for a click or key handler that must not send twice. */
-export function isSendInFlight(chatId: string): boolean {
-  return sendFlights.has(chatId);
-}
-
-/** Reactive, for a button that should look disabled while a send is in flight. */
-export function useSendInFlight(chatId: string): boolean {
-  return useSyncExternalStore(
+/**
+ * The current chat instance's send flight for `chatId`.
+ *
+ * `inFlight` is reactive, for a button that should look disabled while a send
+ * is in flight; `isInFlight()` is synchronous, for a click or key handler that
+ * must not send twice. Both ask with the `sendMessage` the store holds now,
+ * which is the current `Chat` instance's.
+ */
+export function useSendFlight(chatId: string) {
+  const { sendMessage } = useChatActions<ChatMessage>();
+  const inFlight = useSyncExternalStore(
     subscribeToFlights,
-    () => sendFlights.has(chatId),
+    () => hasOwnFlight(chatId, sendMessage),
     () => false
   );
+  const isInFlight = useCallback(
+    () => hasOwnFlight(chatId, sendMessage),
+    [chatId, sendMessage]
+  );
+  return { inFlight, isInFlight };
 }
 
 /**
@@ -131,8 +153,8 @@ export function useSendInFlight(chatId: string): boolean {
  * It starts a send flight (above) from the promise `sendMessage` returns, after
  * the call, so a send that throws leaves nothing locked. It does NOT refuse a
  * send itself: the composer clears its editor after calling this, and a silent
- * refusal would lose what the founder typed. Callers check `isSendInFlight`
- * first. A provisional chat (a project's first message) gets a flight too:
+ * refusal would lose what the founder typed. Callers check
+ * `useSendFlight(chatId).isInFlight()` first. A provisional chat (a project's first message) gets a flight too:
  * `startProvisionalChat` returns its send's promise. Without it two Enters
  * before the status mirror leaves `ready` sent the first message twice — two
  * user turns and two charged replies.

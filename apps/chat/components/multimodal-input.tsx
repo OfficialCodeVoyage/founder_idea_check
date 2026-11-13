@@ -43,8 +43,8 @@ import {
 import { processFilesForUpload } from "@/lib/files/upload-prep";
 import { humanizeCriterionId } from "@/lib/phases/rail";
 import {
-  isSendInFlight,
   useSendDraftChatSubmission,
+  useSendFlight,
 } from "@/lib/send-draft-chat-submission";
 import { useChatActions, useChatStoreApi } from "@/lib/stores/base";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
@@ -131,6 +131,7 @@ function PureMultimodalInput({
   const trpc = useTRPC();
   const isMobile = useIsMobile();
   const sendDraftChatSubmission = useSendDraftChatSubmission(chatId);
+  const { isInFlight: isSendInFlight } = useSendFlight(chatId);
   const { setMessages, stop: stopHelper } = useChatActions<ChatMessage>();
   const lastMessageId = useLastMessageId();
   const {
@@ -456,14 +457,14 @@ function PureMultimodalInput({
     // keeps what the founder typed in the editor. The message says what is
     // happening (a send is under way), not that the model is answering: in this
     // window nothing visibly is.
-    if (isSendInFlight(chatId)) {
+    if (isSendInFlight()) {
       toast.error(
         "Your last message is still being sent. Try again in a moment."
       );
       return;
     }
     handleSubmit(coreSubmitLogic, isEditMode);
-  }, [chatId, handleSubmit, coreSubmitLogic, isEditMode]);
+  }, [isSendInFlight, handleSubmit, coreSubmitLogic, isEditMode]);
 
   const uploadFile = useCallback(
     async (

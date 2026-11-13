@@ -31,9 +31,8 @@ import {
 } from "@/lib/phases/rail";
 import type { GateObstacle } from "@/lib/phases/types";
 import {
-  isSendInFlight,
   useSendDraftChatSubmission,
-  useSendInFlight,
+  useSendFlight,
 } from "@/lib/send-draft-chat-submission";
 import { useChatStatus } from "@/lib/stores/base";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
@@ -374,7 +373,8 @@ function useCriterionActions({
   const status = useChatStatus();
   const lastMessageId = useLastMessageId();
   const sendDraftChatSubmission = useSendDraftChatSubmission(chatId);
-  const sending = useSendInFlight(chatId);
+  const { inFlight: sending, isInFlight: isSendInFlight } =
+    useSendFlight(chatId);
   const isMobile = useIsMobile();
 
   const canSend = (status === "ready" || status === "error") && !sending;
@@ -392,7 +392,7 @@ function useCriterionActions({
       editorRef.current?.focus();
     },
     planFieldwork(row: GroupedChecklistRow) {
-      if (!canSend || isSendInFlight(chatId)) {
+      if (!canSend || isSendInFlight()) {
         return;
       }
       const { message, requestSpecs } = buildDraftChatSubmission({

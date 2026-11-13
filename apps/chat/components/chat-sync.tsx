@@ -7,7 +7,6 @@ import { useSaveMessageMutation } from "@/hooks/chat-sync-hooks";
 import { useCompleteDataPart } from "@/hooks/use-complete-data-part";
 import { getStreamErrorToastContent } from "@/lib/ai/stream-errors";
 import type { ChatMessage } from "@/lib/ai/types";
-import { releaseSendFlight } from "@/lib/send-draft-chat-submission";
 import { type UseChatHelpers, useChat } from "@/lib/stores/base";
 import { useChatPersistenceActions } from "@/lib/stores/hooks-chat-persistence";
 import { useDataStream } from "@/lib/stores/hooks-data-stream";
@@ -49,7 +48,7 @@ export function ChatSync({ id }: { id: string }) {
     () => undefined
   );
 
-  const { resumeStream, sendMessage, setMessages } = useChat<ChatMessage>({
+  const { resumeStream, setMessages } = useChat<ChatMessage>({
     experimental_throttle: 100,
     id,
     // TODO: this is a special "snapshot" value in the store that is only updated
@@ -130,14 +129,6 @@ export function ChatSync({ id }: { id: string }) {
   });
 
   setMessagesRef.current = setMessages;
-
-  // A SEND FLIGHT DIES WITH ITS CHAT INSTANCE. `sendMessage` is per `Chat`
-  // instance, so this cleanup runs when the instance is replaced (a sibling
-  // switch, a store re-init) or this component unmounts, and releases the
-  // flight that instance's send still holds — a stalled request must not
-  // refuse every Enter in the chat that replaced it
-  // (`lib/send-draft-chat-submission.ts::releaseSendFlight`).
-  useEffect(() => () => releaseSendFlight(id, sendMessage), [id, sendMessage]);
 
   // RESUME EACH STREAM ONCE, NOT ONCE PER EFFECT RUN.
   //

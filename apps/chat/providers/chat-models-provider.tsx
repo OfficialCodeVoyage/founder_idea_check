@@ -8,10 +8,9 @@ import {
   useContext,
   useMemo,
 } from "react";
-import type { AppModelId } from "@/lib/ai/app-model-id";
 import {
   type AppModelDefinition,
-  getDefaultEnabledModels,
+  resolveEnabledModels,
 } from "@/lib/ai/app-models";
 import { useSession } from "@/providers/session-provider";
 import { useTRPC } from "@/trpc/react";
@@ -50,17 +49,10 @@ export function ChatModelsProvider({
     return map;
   }, [models]);
 
-  const enabledModelsSet = useMemo(() => {
-    const enabled = getDefaultEnabledModels(models);
-    for (const pref of preferences ?? []) {
-      if (pref.enabled) {
-        enabled.add(pref.modelId as AppModelId);
-      } else {
-        enabled.delete(pref.modelId as AppModelId);
-      }
-    }
-    return enabled;
-  }, [models, preferences]);
+  const enabledModelsSet = useMemo(
+    () => resolveEnabledModels(models, preferences),
+    [models, preferences]
+  );
 
   const filteredModels = useMemo(
     () => models.filter((model) => enabledModelsSet.has(model.id)),

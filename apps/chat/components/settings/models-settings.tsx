@@ -5,11 +5,16 @@ import { RefreshCw, Search } from "lucide-react";
 import { useDeferredValue, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { UserModelPreference } from "@/lib/db/schema";
 import { useTRPC } from "@/trpc/react";
 import { ModelsTable } from "./models-table";
 import { SettingsPageContent, SettingsPageScrollArea } from "./settings-page";
 
-export function ModelsSettings() {
+export function ModelsSettings({
+  initialPreferences,
+}: {
+  initialPreferences: UserModelPreference[] | null;
+}) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -39,7 +44,11 @@ export function ModelsSettings() {
       </div>
 
       <SettingsPageScrollArea>
-        <ModelsTable className="block px-4" search={deferredSearch} />
+        <ModelsTable
+          className="block px-4"
+          initialPreferences={initialPreferences}
+          search={deferredSearch}
+        />
       </SettingsPageScrollArea>
     </SettingsPageContent>
   );

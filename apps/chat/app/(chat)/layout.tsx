@@ -1,4 +1,5 @@
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { getChatModels } from "@/app/actions/get-chat-models";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -8,13 +9,13 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import type { AppModelId } from "@/lib/ai/app-model-id";
 import { config } from "@/lib/config";
 import { isPlaywrightTestEnvironment } from "@/lib/constants";
+import { getRequestSession } from "@/lib/request-session";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { ChatModelsProvider } from "@/providers/chat-models-provider";
 import { DefaultModelProvider } from "@/providers/default-model-provider";
 import { SessionProvider, SessionSeed } from "@/providers/session-provider";
 import { TRPCReactProvider } from "@/trpc/react";
 import { getQueryClient, HydrateClient, trpc } from "@/trpc/server";
-import { auth } from "../../lib/auth";
 import { ChatProviders } from "./chat-providers";
 import { ChatRouteHost } from "./chat-route-host";
 
@@ -45,14 +46,21 @@ export default async function ChatLayout({
 }
 
 async function ChatLayoutDynamic({ children }: { children: React.ReactNode }) {
-  const [cookieStore, headersRes, chatModels] = await Promise.all([
+  const [cookieStore, chatModels] = await Promise.all([
     cookies(),
-    headers(),
     getChatModels(),
   ]);
+  // The request-time barrier comes after the `Promise.all`, never inside it:
+  // started alongside `cookies()`, it made the Next 16.4.5 dev server reload
+  // `/` 26–47 times in a row on the first load after sign-in (clean restarts,
+  // checked by hand). Awaited here as well as inside `getRequestSession` so
+  // the Playwright environment, which has no session, renders this layout at
+  // request time too; with no session it skips the tRPC prefetches below, so
+  // e2e does not cover them (`lib/request-session.ts`).
+  await connection();
   const session = isPlaywrightTestEnvironment
     ? null
-    : await auth.api.getSession({ headers: headersRes });
+    : await getRequestSession();
 
   const cookieModel = cookieStore.get("chat-model")?.value;
   const isAnonymous = !session?.user;

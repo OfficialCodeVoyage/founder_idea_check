@@ -132,8 +132,10 @@ private blobs. Every read, from any store, is streamed through `/api/files/conte
 is ever answered with a redirect to a provider link, because a presigned URL (files-sdk signs them for a private Vercel
 Blob, S3, GCS, Azure, R2 and more) works for whoever holds it, without the check, until it expires
 (`apps/chat/lib/file-content-response.ts::createFileContentResponse`). The app needs `BLOB_READ_WRITE_TOKEN`, or
-`BLOB_STORE_ID` plus `VERCEL_OIDC_TOKEN`; `check-env` (`apps/chat/scripts/check-env.ts`) reports which is missing.
-Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a deployment:
+`BLOB_STORE_ID` with the OIDC token Vercel supplies: on Vercel it comes with each request, so `BLOB_STORE_ID` is enough
+there; elsewhere set `VERCEL_OIDC_TOKEN` (`vercel env pull` writes it). `check-env` (`apps/chat/scripts/check-env.ts`)
+names both options when neither is met. Nothing is deployed yet, so no stored file is at risk today. Two consequences
+matter for a deployment:
 
 - **Blobs uploaded as public before this change will not load.** In private mode files-sdk reads every file with
   `blob.get(key, { access: "private" })` and reports anything that does not come back that way as `NotFound`, so a

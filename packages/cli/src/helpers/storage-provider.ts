@@ -101,9 +101,16 @@ function findFilesSdkPackageJson(): string {
 }
 
 function renderEnvVariable(
-	variable: { description: string; key: string },
+	variable: { description: string; key: string; platformFlag?: string },
 	optional = false,
 ): string[] {
+	// A variable the platform supplies (VERCEL_OIDC_TOKEN) is described, never
+	// left as a blank line for the user to paste a value into.
+	if (variable.platformFlag) {
+		return [
+			`# ${variable.key}: supplied by the platform, not pasted here. ${variable.description}`,
+		];
+	}
 	return optional
 		? [`# ${variable.key}= # ${variable.description}`]
 		: [`# ${variable.description}`, `${variable.key}=`];

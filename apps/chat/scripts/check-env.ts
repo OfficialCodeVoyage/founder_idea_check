@@ -242,7 +242,11 @@ function hasStorageEnvVariable(
   variable: StorageEnvironmentVariable,
   env: NodeJS.ProcessEnv
 ) {
-  return [variable.key, ...(variable.aliases ?? [])].some((key) => !!env[key]);
+  return [
+    variable.key,
+    ...(variable.aliases ?? []),
+    ...(variable.platformFlag ? [variable.platformFlag] : []),
+  ].some((key) => !!env[key]);
 }
 
 function validateStorage(env: NodeJS.ProcessEnv): ValidationError | null {

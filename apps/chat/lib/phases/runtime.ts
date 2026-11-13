@@ -38,6 +38,7 @@ import {
 import {
   buildPhaseDirective,
   buildPhaseSystemBlockText,
+  type DirectiveTarget,
   toPhaseGateState,
 } from "./directive";
 import { extractFacts, reconcileFacts } from "./extract";
@@ -47,7 +48,13 @@ import {
   createModelFactExtractor,
   createModelGateJudge,
 } from "./model-adapters";
-import type { GateVerdict, PhaseDefinition, TranscriptTurn } from "./types";
+import { humanizeCriterionId, trustedCriterionStatuses } from "./rail";
+import type {
+  CriterionStatus,
+  GateVerdict,
+  PhaseDefinition,
+  TranscriptTurn,
+} from "./types";
 
 const log = createModuleLogger("phases:runtime");
 
@@ -277,6 +284,68 @@ function toStoredFacts(
 }
 
 /**
+ * THE ONE PLACE A FOUNDER'S "THIS MESSAGE ANSWERS CRITERION X" BECOMES PROMPT.
+ *
+ * `raw` is the saved Message row's `targetCriterionId` (the chat route reads it
+ * from the row, never from the request), so it is already NULL or shaped like
+ * a criterion id: `lib/message-conversion.ts::chatMessageToDbMessage` and the
+ * `Message_target_criterion_shape` CHECK see to that. It is still the
+ * founder's input and is never interpolated. It is only COMPARED, exactly,
+ * against the ids of the exit criteria of `phase` — the phase this turn
+ * resolved as current — and that exact lookup is the whole validation: an
+ * allowlist of the phase's own ids is stricter than any shape check. What the
+ * prompt receives is that criterion's own definition text.
+ *
+ * Fails closed to "no target": an id of another phase (a stale target from
+ * before an advance) or an id that names nothing yields null, and the turn
+ * renders exactly as it would have with no target. A dropped target costs the
+ * founder a hint; an accepted wrong one would aim the interviewer at the wrong
+ * criterion.
+ *
+ * `alreadyMet` comes from the LAST verdict's statuses, read by the same rule as
+ * the gate card (`statuses`, from `./rail::trustedCriterionStatuses`; null when
+ * there is no verdict or it cannot be trusted). Without it the paragraph
+ * presumes a gap, and a model told to name what is still open invents one for
+ * a criterion the gate already counted as met.
+ */
+function resolveTarget(
+  phase: PhaseDefinition,
+  raw: string | null,
+  statuses: ReadonlyMap<string, CriterionStatus> | null
+): DirectiveTarget | null {
+  const criterion = raw
+    ? phase.exitCriteria.find((c) => c.id === raw)
+    : undefined;
+  if (!criterion) {
+    return null;
+  }
+  return {
+    // The same label the gate card shows for this criterion.
+    title: humanizeCriterionId(criterion.id),
+    description: criterion.description,
+    closure: criterion.closure,
+    alreadyMet: statuses?.get(criterion.id) === "met",
+  };
+}
+
+/**
+ * The titles of `phase`'s offline-only exit criteria that the last verdict did
+ * not score `met`, in definition order, for `fieldworkPlanLines` in
+ * `./directive`. From the phase DEFINITION only: a criterion the judge never
+ * scored counts as open, because "not scored" is not "met".
+ */
+function openFieldworkTitles(
+  phase: PhaseDefinition,
+  statuses: ReadonlyMap<string, CriterionStatus> | null
+): string[] {
+  return phase.exitCriteria
+    .filter(
+      (c) => c.closure === "offline-only" && statuses?.get(c.id) !== "met"
+    )
+    .map((c) => humanizeCriterionId(c.id));
+}
+
+/**
  * Read-side: what gets appended to the chat system prompt, at the START of the
  * turn.
  *
@@ -291,11 +360,19 @@ function toStoredFacts(
 export async function buildPhaseSystemBlock({
   projectId,
   latestUserMessage,
+  targetCriterionId,
   costAccumulator,
 }: {
   projectId: string;
   /** Ranks the fact block against what this turn is actually about. */
   latestUserMessage?: string;
+  /**
+   * The saved row of the message this turn answers: its `targetCriterionId`,
+   * its criterion target, the exit criterion the founder said it answers (the gate card's
+   * "Answer" / "Report what you found", sent by the composer). NULL or absent
+   * means no target. `resolveTarget` is the only reader.
+   */
+  targetCriterionId?: string | null;
   /**
    * The TURN'S accumulator, still open at this point (the route settles it in
    * onFinish), so the query embedding is charged with the turn that needed it.
@@ -374,16 +451,43 @@ export async function buildPhaseSystemBlock({
     );
   }
 
+  const state = toPhaseGateState(row);
+  const statuses = state
+    ? trustedCriterionStatuses(state.perCriterion, state.obstacle)
+    : null;
+  const target = resolveTarget(phase, targetCriterionId ?? null, statuses);
+  if (targetCriterionId) {
+    // The outcome only, never the value: a dropped id is founder input. An
+    // accepted target renders only under a BLOCK or WARN verdict
+    // (`buildPhaseDirective`); before the first verdict and after a PASS it is
+    // valid but unused, and the log says so rather than claiming it was shown.
+    const shown = state?.decision === "BLOCK" || state?.decision === "WARN";
+    let outcome = "dropped";
+    if (target && !shown) {
+      outcome = "accepted-not-shown";
+    } else if (target?.alreadyMet) {
+      outcome = "accepted-already-met";
+    } else if (target) {
+      outcome = "accepted";
+    }
+    log.debug(
+      { projectId, phaseKey: phase.key, target: outcome },
+      "criterion target"
+    );
+  }
+
   return buildPhaseSystemBlockText({
     personaPrompt: loadPersonaPrompt(),
     phasePrompt: loadPrompt(phase.promptFile),
     factBlock: block.text,
     directive: buildPhaseDirective({
       phase,
-      state: toPhaseGateState(row),
+      state,
       previousPhase: resolution.previousPhase,
       nextPhase: resolution.nextPhase,
       workflowComplete: resolution.workflowComplete,
+      target,
+      openFieldworkTitles: openFieldworkTitles(phase, statuses),
     }),
   });
 }

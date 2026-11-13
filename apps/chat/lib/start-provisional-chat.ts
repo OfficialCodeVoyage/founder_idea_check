@@ -57,7 +57,7 @@ export function useStartProvisionalChat(chatId: string) {
       message: ChatMessage;
       onStarted?: () => void;
       requestSpecs: ParallelRequestSpec[];
-    }) => {
+    }): false | { sent: Promise<void>; owner: unknown } => {
       if (!(session?.user && isInitialRoute(currentRoute))) {
         return false;
       }
@@ -105,7 +105,7 @@ export function useStartProvisionalChat(chatId: string) {
         };
       }
 
-      sendMessage(message, requestOptions);
+      const sent = sendMessage(message, requestOptions);
 
       addMessageToTree(message);
 
@@ -118,7 +118,13 @@ export function useStartProvisionalChat(chatId: string) {
       window.history.pushState(null, "", href);
       onStarted?.();
 
-      return true;
+      // The send's own promise and the `sendMessage` that made it, so a caller
+      // can hold a send flight on it (`lib/send-draft-chat-submission.ts::
+      // trackSendFlight`) under the instance that really sent. A caller's
+      // render-time `sendMessage` can still be the store's placeholder on a
+      // page that has just mounted. Truthy, so a "did it start" check still
+      // reads it as a boolean.
+      return { sent, owner: sendMessage };
     },
     [
       addMessageToTree,

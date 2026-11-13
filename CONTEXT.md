@@ -10,6 +10,7 @@ Use these words in code, UI and docs. Definitions come from the code named in ea
 | Severity | `blocking` (unmet ⇒ BLOCK) or `advisory` (unmet ⇒ WARN only). | not "priority" |
 | Closure | How a criterion can be closed: `in-conversation` (founder can answer now) or `offline-only` (needs fieldwork). | not severity |
 | Criterion status | The judge's label per criterion: `met`, `partial`, `unmet`, `not-evaluable` (could not tell; never treated as met). | "not-evaluable" is not "unmet" |
+| Criterion target | The exit criterion a founder says one of their messages answers, set from the gate card and shown on the message as "Answering: X" (`Message.targetCriterionId`). It is the founder's intent, never evidence: the judge and the extractor never see it, and it only tells the interviewer what the message is for. | not a "mark", "tag" or "claim"; not the "target user" criterion |
 | Judge | The LLM call that labels each criterion with evidence, gap and next question (`JudgeOutputSchema`). | the judge does not decide; the gate does |
 | Gate | Code that turns the judge's labels into a verdict and fails closed (`lib/phases/gate.ts::decideGate`). | not "validator", not "check" |
 | Verdict | `PASS`, `WARN` or `BLOCK`, plus the missing items, the next question and the rule that fired (`GateVerdictSchema`). | not "score", not "result" |

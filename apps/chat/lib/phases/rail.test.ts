@@ -1013,6 +1013,7 @@ describe("describeCriterionChecklist — a verdict that never ran has no rows", 
       criteria: EIGHT,
       perCriterion: [],
       verdictReadable: true,
+      obstacle: null,
     });
     expect(list.available).toBe(false);
     assert(!list.available);
@@ -1025,6 +1026,7 @@ describe("describeCriterionChecklist — a verdict that never ran has no rows", 
       criteria: EIGHT,
       perCriterion: [],
       verdictReadable: false,
+      obstacle: null,
     });
     assert(!list.available);
     expect(list.note).toContain("no longer be read");
@@ -1038,6 +1040,7 @@ describe("describeCriterionChecklist — a verdict that never ran has no rows", 
       criteria: [],
       perCriterion: [{ criterionId: "x-y", status: "met" }],
       verdictReadable: true,
+      obstacle: null,
     });
     assert(!list.available);
     expect(list.note).toContain("exit criteria");
@@ -1063,6 +1066,7 @@ describe("describeCriterionChecklist — the eight rows", () => {
       { criterionId: "validation-score", status: "not-evaluable" },
     ],
     verdictReadable: true,
+    obstacle: null,
   });
 
   it("keeps one row per DEFINED criterion, in definition order", () => {
@@ -1112,6 +1116,7 @@ describe("describeCriterionChecklist — the eight rows", () => {
       ],
       repeats: [{ criterionId: "validation-score", blocked: 4, of: 7 }],
       verdictReadable: true,
+      obstacle: null,
     });
     assert(list.available);
     expect(list.rows[0].repeat).toEqual({
@@ -1130,6 +1135,7 @@ describe("describeCriterionChecklist — the eight rows", () => {
         { criterionId: "b-two", status: "met" },
       ],
       verdictReadable: true,
+      obstacle: null,
     });
     assert(list.available);
     expect(list.metCount).toBe(2);

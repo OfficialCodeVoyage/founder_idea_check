@@ -345,7 +345,7 @@ older turns survive only as at most 66 fact rows (`apps/chat/lib/phases/runtime.
 **`better-auth` stack skew (rank 10), resolved:** `better-auth` 1.6.2 ran on a `@better-auth/core` forced to 1.5.6 by a root
 `overrides` entry, so the session, cookie and origin checks ran on mixed versions, and at 1.6.34 that pin made
 `import "better-auth"` fail outright. The override is removed and `apps/chat/package.json` pins core to the version `better-auth`
-declares (1.6.34), with `@better-auth/electron` on `^1.6.34`. Still open: drop `@better-auth/electron` with the Electron code.
+declares (1.6.34), with `@better-auth/electron` pinned to the same version. Still open: drop `@better-auth/electron` with the Electron code.
 
 **Python sidecar has no lockfile:** `apps/research/pyproject.toml` uses ranges (`fastapi>=0.115,<1.0`, `uvicorn[standard]`,
 `pydantic`), the Dockerfile runs `pip install .`, and CI installs `-e ".[dev]"`; builds are not reproducible and carry no hashes.

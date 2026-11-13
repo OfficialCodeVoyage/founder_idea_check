@@ -27,8 +27,8 @@ validated project to a coding agent. It is a fork of ChatJS (Apache-2.0, see `NO
   `gpt-5.6-luna` for titles, extraction and research).
 - Pins with a reason: Python `<3.12` (kept as tested; OASIS 0.2.6 itself allows `<3.15`) and `mcp<2` (a guard for the
   OASIS extra, `apps/research/pyproject.toml`); `ultracite@7.4.3`
-  (an unpinned `bunx ultracite` pulls a newer major); `better-auth` and `@better-auth/core` in `apps/chat/package.json`, both exact and
-  equal (`better-auth` requires its own core version; a root `overrides` entry that forced an older core broke `import "better-auth"`).
+  (an unpinned `bunx ultracite` pulls a newer major); `better-auth`, `@better-auth/core` and `@better-auth/electron` in `apps/chat/package.json`,
+  all exact and equal (`better-auth` requires its own core version; a root `overrides` entry that forced an older core broke `import "better-auth"`).
 
 ### Commands
 ```bash

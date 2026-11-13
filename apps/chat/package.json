@@ -54,7 +54,7 @@
     "@ai-sdk/provider": "3.0.19",
     "@ai-sdk/react": "3.0.326",
     "@better-auth/core": "1.6.34",
-    "@better-auth/electron": "^1.6.34",
+    "@better-auth/electron": "1.6.34",
     "@codemirror/lang-javascript": "^6.2.2",
     "@codemirror/lang-python": "^6.1.6",
     "@codemirror/state": "^6.7.6",

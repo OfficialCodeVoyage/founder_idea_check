@@ -13,7 +13,7 @@ import { vercelBlob } from "files-sdk/vercel-blob";
 //
 // Two consequences (README-DEV.md, "File storage"):
 // - Blobs uploaded as public before this setting come back NotFound: in private
-//   mode files-sdk 2.1.0 reads with `blob.get(key, { access: "private" })`. A
+//   mode files-sdk reads with `blob.get(key, { access: "private" })`. A
 //   store that already holds public blobs needs a one-off copy into a private
 //   store under the same pathnames before going live.
 // - Private blobs have no range reads, so the content route answers

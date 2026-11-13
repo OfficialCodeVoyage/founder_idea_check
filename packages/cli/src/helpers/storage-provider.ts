@@ -8,7 +8,10 @@ import {
 	type ProviderSlug,
 } from "files-sdk/providers";
 import { z } from "zod";
-import { getStorageEnvironmentRequirements } from "../../../../apps/chat/lib/storage-provider-metadata";
+import {
+	getStorageEnvironmentRequirements,
+	STORAGE_VARIABLE_HINTS,
+} from "../../../../apps/chat/lib/storage-provider-metadata";
 
 export type StorageSelection = {
 	provider: ProviderSlug;
@@ -104,8 +107,17 @@ function renderEnvVariable(
 	variable: { description: string; key: string },
 	optional = false,
 ): string[] {
-	return optional
-		? [`# ${variable.key}= # ${variable.description}`]
+	// A variable that must not be pasted by hand (VERCEL_OIDC_TOKEN) says where
+	// it comes from instead of its description, and stays commented out.
+	const hint = STORAGE_VARIABLE_HINTS[variable.key];
+	if (optional) {
+		return [`# ${variable.key}= # ${hint ?? variable.description}`];
+	}
+	return hint
+		? [
+				`# ${variable.key} is required for this option: ${hint}.`,
+				`# ${variable.key}=`,
+			]
 		: [`# ${variable.description}`, `${variable.key}=`];
 }
 

@@ -11,7 +11,7 @@ the app calls OpenAI for every answer.
 | You need | Check it with | Notes |
 | --- | --- | --- |
 | Bun 1.3.14 or newer | `bun --version` | The repo pins `packageManager: bun@1.3.14`. npm and pnpm refuse to install it. |
-| Node.js 20.9 or newer | `node --version` | Next.js runs on it. |
+| Node.js 22 or newer | `node --version` | Next.js runs on 20.9, but the file-storage library (files-sdk) needs 22. |
 | Docker with Compose v2 | `docker compose version` | Postgres, Redis and the research service run in containers. |
 | An OpenAI API key | | On an account with billing enabled. |
 | macOS, Linux or WSL 2 | | The scripts are written for bash. |

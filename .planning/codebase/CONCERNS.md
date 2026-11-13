@@ -351,7 +351,7 @@ override, drop `@better-auth/electron` with the Electron code.
 `pydantic`), the Dockerfile runs `pip install .`, and CI installs `-e ".[dev]"`; builds are not reproducible and carry no hashes.
 `camel-oasis==0.2.6` and `mcp<2` are pins with a reason.
 
-**Pinned internals:** `ai@6.0.219`, `next@16.3.0`, `resumable-stream@2.2.10`, `redis@^5.5.6`, `files-sdk@2.1.0`; see Fragile
+**Pinned internals:** `ai@6.0.219`, `next@16.3.0`, `resumable-stream@2.2.10`, `redis@^5.5.6`, `files-sdk@3.1.2`; see Fragile
 Areas. `.github/dependabot.yml` waits seven days before proposing a bump.
 
 **CI does not build or audit:** `.github/workflows/ci.yml` runs `verify` and `test:unit` and the sidecar's ruff and pytest; it runs

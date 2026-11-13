@@ -14,6 +14,18 @@ export type StorageEnvironmentRequirement = {
 
 const STORAGE_OPTION_HINT = /(?:or )?pass `([^`]+)`/;
 
+/**
+ * How to get a variable that is required but never pasted by hand, shown by
+ * `scripts/check-env.ts` when it is missing and by the CLI's generated
+ * `.env.example`. VERCEL_OIDC_TOKEN is a short-lived token: it is checked as
+ * an env var like any other (Vercel Blob's OIDC mode needs it with
+ * BLOB_STORE_ID), but a pasted copy expires.
+ */
+export const STORAGE_VARIABLE_HINTS: Readonly<Record<string, string>> = {
+  VERCEL_OIDC_TOKEN:
+    "set automatically on Vercel builds and written locally by `vercel env pull`; do not paste a long-lived value",
+};
+
 export function getStorageEnvironmentRequirements(
   provider: ProviderSlug,
   adapterOptions: Record<string, unknown> = {}
@@ -56,17 +68,19 @@ export function getStorageEnvironmentRequirements(
   const credentialModes: StorageEnvironmentVariable[][] = [];
   let hasUnvalidatedCredentialMode = false;
   for (const mode of metadata.env.credentialModes ?? []) {
-    const variables = mode.vars
-      .filter((variable) => variable.readBy === "files-sdk")
-      .map(toVariable);
-    if (variables.length > 0) {
-      credentialModes.push(variables);
+    // A mode that names any variable files-sdk reads itself is checked as a
+    // whole, its "sdk-chain" variables included: files-sdk 3 marks Vercel
+    // Blob's VERCEL_OIDC_TOKEN "sdk-chain" (@vercel/oidc reads it), and
+    // dropping it would accept BLOB_STORE_ID alone, which fails at runtime off
+    // Vercel. A mode made only of "sdk-chain" variables (the AWS chain, ADC)
+    // can be satisfied without any env var, so it is not checked.
+    if (!mode.vars.some((variable) => variable.readBy === "files-sdk")) {
+      const optionName = STORAGE_OPTION_HINT.exec(mode.label)?.[1];
+      hasUnvalidatedCredentialMode ||=
+        optionName === undefined || adapterOptions[optionName] !== undefined;
       continue;
     }
-
-    const optionName = STORAGE_OPTION_HINT.exec(mode.label)?.[1];
-    hasUnvalidatedCredentialMode ||=
-      optionName === undefined || adapterOptions[optionName] !== undefined;
+    credentialModes.push(mode.vars.map(toVariable));
   }
   if (credentialModes.length > 0 && !hasUnvalidatedCredentialMode) {
     requirements.push({

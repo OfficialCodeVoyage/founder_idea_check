@@ -289,6 +289,13 @@ export type PhaseDirectiveInput = {
    * targeted or the target did not name a criterion of this phase.
    */
   target?: DirectiveTarget | null;
+  /**
+   * Titles of the current phase's offline-only exit criteria that the last
+   * verdict did not count as met, in definition order. Built by the caller
+   * from the phase DEFINITION (humanised ids), never from model or founder
+   * text. Absent or empty: no planning paragraph (`fieldworkPlanLines`).
+   */
+  openFieldworkTitles?: readonly string[];
 };
 
 /**
@@ -430,10 +437,56 @@ function targetLines(target: DirectiveTarget | null | undefined): string[] {
   return lines;
 }
 
+/**
+ * A REQUEST FOR A FIELDWORK PLAN IS ANSWERED, NOT DEFLECTED.
+ *
+ * The gate card's "Plan how to find out" sends a fixed request for help
+ * planning the evidence for one offline-only criterion. When the obstacle is
+ * not `fieldwork-required` — some in-conversation criterion is also still open
+ * — `FIELDWORK_INSTRUCTION` is not rendered, and `askLine` ("ask exactly this
+ * ... Then stop") won outright: in QA the whole reply to that request was the
+ * gate's question about a different criterion, and no plan.
+ *
+ * This paragraph does not change `askLine`; it puts one instruction before it.
+ * It is MODEL-JUDGED: nothing here parses the founder's text, and the
+ * paragraph only says what to do IF the latest message asks how to gather
+ * evidence for one of the named criteria. It names them by title, from the
+ * phase definition, so the model can recognise the request without being told
+ * which message triggered it. Not rendered when the obstacle is already
+ * `fieldwork-required` (`FIELDWORK_INSTRUCTION` covers that case in full) or
+ * when no offline-only criterion is open.
+ *
+ * The plan's three parts and the ban on on-the-spot numbers are Incident 2's
+ * rule, restated where it is used. Then the gate's question is asked as usual,
+ * so the plan is an answer the founder asked for, not a way round the gate.
+ */
+function fieldworkPlanLines(
+  state: PhaseGateState,
+  openFieldworkTitles: readonly string[] | undefined,
+  questionFollows: boolean
+): string[] {
+  if (
+    !openFieldworkTitles ||
+    openFieldworkTitles.length === 0 ||
+    state.obstacle?.kind === "fieldwork-required"
+  ) {
+    return [];
+  }
+  const titles = openFieldworkTitles.map((t) => `"${t}"`).join(", ");
+  const then = questionFollows
+    ? "Then ask the question below as usual."
+    : "Then carry on with this phase as usual.";
+  return [
+    "",
+    `Open criteria that only fieldwork can close: ${titles}. If the founder's latest message asks how to gather evidence for one of them, answer that request first and concretely: who to recruit and how many, the questions to ask word for word, and the pass/fail threshold fixed before any data arrives. Never ask for or accept a number produced on the spot. ${then}`,
+  ];
+}
+
 function blockedDirective(
   state: PhaseGateState,
   phase: PhaseDefinition,
-  target: DirectiveTarget | null | undefined
+  target: DirectiveTarget | null | undefined,
+  openFieldworkTitles: readonly string[] | undefined
 ): string[] {
   const lines = [
     `${DIRECTIVE_HEADING} — as of last turn, BLOCKED on ${phaseLabel(phase)}.`,
@@ -463,6 +516,7 @@ function blockedDirective(
     );
   }
   lines.push(...targetLines(target));
+  lines.push(...fieldworkPlanLines(state, openFieldworkTitles, true));
   lines.push("", askLine(state.nextQuestion));
   return lines;
 }
@@ -470,7 +524,8 @@ function blockedDirective(
 function warnedDirective(
   state: PhaseGateState,
   phase: PhaseDefinition,
-  target: DirectiveTarget | null | undefined
+  target: DirectiveTarget | null | undefined,
+  openFieldworkTitles: readonly string[] | undefined
 ): string[] {
   const lines = [
     `${DIRECTIVE_HEADING} — as of last turn, ${phaseLabel(phase)} clears its blocking criteria but the gate flagged a weakness.`,
@@ -489,6 +544,13 @@ function warnedDirective(
     "Keep working inside this phase and keep the conversation moving — this is not a refusal. State the weakness above once, in one sentence, the first time it is relevant, and do not treat it as closed. You still may not tell the founder the phase is complete; the gate decides that, not you."
   );
   lines.push(...targetLines(target));
+  lines.push(
+    ...fieldworkPlanLines(
+      state,
+      openFieldworkTitles,
+      state.nextQuestion !== null
+    )
+  );
   if (state.nextQuestion) {
     lines.push("", askLine(state.nextQuestion));
   }
@@ -552,9 +614,19 @@ export function buildPhaseDirective(input: PhaseDirectiveInput): string {
   if (state === null || state.decision === null) {
     lines = openingDirective(input);
   } else if (state.decision === "BLOCK") {
-    lines = blockedDirective(state, input.phase, input.target);
+    lines = blockedDirective(
+      state,
+      input.phase,
+      input.target,
+      input.openFieldworkTitles
+    );
   } else if (state.decision === "WARN") {
-    lines = warnedDirective(state, input.phase, input.target);
+    lines = warnedDirective(
+      state,
+      input.phase,
+      input.target,
+      input.openFieldworkTitles
+    );
   } else {
     lines = passedDirective(input);
   }

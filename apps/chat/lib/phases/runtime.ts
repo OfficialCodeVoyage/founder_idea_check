@@ -326,6 +326,27 @@ function resolveTarget(
 }
 
 /**
+ * The titles of `phase`'s offline-only exit criteria that the last verdict did
+ * not score `met`, in definition order, for `fieldworkPlanLines` in
+ * `./directive`. From the phase DEFINITION only: a criterion the judge never
+ * scored counts as open, because "not scored" is not "met".
+ */
+function openFieldworkTitles(
+  phase: PhaseDefinition,
+  state: PhaseGateState | null
+): string[] {
+  return phase.exitCriteria
+    .filter(
+      (c) =>
+        c.closure === "offline-only" &&
+        !state?.perCriterion.some(
+          (e) => e.criterionId === c.id && e.status === "met"
+        )
+    )
+    .map((c) => humanizeCriterionId(c.id));
+}
+
+/**
  * Read-side: what gets appended to the chat system prompt, at the START of the
  * turn.
  *
@@ -464,6 +485,7 @@ export async function buildPhaseSystemBlock({
       nextPhase: resolution.nextPhase,
       workflowComplete: resolution.workflowComplete,
       target,
+      openFieldworkTitles: openFieldworkTitles(phase, state),
     }),
   });
 }

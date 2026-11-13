@@ -1,11 +1,6 @@
-import type { ModelId } from "@/lib/ai/app-models";
 import type { Chat, DBMessage } from "@/lib/db/schema";
 import type { UIChat } from "@/lib/types/ui-chat";
-import {
-  type ChatMessage,
-  isSelectedModelValue,
-  type UiToolName,
-} from "./ai/types";
+import { type ChatMessage, TARGET_CRITERION_ID_PATTERN } from "./ai/types";
 
 // Helper functions for type conversion
 export function dbChatToUIChat(chat: Chat): UIChat {
@@ -21,28 +16,15 @@ export function dbChatToUIChat(chat: Chat): UIChat {
   };
 }
 
-function _dbMessageToChatMessage(message: DBMessage): ChatMessage {
-  // Note: This function should not be used directly for messages with parts
-  // Use getAllMessagesByChatId which reconstructs parts from Part table
-  // Parts are now stored in Part table, not in Message.parts
-  return {
-    id: message.id,
-    parts: [], // Parts are stored in Part table - use getAllMessagesByChatId instead
-    role: message.role as ChatMessage["role"],
-    metadata: {
-      createdAt: message.createdAt,
-      activeStreamId: message.activeStreamId,
-      parentMessageId: message.parentMessageId,
-      parallelGroupId: message.parallelGroupId,
-      parallelIndex: message.parallelIndex,
-      isPrimaryParallel: message.isPrimaryParallel,
-      selectedModel: isSelectedModelValue(message.selectedModel)
-        ? message.selectedModel
-        : ("" as ModelId),
-      selectedTool: (message.selectedTool as UiToolName | null) || undefined,
-      usage: message.lastContext as ChatMessage["metadata"]["usage"],
-    },
-  };
+/**
+ * The message's criterion target, read back into metadata only when one is
+ * stored. Spread rather than assigned so a message with no target carries no key
+ * at all, exactly as the client sent it.
+ */
+export function targetMetadata(
+  targetCriterionId: string | null
+): { targetCriterionId: string } | Record<string, never> {
+  return targetCriterionId ? { targetCriterionId } : {};
 }
 
 export function chatMessageToDbMessage(
@@ -63,6 +45,18 @@ export function chatMessageToDbMessage(
     createdAt = new Date();
   }
 
+  // THE GUARD ON EVERY WRITE of a criterion target. The field is typed, but
+  // neither route that saves a founder's message parses metadata against
+  // `messageMetadataSchema`: the chat route's `normalizeChatMessage` and the
+  // prepare route both pass the client's metadata through as sent. So the
+  // value is checked HERE, at runtime, whatever its type says, against
+  // `TARGET_CRITERION_ID_PATTERN` (`lib/ai/types.ts`), the shape the
+  // `Message_target_criterion_shape` CHECK spells in SQL. A value the CHECK
+  // would refuse fails the whole save, so it is stored as NULL instead:
+  // a spoofed or oversized target is dropped silently and never errors the
+  // request. Losing the target costs a hint.
+  const target: unknown = message.metadata.targetCriterionId;
+
   // Parts are stored in Part table, not in Message.parts
   return {
     id: message.id,
@@ -80,5 +74,9 @@ export function chatMessageToDbMessage(
     isPrimaryParallel: message.metadata?.isPrimaryParallel ?? null,
     activeStreamId: message.metadata?.activeStreamId || null,
     canceledAt: null,
+    targetCriterionId:
+      typeof target === "string" && TARGET_CRITERION_ID_PATTERN.test(target)
+        ? target
+        : null,
   };
 }

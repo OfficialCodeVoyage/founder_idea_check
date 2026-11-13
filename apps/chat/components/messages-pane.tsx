@@ -55,7 +55,7 @@ function PureMessagesPane({
       */}
       {projectId && !isReadonly ? (
         <div className="flex min-h-0 w-full flex-col @[500px]:px-4 px-2">
-          <GateVerdictCard projectId={projectId} />
+          <GateVerdictCard chatId={chatId} projectId={projectId} />
         </div>
       ) : null}
 

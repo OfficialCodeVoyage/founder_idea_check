@@ -22,6 +22,24 @@ export interface DraftChatSubmission {
   requestSpecs: ParallelRequestSpec[];
 }
 
+/**
+ * The model selection a submission is built from: the whole multi-model
+ * selection when it names more than one request, else the single model. One
+ * rule for the composer and for the gate card's "Plan how to find out", so a
+ * founder who picked several models gets the same fan-out from either.
+ */
+export function normalizeSelectedModel({
+  selectedModelId,
+  selectedModelSelection,
+}: {
+  selectedModelId: AppModelId;
+  selectedModelSelection: SelectedModelValue;
+}): SelectedModelValue {
+  return expandSelectedModelValue(selectedModelSelection).length > 1
+    ? selectedModelSelection
+    : selectedModelId;
+}
+
 export function buildDraftChatSubmission({
   attachments,
   input,
@@ -29,6 +47,7 @@ export function buildDraftChatSubmission({
   parallelResponsesEnabled,
   parentMessageId,
   selectedTool,
+  targetCriterionId,
 }: {
   attachments: Attachment[];
   input: string;
@@ -36,6 +55,8 @@ export function buildDraftChatSubmission({
   parallelResponsesEnabled: boolean;
   parentMessageId: string | null;
   selectedTool: UiToolName | null;
+  /** The exit criterion this message answers; see `MessageMetadata`. */
+  targetCriterionId?: string | null;
 }): DraftChatSubmission {
   const requestedModelIds = expandSelectedModelValue(normalizedSelectedModel);
   const primaryModelId = requestedModelIds[0];
@@ -95,6 +116,7 @@ export function buildDraftChatSubmission({
         selectedModel: normalizedSelectedModel,
         activeStreamId: null,
         selectedTool: selectedTool || undefined,
+        targetCriterionId: targetCriterionId || undefined,
       },
       role: "user",
     },

@@ -488,14 +488,69 @@ export function splitHeadline(
     : { kind: "instead-of-list", text: reason };
 }
 
+/**
+ * The criterion id behind each gap, or null when the two lists cannot be
+ * trusted to line up.
+ *
+ * `decideGate` builds `missing` and `obstacle.criterionIds` from the same
+ * evaluations in the same order, so equal lengths and unique ids is the whole
+ * proof that gap N belongs to criterion N. Anything else (an older verdict with
+ * no ids, an arm that is about the gate rather than the work) is reported as
+ * "not aligned" rather than guessed at. One check, shared by every reader of
+ * the pairing, so the keys and the per-criterion text cannot disagree.
+ */
+function alignedCriterionIds(
+  gaps: readonly string[],
+  obstacle: GateObstacle | null | undefined
+): readonly string[] | null {
+  const ids = obstacle?.criterionIds ?? [];
+  const aligned =
+    ids.length === gaps.length && new Set(ids).size === ids.length;
+  return aligned ? ids : null;
+}
+
 function keysForGaps(
   gaps: readonly string[],
   obstacle: GateObstacle | null | undefined
 ): string[] {
-  const ids = obstacle?.criterionIds ?? [];
-  const aligned =
-    ids.length === gaps.length && new Set(ids).size === ids.length;
-  return gaps.map((_gap, index) => (aligned ? ids[index] : `#${index}`));
+  const ids = alignedCriterionIds(gaps, obstacle);
+  return gaps.map((_gap, index) => (ids ? ids[index] : `#${index}`));
+}
+
+/**
+ * PURE. The gap sentence per criterion id, for printing each gap on its own
+ * checklist row instead of in a separate list.
+ *
+ * NULL when `missing` and `obstacle.criterionIds` are not aligned (the same
+ * check as `keysForGaps`). The caller must then fall back to the flat gap list,
+ * because a row that guessed its gap from a position would pin one criterion's
+ * finding on another, and a row with no gap would hide it: Incident 3 is the
+ * whole open set always being shown.
+ */
+export function gapsByCriterion(
+  missing: readonly string[],
+  obstacle: GateObstacle | null | undefined
+): ReadonlyMap<string, string> | null {
+  const ids = alignedCriterionIds(missing, obstacle);
+  if (!ids) {
+    return null;
+  }
+  return new Map(ids.map((id, index) => [id, missing[index]]));
+}
+
+/**
+ * PURE. "frequency-and-intensity" becomes "Frequency and intensity".
+ *
+ * A criterion has an id and a long description but no title of its own, and the
+ * kebab-case id is what the card used to print as the row's name. This is the
+ * display form; it is never used as a key or sent anywhere as an identifier.
+ */
+export function humanizeCriterionId(id: string): string {
+  const words = id
+    .split("-")
+    .filter((word) => word.length > 0)
+    .join(" ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** PURE. The verdict card, from the state the router already returns. */
@@ -802,6 +857,11 @@ export type ChecklistRow = {
  * nothing to say, when the gate never ran. Same technique, and the same live
  * incident, as `GateVerdictView.coverage` above and `AttemptDetail` in
  * attempt-history.ts.
+ *
+ * "NOTHING WAS SCORED" HAS MORE THAN ONE SHAPE, and all of them land here: an
+ * empty `perCriterion`, a verdict whose obstacle is `judge-incomplete` (the gate
+ * did not believe the judge's answer, whatever it contained), and a judge whose
+ * ids match none of this phase's criteria.
  */
 export type CriterionChecklist =
   | { available: false; note: string }
@@ -829,12 +889,38 @@ const CANNOT_READ =
   "The stored verdict can no longer be read, so its per-criterion detail is unavailable. That is a reading failure — it is not a clean sheet.";
 const NO_CRITERIA =
   "This phase defines no exit criteria, so there is nothing to check against. That is a bug in the app rather than something you did.";
+const JUDGE_INCOMPLETE =
+  "The judge's answer was incomplete or ambiguous, so none of its per-criterion results can be trusted and none of them can be reported as met or unmet. That is a failure of the gate, not a finding about your work.";
+const NONE_MATCHED =
+  "The judge scored criteria this phase does not define, so none of this phase's own criteria was scored on this attempt and none of them can be reported as met or unmet. That is a failure of the gate, not a finding about your work.";
 
-function stateOf(
-  id: string,
-  perCriterion: readonly { criterionId: string; status: CriterionStatus }[]
-): ChecklistState {
-  return perCriterion.find((e) => e.criterionId === id)?.status ?? "unscored";
+/**
+ * WHEN A VERDICT'S PER-CRITERION STATUSES CAN BE BELIEVED, in one place for the
+ * gate card (`describeCriterionChecklist`) and the interviewer's prompt
+ * (`runtime.ts::buildPhaseSystemBlock`). Two readings of one verdict let the
+ * card offer "Answer" on a criterion the prompt tells the interviewer is met.
+ *
+ * Null means trust none of them. A `judge-incomplete` obstacle is the gate
+ * declining to believe the judge's answer. A criterion listed twice has no
+ * single status to report, and it is checked here directly because a verdict
+ * stored before the `obstacle` field existed reads `obstacle: null` whatever
+ * rule blocked it.
+ */
+export function trustedCriterionStatuses(
+  perCriterion: readonly { criterionId: string; status: CriterionStatus }[],
+  obstacle: GateObstacle | null
+): ReadonlyMap<string, CriterionStatus> | null {
+  if (obstacle?.kind === "judge-incomplete") {
+    return null;
+  }
+  const statuses = new Map<string, CriterionStatus>();
+  for (const e of perCriterion) {
+    if (statuses.has(e.criterionId)) {
+      return null;
+    }
+    statuses.set(e.criterionId, e.status);
+  }
+  return statuses;
 }
 
 /** Counts of everything except `met`, in a stable order, as clauses. */
@@ -854,8 +940,13 @@ function openClauses(rows: readonly ChecklistRow[]): string[] {
     .map((entry) => `${entry.count} ${CHECKLIST_LABEL[entry.state]}`);
 }
 
+/** "3 of 8 met": the one clause the summary and the status strip both open with. */
+function metClause(metCount: number, total: number): string {
+  return `${metCount} of ${total} met`;
+}
+
 function summarize(rows: readonly ChecklistRow[], metCount: number): string {
-  const head = [`${metCount} of ${rows.length} met`, ...openClauses(rows)].join(
+  const head = [metClause(metCount, rows.length), ...openClauses(rows)].join(
     ", "
   );
   // WHICH OF THE OPEN ONES CANNOT BE ANSWERED. "you have not said this" and
@@ -881,6 +972,12 @@ export function describeCriterionChecklist(input: {
   verdictReadable: boolean;
   /** From describeAttemptStanding. Absent when nothing has repeated. */
   repeats?: readonly CriterionRepeat[];
+  /**
+   * Which rule fired; NULL when the stored verdict predates the field or the
+   * gate passed. `judge-incomplete` makes the whole checklist unavailable, see
+   * below.
+   */
+  obstacle: GateObstacle | null;
 }): CriterionChecklist {
   if (!input.verdictReadable) {
     return { available: false, note: CANNOT_READ };
@@ -893,10 +990,18 @@ export function describeCriterionChecklist(input: {
   if (input.perCriterion.length === 0) {
     return { available: false, note: NOTHING_SCORED };
   }
+  // A JUDGE THAT DID NOT RETURN A USABLE ANSWER HAS NO PER-CRITERION RESULTS TO
+  // REPORT, even when `perCriterion` is not empty: "N of M met" over it would
+  // be a result the gate itself declined to stand behind. The card shows the
+  // flat open set instead.
+  const statuses = trustedCriterionStatuses(input.perCriterion, input.obstacle);
+  if (!statuses) {
+    return { available: false, note: JUDGE_INCOMPLETE };
+  }
 
   const repeats = input.repeats ?? [];
   const rows: ChecklistRow[] = input.criteria.map((c) => {
-    const state = stateOf(c.id, input.perCriterion);
+    const state: ChecklistState = statuses.get(c.id) ?? "unscored";
     return {
       id: c.id,
       description: c.description,
@@ -907,6 +1012,13 @@ export function describeCriterionChecklist(input: {
       repeat: repeats.find((r) => r.criterionId === c.id) ?? null,
     };
   });
+  // NO ROW SCORED is the same fact as "nothing was scored", reached another way:
+  // every id the judge returned belongs to some other phase. Eight "not scored"
+  // rows, each offering an answer, would be the "0 of 8 met" this arm exists to
+  // prevent, whatever obstacle the verdict recorded.
+  if (rows.every((r) => r.state === "unscored")) {
+    return { available: false, note: NONE_MATCHED };
+  }
   const metCount = rows.filter((r) => r.state === "met").length;
 
   return {
@@ -915,6 +1027,122 @@ export function describeCriterionChecklist(input: {
     summary: summarize(rows, metCount),
     metCount,
     openCount: rows.length - metCount,
+  };
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE CHECKLIST AS SOMETHING TO ACT ON: groups and a status strip.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * The card used to print every criterion in definition order with a status
+ * word, and a founder looking at "BLOCKED, 1 could not be assessed, 4 more
+ * open" still could not tell which criteria pass, or which of the open ones
+ * they could do anything about from where they sit.
+ *
+ * THE GROUPS ARE KEYED ON THE DEFINITION, NEVER ON THE JUDGE'S LABEL. Whether a
+ * criterion can be answered in this conversation is a property of the criterion
+ * (`closure`), and Incident 3 is exactly what happens when a display depends on
+ * the label instead: one criterion flipping between "unmet" and "not-evaluable"
+ * would move it from one group to another on a transcript that had not changed.
+ * So an offline-only criterion is under "needs evidence" whether the judge said
+ * unmet, partial, not-evaluable or nothing at all (Incident 2: such a criterion
+ * is never something to answer on the spot).
+ */
+export type GroupedChecklistRow = ChecklistRow & {
+  /**
+   * An advisory criterion: not meeting it can downgrade a verdict to WARN but
+   * never blocks the phase. Said on the row, because "open" next to a BLOCKED
+   * badge reads as "this is why you are blocked".
+   */
+  doesNotBlock: boolean;
+};
+
+export type ChecklistGroups = {
+  /** In-conversation and not met: the founder can say this now. */
+  answerNow: readonly GroupedChecklistRow[];
+  /** Offline-only and not met: needs fieldwork, whatever the label says. */
+  needsEvidence: readonly GroupedChecklistRow[];
+  /** Met, in either closure. */
+  met: readonly GroupedChecklistRow[];
+};
+
+/**
+ * PURE. One pass over the rows, split on `state` and `closure`.
+ *
+ * Each group keeps the order of `rows`, which `describeCriterionChecklist`
+ * builds from the phase's criteria in definition order, so "definition order
+ * inside every group" holds without sorting here. `closure` on a row is the
+ * definition's own (copied from the criterion), so the split is keyed on the
+ * definition and the judge's label only decides met against open.
+ */
+export function groupChecklistRows(
+  rows: readonly ChecklistRow[]
+): ChecklistGroups {
+  const answerNow: GroupedChecklistRow[] = [];
+  const needsEvidence: GroupedChecklistRow[] = [];
+  const met: GroupedChecklistRow[] = [];
+  for (const row of rows) {
+    const grouped: GroupedChecklistRow = {
+      ...row,
+      doesNotBlock: row.severity === "advisory",
+    };
+    if (row.state === "met") {
+      met.push(grouped);
+    } else if (row.closure === "offline-only") {
+      needsEvidence.push(grouped);
+    } else {
+      answerNow.push(grouped);
+    }
+  }
+  return { answerNow, needsEvidence, met };
+}
+
+export type StatusStripSegment = { id: string; state: ChecklistState };
+
+/**
+ * ONE SEGMENT PER CRITERION, IN DEFINITION ORDER, NEVER SORTED.
+ *
+ * Sorting by state would make a segment jump position whenever the judge
+ * changed a label, which is Incident 3 drawn as a bar. A fixed position is what
+ * lets a founder see which criterion just turned green.
+ *
+ * UNAVAILABLE WHEN THE CHECKLIST IS. `failClosedVerdict` produces
+ * `perCriterion: []`, which means nothing was judged; a strip for it would read
+ * "0 of 8 met" and accuse the founder of a result the gate never produced. This
+ * takes the whole `CriterionChecklist` rather than bare rows so that rule is
+ * structural: the unavailable arm has no rows to draw.
+ */
+export type StatusStrip =
+  | { available: false }
+  | {
+      available: true;
+      segments: readonly StatusStripSegment[];
+      /** The visible count: "3 of 8 met". */
+      label: string;
+      /**
+       * The count with every state named, for a screen reader: exactly
+       * `CriterionChecklist.summary`, a whole sentence ending in a full stop.
+       */
+      spoken: string;
+    };
+
+/** PURE. The strip, or an honest refusal to draw one. */
+export function describeStatusStrip(
+  checklist: CriterionChecklist
+): StatusStrip {
+  if (!checklist.available) {
+    return { available: false };
+  }
+  const { rows, metCount, summary } = checklist;
+  return {
+    available: true,
+    segments: rows.map((r) => ({ id: r.id, state: r.state })),
+    label: metClause(metCount, rows.length),
+    // The checklist's own sentence, not a second one: it already names every
+    // state in a fixed order, and it is the one sentence that also says how
+    // many of the open criteria need data from outside the conversation.
+    spoken: summary,
   };
 }
 

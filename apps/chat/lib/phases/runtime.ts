@@ -302,6 +302,19 @@ function toStoredFacts(
  * the paragraph presumes a gap, and a model told to name what is still open
  * invents one for a criterion the gate already counted as met.
  */
+/**
+ * The last verdict's per-criterion statuses, or none when the gate refused to
+ * trust them: a `judge-incomplete` verdict (duplicate or missing ids) keeps its
+ * `perCriterion` array, but the gate card shows no per-criterion result for it,
+ * so the prompt must not call anything "met" from it either.
+ */
+function trustedPerCriterion(state: PhaseGateState | null) {
+  if (!state || state.obstacle?.kind === "judge-incomplete") {
+    return [];
+  }
+  return state.perCriterion;
+}
+
 function resolveTarget(
   phase: PhaseDefinition,
   raw: string | null,
@@ -318,10 +331,9 @@ function resolveTarget(
     title: humanizeCriterionId(criterion.id),
     description: criterion.description,
     closure: criterion.closure,
-    alreadyMet:
-      state?.perCriterion.some(
-        (e) => e.criterionId === criterion.id && e.status === "met"
-      ) ?? false,
+    alreadyMet: trustedPerCriterion(state).some(
+      (e) => e.criterionId === criterion.id && e.status === "met"
+    ),
   };
 }
 
@@ -339,7 +351,7 @@ function openFieldworkTitles(
     .filter(
       (c) =>
         c.closure === "offline-only" &&
-        !state?.perCriterion.some(
+        !trustedPerCriterion(state).some(
           (e) => e.criterionId === c.id && e.status === "met"
         )
     )

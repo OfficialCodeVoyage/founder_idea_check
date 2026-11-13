@@ -47,8 +47,9 @@ import { useTRPC } from "@/trpc/react";
  * identity is per `Chat` instance (`ai`'s `Chat` assigns it in its
  * constructor) — and every read asks with the CURRENT instance's
  * `sendMessage` (`useSendFlight`). A flight whose owner is not the current
- * instance is ignored and dropped on that read, so a stalled send blocks only
- * the instance it was sent through, never the one that replaced it.
+ * instance is ignored, so a stalled send blocks only the instance it was sent
+ * through, never the one that replaced it; the next send for that chat
+ * replaces it, or its own promise settling removes it.
  *
  * NOTHING IN `ChatSync` TAKES PART. An earlier version released the flight from
  * an effect in `components/chat-sync.tsx`, importing this module there, and
@@ -99,21 +100,14 @@ function trackSendFlight(
 
 /**
  * Is a send `owner` made for `chatId` still in flight? A flight some other
- * owner made belongs to a `Chat` instance that has since been replaced: it is
- * dropped here, without notifying, because this runs inside a render-time
- * snapshot read and every reader of the current instance already gets `false`
- * from it.
+ * owner made belongs to a `Chat` instance that has since been replaced, so it
+ * reads as `false`. It is NOT deleted here: this is the `useSyncExternalStore`
+ * snapshot, which runs during render (twice under StrictMode, and in renders
+ * React may discard), so it must not change the map. The flight goes when the
+ * next send for that chat replaces it or its own promise settles.
  */
 function hasOwnFlight(chatId: string, owner: unknown): boolean {
-  const flight = sendFlights.get(chatId);
-  if (!flight) {
-    return false;
-  }
-  if (flight.owner !== owner) {
-    sendFlights.delete(chatId);
-    return false;
-  }
-  return true;
+  return sendFlights.get(chatId)?.owner === owner;
 }
 
 /**

@@ -114,6 +114,42 @@ The turn's charge does not depend on any of these: the route drains its own tee 
 that what it hands `waitUntil` is bounded by the chat stream's own end and every rejection in the read loop is caught.
 Check all four paths above, not only the subscribe one.
 
+### SWEEP-F25 — The "Answering:" label shows for a criterion the prompt did not use
+**Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`components/user-message.tsx::TargetNote` labels any stored criterion id, but `lib/phases/runtime.ts::resolveTarget` honours only an id of the current phase. If the phase advances in `after()` while a target from the old phase is armed, the message shows "Answering: X" although the interviewer never saw it.
+**Clearing condition:** the label is seen on a message whose target was dropped, or the bubble learns which phase the message was sent in.
+
+### SWEEP-F26 — The double-send guard works around the store's lagging status instead of fixing it
+**Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`lib/send-draft-chat-submission.ts` keeps a module-level send-flight registry because `lib/stores/base/use-chat.ts` mirrors the chat status into the store through an effect plus `requestAnimationFrame`. Every sender has to opt in (`useSendFlight`); a new sender that does not can double-send.
+**Clearing condition:** the store sets `submitted` synchronously in a store-level `sendMessage`, and the registry is removed.
+
+### SWEEP-F27 — The prompt can repeat the fieldwork rule two or three times
+**Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+For an offline-only criterion target, `lib/phases/directive.ts::targetLines` and `fieldworkPlanLines` both say never to ask for or accept an on-the-spot number, and under a `fieldwork-required` obstacle `FIELDWORK_INSTRUCTION` says it too. Costs prompt tokens and gives the model overlapping instructions.
+**Clearing condition:** one paragraph carries the rule when more than one would render.
+
+### SWEEP-F28 — Code comments and the prompt use words the glossary rules out for a criterion target
+**Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`CONTEXT.md` says a criterion target is not a "mark" or a "claim", yet `lib/db/schema.ts`, migration `0054`, `docs/DATABASE.md` call it "a claim about intent" and the prompt in `lib/phases/directive.ts::targetLines` says the founder "marked" the message.
+**Clearing condition:** the wording is made consistent (the prompt sentence changes only with a paid check of the reply).
+
+### SWEEP-F29 — The criterion-target id shape is written out by hand in several places
+**Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`lib/ai/types.ts` (`TARGET_CRITERION_ID_PATTERN` plus a redundant `.max()`), the CHECK in `lib/db/schema.ts`, migration `0054` and `docs/DATABASE.md` each repeat `^[a-z0-9-]{1,64}$`. Widening one without the others makes `chatMessageToDbMessage` accept a value the CHECK refuses, which fails the whole save.
+**Clearing condition:** the schema CHECK is derived from the constant, or the shape changes and all copies move together.
+
+### SWEEP-F30 — Every chat event re-renders all checklist rows
+**Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
+**Status:** OPEN (low)
+`components/phase/gate-verdict-card.tsx::useCriterionActions` subscribes `ChecklistBody` to the last message id and the chat status, which it needs only at click time, and returns a new actions object each render, so each send step re-renders the 8 to 10 rows.
+**Clearing condition:** a measured slowdown, or the handler reads the last message id from the store at click time and the actions are memoised.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

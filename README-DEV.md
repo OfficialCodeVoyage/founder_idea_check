@@ -137,8 +137,9 @@ a byte range straight from the store. Each response carries `Cache-Control: priv
 replay a file to someone the check would refuse. The app needs `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` plus
 `VERCEL_OIDC_TOKEN`. Vercel builds set `VERCEL_OIDC_TOKEN` for you and `vercel env pull` writes it locally; it is a
 short-lived token, so do not paste a long-lived value. `check-env` (`apps/chat/scripts/check-env.ts`) names both
-options when neither is met. Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a
-deployment:
+options when neither is met, and fails when `BLOB_READ_WRITE_TOKEN` and `BLOB_STORE_ID` name different stores:
+`BLOB_STORE_ID` wins whenever an OIDC token is found, so a leftover id would silently take every read and write.
+Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a deployment:
 
 - **Blobs uploaded as public before this change will not load.** In private mode files-sdk reads every file with
   `blob.get(key, { access: "private" })` and reports anything that does not come back that way as `NotFound`, so a

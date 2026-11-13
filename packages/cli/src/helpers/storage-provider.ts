@@ -107,17 +107,17 @@ function renderEnvVariable(
 	variable: { description: string; key: string },
 	optional = false,
 ): string[] {
-	// A required variable that must not be pasted by hand (VERCEL_OIDC_TOKEN)
-	// says where it comes from and stays commented out.
+	// A variable that must not be pasted by hand (VERCEL_OIDC_TOKEN) says where
+	// it comes from instead of its description, and stays commented out.
 	const hint = STORAGE_VARIABLE_HINTS[variable.key];
-	if (hint) {
-		return [
-			`# ${variable.key} is required for this option: ${hint}.`,
-			`# ${variable.key}=`,
-		];
+	if (optional) {
+		return [`# ${variable.key}= # ${hint ?? variable.description}`];
 	}
-	return optional
-		? [`# ${variable.key}= # ${variable.description}`]
+	return hint
+		? [
+				`# ${variable.key} is required for this option: ${hint}.`,
+				`# ${variable.key}=`,
+			]
 		: [`# ${variable.description}`, `${variable.key}=`];
 }
 

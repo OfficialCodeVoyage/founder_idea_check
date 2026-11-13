@@ -9,8 +9,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { createModuleLogger } from "@/lib/logger";
-import { getRequestQueryClient } from "@/lib/request-query-client";
-import { getRequestSession } from "@/lib/request-session";
+import {
+  getRequestQueryClient,
+  getRequestSession,
+} from "@/lib/request-session";
 import { trpc } from "@/trpc/server";
 
 const log = createModuleLogger("settings:models");

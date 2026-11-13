@@ -5,7 +5,7 @@ import {
   SettingsPageHeader,
 } from "@/components/settings/settings-page";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getRequestQueryClient } from "@/lib/request-query-client";
+import { getRequestQueryClient } from "@/lib/request-session";
 import { HydrateClient, trpc } from "@/trpc/server";
 
 function ConnectorsSettingsHeader() {

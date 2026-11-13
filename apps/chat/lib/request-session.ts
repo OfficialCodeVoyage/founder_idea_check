@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { connection } from "next/server";
 import { cache } from "react";
 import { auth } from "@/lib/auth";
+import { getQueryClient } from "@/trpc/server";
 
 /**
  * The signed-in session for the current request, for code that runs while a
@@ -33,9 +34,30 @@ import { auth } from "@/lib/auth";
  * So every Server Component that calls server-side tRPC passes the barrier
  * itself before the call: the (chat) layout through this helper before its
  * prefetches, and each page through
- * `lib/request-query-client.ts::getRequestQueryClient`.
+ * `getRequestQueryClient` below.
  */
 export const getRequestSession = cache(async () => {
   await connection();
   return await auth.api.getSession({ headers: await headers() });
 });
+
+/**
+ * The request's query client, for a page that prefetches or fetches through
+ * server-side tRPC. Await it on its own line before the first call, never
+ * inside a `Promise.all`.
+ *
+ * `await connection()` first: the tRPC context looks the session up with no
+ * barrier (see `getRequestSession` above), and a page renders alongside its
+ * layouts, so a layout's barrier does not cover it.
+ *
+ * It lives in this module on purpose, although that pulls the tRPC router
+ * into pages that only need the session. Both other homes made the Next
+ * 16.4.5 dev server reload pages over and over after sign-in (clean restarts,
+ * checked by hand): `trpc/server.tsx` reloaded `/` 71 times, and a module of
+ * its own (`lib/request-query-client.ts`) reloaded `/` 51 times and
+ * `/settings/models` 94 times. Here, each page loads once.
+ */
+export async function getRequestQueryClient() {
+  await connection();
+  return getQueryClient();
+}

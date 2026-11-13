@@ -25,7 +25,7 @@ in the last section.
 | 7 | Deployment settings live in committed code, and docs disagree with it (`hosted`, sidecar URL, provider flags, `RESEARCH_SIDECAR_TOKEN` absent from `.env.example`) | first deploy | Tech debt |
 | 8 | No index on `Message.chatId`, `Chat.userId`, `Chat.projectId`; whole-project transcript load every turn | every chat read, every turn | Performance |
 | 9 | Redis connects at module load with no `error` listener | `/api/chat` availability | Fragile |
-| 10 | Auth library version skew (`better-auth` 1.6.2 on `@better-auth/core` 1.5.6) | auth correctness | Dependencies |
+| 10 | Auth library version skew (`better-auth` on an older `@better-auth/core`) - resolved: the override is gone and core matches (1.6.34) | auth correctness | Dependencies |
 | 11 | Research quality without SearXNG; default lanes lean on Hacker News, whose relevance test is lexical | answer quality | Scaling |
 | 12 | Default balance of 50 cents has no top-up path | product stops for a real user | Missing |
 | 13 | Gate calibrated on phase 1 only; missing prompts degrade to empty text; one extraction pass per turn | verdict quality | Fragile |
@@ -294,7 +294,8 @@ missed ownership or charging step.
 **Vendored Python files** (`apps/research/app/text/cjk.py`, `relevance.py`, `pipeline/dedupe.py`, `entity_extract.py`) are not
 reformatted on purpose (`apps/research/pyproject.toml`); do not run `ruff --fix` over them.
 
-**Version-coupled internals:** code comments rely on `ai@6.0.219` behaviour (`ToolLoopAgent` default of 20 steps,
+**Version-coupled internals:** code comments rely on `ai` behaviour recorded at 6.0.219, now 6.0.323 (whose resume rebuilds the
+response from the replayed stream: `ChatSync` guards `onFinish` and `ThreadRunChat::resume` adapts) (`ToolLoopAgent` default of 20 steps,
 `convertToModelMessages` dropping `input-streaming` parts, `handleUIMessageStreamFinish` calling `onFinish` once from
 `flush` or `cancel`, `streamText` writing a step's `finish-step` only after its tool calls return and no `finish` part
 on abort, which `apps/chat/lib/credits/main-chat-usage.ts::createMainChatUsageMeter` is built on), on `resumable-stream@2.2.10` (`createNewResumableStream`'s read loop has no catch) and on
@@ -341,17 +342,16 @@ older turns survive only as at most 66 fact rows (`apps/chat/lib/phases/runtime.
 
 ## Dependencies at Risk
 
-**`better-auth` stack skew (rank 10):** `bun.lock` resolves `better-auth` and `@better-auth/electron` to 1.6.2 while the root
-`package.json` `overrides` and `apps/chat/package.json` hold `@better-auth/core` at 1.5.6; 1.6.2 declares core 1.6.2 and the
-electron plugin peers on `^1.6.2`. The note beside the override (`//overrides` in `package.json`) cites a peer requirement
-the lockfile no longer shows. Impact: the session, cookie and origin checks run on mixed versions. Plan: audit and remove the
-override, drop `@better-auth/electron` with the Electron code.
+**`better-auth` stack skew (rank 10), resolved:** `better-auth` 1.6.2 ran on a `@better-auth/core` forced to 1.5.6 by a root
+`overrides` entry, so the session, cookie and origin checks ran on mixed versions, and at 1.6.34 that pin made
+`import "better-auth"` fail outright. The override is removed and `apps/chat/package.json` pins core to the version `better-auth`
+declares (1.6.34), with `@better-auth/electron` on `^1.6.34`. Still open: drop `@better-auth/electron` with the Electron code.
 
 **Python sidecar has no lockfile:** `apps/research/pyproject.toml` uses ranges (`fastapi>=0.115,<1.0`, `uvicorn[standard]`,
 `pydantic`), the Dockerfile runs `pip install .`, and CI installs `-e ".[dev]"`; builds are not reproducible and carry no hashes.
 `camel-oasis==0.2.6` and `mcp<2` are pins with a reason.
 
-**Pinned internals:** `ai@6.0.219`, `next@16.3.0`, `resumable-stream@2.2.10`, `redis@^5.5.6`, `files-sdk@2.1.0`; see Fragile
+**Pinned internals:** `ai@6.0.323`, `next@16.3.0`, `resumable-stream@2.2.10`, `redis@^5.5.6`, `files-sdk@2.1.0`; see Fragile
 Areas. `.github/dependabot.yml` waits seven days before proposing a bump.
 
 **CI does not build or audit:** `.github/workflows/ci.yml` runs `verify` and `test:unit` and the sidecar's ruff and pytest; it runs

@@ -24,7 +24,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { ContextBar } from "@/components/context-bar";
 import { ContextUsageFromParent } from "@/components/context-usage";
-import { usePhaseGate } from "@/components/phase/phase-gate-provider";
+import { usePhaseKey } from "@/components/phase/phase-gate-provider";
 import { useArtifact } from "@/hooks/use-artifact";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { AppModelId } from "@/lib/ai/app-model-id";
@@ -41,6 +41,7 @@ import {
   normalizeSelectedModel,
 } from "@/lib/draft-chat-submission";
 import { processFilesForUpload } from "@/lib/files/upload-prep";
+import { humanizeCriterionId } from "@/lib/phases/rail";
 import {
   isSendInFlight,
   useSendDraftChatSubmission,
@@ -159,7 +160,11 @@ function PureMultimodalInput({
   // with no gate to say which phase this is) is simply not there: no chip, no
   // hint, no label. The stale value in the provider is overwritten by the next
   // "Answer" and cleared by the next send.
-  const gatePhaseKey = usePhaseGate()?.data?.phaseKey ?? null;
+  //
+  // `usePhaseKey`, not `usePhaseGate`: this composer is memoised, and the whole
+  // gate payload changes on every poll while a verdict is awaited. The phase
+  // key is a string in a context of its own, so only a change of phase renders.
+  const gatePhaseKey = usePhaseKey();
   const criterionTarget =
     storedCriterionTarget && storedCriterionTarget.phaseKey === gatePhaseKey
       ? storedCriterionTarget
@@ -433,10 +438,14 @@ function PureMultimodalInput({
 
   // The "Stop answering" button that was just pressed unmounts with the chip, so
   // focus goes where the founder is about to type, not to the document body.
+  // Not on mobile, like every other refocus in this composer: it would raise
+  // the keyboard for a tap that only dismissed a label.
   const clearCriterionTarget = useCallback(() => {
     setCriterionTarget(null);
-    editorRef.current?.focus();
-  }, [editorRef, setCriterionTarget]);
+    if (!isMobile) {
+      editorRef.current?.focus();
+    }
+  }, [editorRef, isMobile, setCriterionTarget]);
 
   const submitForm = useCallback(() => {
     // EVERY WAY OF SENDING (Enter, the form, the send button) COMES THROUGH
@@ -444,9 +453,13 @@ function PureMultimodalInput({
     // seen before the chat status shows it: `submission` above reads a
     // render-time status, which stays `ready` for a frame or two after the gate
     // card's "Plan how to find out" sends. Refusing here, before `handleSubmit`,
-    // keeps what the founder typed in the editor.
+    // keeps what the founder typed in the editor. The message says what is
+    // happening (a send is under way), not that the model is answering: in this
+    // window nothing visibly is.
     if (isSendInFlight(chatId)) {
-      toast.error("Please wait for the model to finish its response!");
+      toast.error(
+        "Your last message is still being sent. Try again in a moment."
+      );
       return;
     }
     handleSubmit(coreSubmitLogic, isEditMode);
@@ -988,16 +1001,15 @@ function CriterionTargetBar({
   onClear: () => void;
   target: CriterionTarget | null;
 }) {
+  const title = target ? humanizeCriterionId(target.criterionId) : null;
   return (
     <>
       <output className="sr-only">
-        {target
-          ? `Answering ${target.title}. ${TARGET_HINT[target.closure]}`
+        {target && title
+          ? `Answering ${title}. ${TARGET_HINT[target.closure]}`
           : ""}
       </output>
-      {target ? (
-        <CriterionTargetChip onClear={onClear} title={target.title} />
-      ) : null}
+      {title ? <CriterionTargetChip onClear={onClear} title={title} /> : null}
     </>
   );
 }

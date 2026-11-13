@@ -1046,42 +1046,28 @@ export type ChecklistGroups = {
 };
 
 /**
- * PURE. Definition order inside every group, `criteria` being the definition.
+ * PURE. One pass over the rows, split on `state` and `closure`.
  *
- * A row whose id the definition no longer carries keeps its own closure and
- * sorts last, rather than being dropped: an open criterion must never vanish
- * from the card because the lists disagree.
+ * Each group keeps the order of `rows`, which `describeCriterionChecklist`
+ * builds from the phase's criteria in definition order, so "definition order
+ * inside every group" holds without sorting here. `closure` on a row is the
+ * definition's own (copied from the criterion), so the split is keyed on the
+ * definition and the judge's label only decides met against open.
  */
 export function groupChecklistRows(
-  rows: readonly ChecklistRow[],
-  criteria: readonly { id: string; closure: CriterionClosure }[]
+  rows: readonly ChecklistRow[]
 ): ChecklistGroups {
-  const definition = new Map(
-    criteria.map((c, index) => [c.id, { index, closure: c.closure }])
-  );
-  const ordered = rows
-    .map((row) => {
-      const known = definition.get(row.id);
-      return {
-        row,
-        at: known?.index ?? Number.MAX_SAFE_INTEGER,
-        closure: known?.closure ?? row.closure,
-      };
-    })
-    .sort((a, b) => a.at - b.at);
-
   const answerNow: GroupedChecklistRow[] = [];
   const needsEvidence: GroupedChecklistRow[] = [];
   const met: GroupedChecklistRow[] = [];
-  for (const { row, closure } of ordered) {
+  for (const row of rows) {
     const grouped: GroupedChecklistRow = {
       ...row,
-      closure,
       doesNotBlock: row.severity === "advisory",
     };
     if (row.state === "met") {
       met.push(grouped);
-    } else if (closure === "offline-only") {
+    } else if (row.closure === "offline-only") {
       needsEvidence.push(grouped);
     } else {
       answerNow.push(grouped);
@@ -1110,8 +1096,6 @@ export type StatusStrip =
   | {
       available: true;
       segments: readonly StatusStripSegment[];
-      metCount: number;
-      total: number;
       /** The visible count: "3 of 8 met". */
       label: string;
       /**
@@ -1132,8 +1116,6 @@ export function describeStatusStrip(
   return {
     available: true,
     segments: rows.map((r) => ({ id: r.id, state: r.state })),
-    metCount,
-    total: rows.length,
     label: metClause(metCount, rows.length),
     // The checklist's own sentence, not a second one: it already names every
     // state in a fixed order, and it is the one sentence that also says how

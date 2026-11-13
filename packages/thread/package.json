@@ -55,7 +55,7 @@
 		"test:types": "tsc -p tsconfig.json --noEmit"
 	},
 	"peerDependencies": {
-		"@ai-sdk/react": "^3.0.0",
+		"@ai-sdk/react": "^3.0.326",
 		"ai": "^6.0.323",
 		"react": ">=18"
 	},

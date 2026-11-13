@@ -99,6 +99,15 @@ export const serverEnvSchema = {
     .optional()
     .describe("LiteLLM proxy API key (master or virtual key)"),
 
+  // File storage (Vercel Blob). files-sdk reads these itself; listed so turbo
+  // passes them through and `scripts/check-env.ts` can name them.
+  BLOB_STORE_ID: z
+    .string()
+    .optional()
+    .describe(
+      "Vercel Blob store id; with VERCEL_OIDC_TOKEN, the alternative to BLOB_READ_WRITE_TOKEN"
+    ),
+
   // Optional cleanup cron job secret
   CRON_SECRET: z
     .string()

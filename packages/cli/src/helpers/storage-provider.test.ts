@@ -83,7 +83,7 @@ describe("storage provider configuration", () => {
 				description: "Vercel Blob credentials",
 				options: [
 					["BLOB_READ_WRITE_TOKEN"],
-					["BLOB_STORE_ID"],
+					["VERCEL_OIDC_TOKEN", "BLOB_STORE_ID"],
 				],
 			},
 		]);

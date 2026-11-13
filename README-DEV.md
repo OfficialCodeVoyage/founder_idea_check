@@ -128,7 +128,9 @@ Attachments and generated images and videos are stored in Vercel Blob through fi
 (`apps/chat/lib/storage-provider.ts`), as **private** blobs (`access: "private"`). A public blob can be read by anyone
 who has the store id and the key, straight from the Blob CDN, around the access checks in `/api/files/content`. A
 private blob is read only with the app's own credentials, so that route is the only way in. The Blob store must accept
-private blobs. Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a deployment:
+private blobs. The app needs `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` plus `VERCEL_OIDC_TOKEN`; `check-env`
+(`apps/chat/scripts/check-env.ts`) reports which is missing. Nothing is deployed yet, so no stored file is at risk
+today. Two consequences matter for a deployment:
 
 - **Blobs uploaded as public before this change will not load.** In private mode files-sdk reads every file with
   `blob.get(key, { access: "private" })` and reports anything that does not come back that way as `NotFound`, so a

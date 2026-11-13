@@ -857,6 +857,11 @@ export type ChecklistRow = {
  * nothing to say, when the gate never ran. Same technique, and the same live
  * incident, as `GateVerdictView.coverage` above and `AttemptDetail` in
  * attempt-history.ts.
+ *
+ * "NOTHING WAS SCORED" HAS MORE THAN ONE SHAPE, and all of them land here: an
+ * empty `perCriterion`, a verdict whose obstacle is `judge-incomplete` (the gate
+ * did not believe the judge's answer, whatever it contained), and a judge whose
+ * ids match none of this phase's criteria.
  */
 export type CriterionChecklist =
   | { available: false; note: string }
@@ -884,6 +889,10 @@ const CANNOT_READ =
   "The stored verdict can no longer be read, so its per-criterion detail is unavailable. That is a reading failure — it is not a clean sheet.";
 const NO_CRITERIA =
   "This phase defines no exit criteria, so there is nothing to check against. That is a bug in the app rather than something you did.";
+const JUDGE_INCOMPLETE =
+  "The judge's answer was incomplete or ambiguous, so none of its per-criterion results can be trusted and none of them can be reported as met or unmet. That is a failure of the gate, not a finding about your work.";
+const NONE_MATCHED =
+  "The judge scored criteria this phase does not define, so none of this phase's own criteria was scored on this attempt and none of them can be reported as met or unmet. That is a failure of the gate, not a finding about your work.";
 
 function stateOf(
   id: string,
@@ -941,6 +950,12 @@ export function describeCriterionChecklist(input: {
   verdictReadable: boolean;
   /** From describeAttemptStanding. Absent when nothing has repeated. */
   repeats?: readonly CriterionRepeat[];
+  /**
+   * Which rule fired. Optional: an older caller that does not pass it gets the
+   * rows it always got. `judge-incomplete` makes the whole checklist
+   * unavailable, see below.
+   */
+  obstacle?: GateObstacle | null;
 }): CriterionChecklist {
   if (!input.verdictReadable) {
     return { available: false, note: CANNOT_READ };
@@ -952,6 +967,14 @@ export function describeCriterionChecklist(input: {
   // the other — so zero here is the fail-closed signature and nothing else.
   if (input.perCriterion.length === 0) {
     return { available: false, note: NOTHING_SCORED };
+  }
+  // A JUDGE THAT DID NOT RETURN A USABLE ANSWER HAS NO PER-CRITERION RESULTS TO
+  // REPORT, even when `perCriterion` is not empty: a coverage mismatch or a
+  // duplicated id is the gate refusing to believe the whole answer
+  // (`decideGate`), so "N of M met" over it would be a result the gate itself
+  // declined to stand behind. The card shows the flat open set instead.
+  if (input.obstacle?.kind === "judge-incomplete") {
+    return { available: false, note: JUDGE_INCOMPLETE };
   }
 
   const repeats = input.repeats ?? [];
@@ -967,6 +990,13 @@ export function describeCriterionChecklist(input: {
       repeat: repeats.find((r) => r.criterionId === c.id) ?? null,
     };
   });
+  // NO ROW SCORED is the same fact as "nothing was scored", reached another way:
+  // every id the judge returned belongs to some other phase. Eight "not scored"
+  // rows, each offering an answer, would be the "0 of 8 met" this arm exists to
+  // prevent, whatever obstacle the caller did or did not pass.
+  if (rows.every((r) => r.state === "unscored")) {
+    return { available: false, note: NONE_MATCHED };
+  }
   const metCount = rows.filter((r) => r.state === "met").length;
 
   return {

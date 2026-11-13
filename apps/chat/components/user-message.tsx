@@ -26,8 +26,13 @@ const KNOWN_CRITERION_IDS: ReadonlySet<string> = new Set(
 /**
  * "Answering: Target user", above a message the founder sent from the gate
  * card's "Answer". Only for an id the phase definitions carry: the label rides
- * on message metadata that a stored or edited message can lose or garble, and a
- * line naming a criterion that does not exist would be worse than no line.
+ * on message metadata that a stored message can lose or garble, and a line
+ * naming a criterion that does not exist would be worse than no line.
+ *
+ * EDITING A LABELLED MESSAGE DROPS ITS LABEL, by design. An edit is resent
+ * through the message editor's own composer, which has no criterion target, so
+ * the new message carries no `targetCriterionId` and this line disappears. The
+ * edited text is no longer known to be an answer to that criterion.
  */
 function TargetNote({ criterionId }: { criterionId: string | undefined }) {
   if (!(criterionId && KNOWN_CRITERION_IDS.has(criterionId))) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import type { ChatMessage } from "@/lib/ai/types";
 import { useCurrentChatRoute } from "@/lib/chat-route";
@@ -13,10 +13,86 @@ import {
   runParallelRequestSpecs,
 } from "@/lib/parallel-chat-requests";
 import { useStartProvisionalChat } from "@/lib/start-provisional-chat";
-import { useChatActions } from "@/lib/stores/base";
+import { useChatActions, useChatStatus } from "@/lib/stores/base";
 import { useAddMessageToTree } from "@/lib/stores/hooks-threads";
 import { useChatInput } from "@/providers/chat-input-provider";
 import { useTRPC } from "@/trpc/react";
+
+/**
+ * A SEND THE CHAT STATUS HAS NOT CAUGHT UP WITH YET, shared by every sender.
+ *
+ * The chat status is mirrored into the store by an effect (and, when batching
+ * is on, an animation frame), so for a frame or two after `sendMessage` runs
+ * every reader still sees `ready`. Two senders in that window both send: the
+ * gate card's "Plan how to find out" and then Enter in the composer, or the
+ * other way round. Each sender's own check (the composer's `submission`, the
+ * card's disabled button) reads a render-time status and cannot see the other.
+ *
+ * So the flight is a module-level fact keyed on the chat id, set synchronously
+ * the moment a send returns, and cleared when the chat status has gone busy and
+ * come back (`settleSendFlight`). A send that never turns the status busy (a
+ * dropped request) would otherwise block the chat for good, so an unseen flight
+ * also expires on its own after `UNSEEN_FLIGHT_MS`.
+ */
+type SendFlight = { sawBusy: boolean };
+
+const UNSEEN_FLIGHT_MS = 1500;
+const sendFlights = new Map<string, SendFlight>();
+const flightListeners = new Set<() => void>();
+
+function notifyFlightListeners() {
+  for (const listener of flightListeners) {
+    listener();
+  }
+}
+
+function subscribeToFlights(listener: () => void) {
+  flightListeners.add(listener);
+  return () => {
+    flightListeners.delete(listener);
+  };
+}
+
+function beginSendFlight(chatId: string) {
+  const flight: SendFlight = { sawBusy: false };
+  sendFlights.set(chatId, flight);
+  notifyFlightListeners();
+  setTimeout(() => {
+    if (sendFlights.get(chatId) === flight && !flight.sawBusy) {
+      sendFlights.delete(chatId);
+      notifyFlightListeners();
+    }
+  }, UNSEEN_FLIGHT_MS);
+}
+
+function settleSendFlight(chatId: string, busy: boolean) {
+  const flight = sendFlights.get(chatId);
+  if (!flight) {
+    return;
+  }
+  if (busy) {
+    flight.sawBusy = true;
+    return;
+  }
+  if (flight.sawBusy) {
+    sendFlights.delete(chatId);
+    notifyFlightListeners();
+  }
+}
+
+/** Synchronous, for a click or key handler that must not send twice. */
+export function isSendInFlight(chatId: string): boolean {
+  return sendFlights.has(chatId);
+}
+
+/** Reactive, for a button that should look disabled while a send is in flight. */
+export function useSendInFlight(chatId: string): boolean {
+  return useSyncExternalStore(
+    subscribeToFlights,
+    () => sendFlights.has(chatId),
+    () => false
+  );
+}
 
 /**
  * SENDING A BUILT SUBMISSION, in one place.
@@ -30,10 +106,37 @@ import { useTRPC } from "@/trpc/react";
  * project's first message. A second copy of this would drift, and a send that
  * skipped the placeholder is a send whose reply has nowhere to render.
  *
+ * It starts a send flight (above) once the send has returned, so a send that
+ * throws leaves nothing locked. It does NOT refuse a send itself: the composer
+ * clears its editor after calling this, and a silent refusal would lose what the
+ * founder typed. Callers check `isSendInFlight` first. A provisional chat starts
+ * no flight: it changes the route and remounts the chat, so the flight would
+ * outlive the store whose status settles it.
+ *
  * Returns true when it started a provisional chat (the route changes and the
  * caller's own refocus has already been done through `onStarted`).
  */
 export function useSendDraftChatSubmission(chatId: string) {
+  const status = useChatStatus();
+  const busy = status === "submitted" || status === "streaming";
+  useEffect(() => {
+    settleSendFlight(chatId, busy);
+  }, [busy, chatId]);
+
+  const send = useDispatchDraftChatSubmission(chatId);
+  return useCallback(
+    (submission: Parameters<typeof send>[0]): boolean => {
+      const startedProvisionalChat = send(submission);
+      if (!startedProvisionalChat) {
+        beginSendFlight(chatId);
+      }
+      return startedProvisionalChat;
+    },
+    [chatId, send]
+  );
+}
+
+function useDispatchDraftChatSubmission(chatId: string) {
   const queryClient = useQueryClient();
   const trpc = useTRPC();
   const currentRoute = useCurrentChatRoute();

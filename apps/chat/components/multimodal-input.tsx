@@ -41,12 +41,18 @@ import {
   normalizeSelectedModel,
 } from "@/lib/draft-chat-submission";
 import { processFilesForUpload } from "@/lib/files/upload-prep";
-import { useSendDraftChatSubmission } from "@/lib/send-draft-chat-submission";
+import {
+  isSendInFlight,
+  useSendDraftChatSubmission,
+} from "@/lib/send-draft-chat-submission";
 import { useChatActions, useChatStoreApi } from "@/lib/stores/base";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { cn } from "@/lib/utils";
-import { useChatInput } from "@/providers/chat-input-provider";
+import {
+  type CriterionTarget,
+  useChatInput,
+} from "@/providers/chat-input-provider";
 import { useChatModels } from "@/providers/chat-models-provider";
 import { useSession } from "@/providers/session-provider";
 import { useTRPC } from "@/trpc/react";
@@ -425,9 +431,26 @@ function PureMultimodalInput({
     trimMessagesInEditMode,
   ]);
 
+  // The "Stop answering" button that was just pressed unmounts with the chip, so
+  // focus goes where the founder is about to type, not to the document body.
+  const clearCriterionTarget = useCallback(() => {
+    setCriterionTarget(null);
+    editorRef.current?.focus();
+  }, [editorRef, setCriterionTarget]);
+
   const submitForm = useCallback(() => {
+    // EVERY WAY OF SENDING (Enter, the form, the send button) COMES THROUGH
+    // HERE, so this is the one place a send another sender has just made is
+    // seen before the chat status shows it: `submission` above reads a
+    // render-time status, which stays `ready` for a frame or two after the gate
+    // card's "Plan how to find out" sends. Refusing here, before `handleSubmit`,
+    // keeps what the founder typed in the editor.
+    if (isSendInFlight(chatId)) {
+      toast.error("Please wait for the model to finish its response!");
+      return;
+    }
     handleSubmit(coreSubmitLogic, isEditMode);
-  }, [handleSubmit, coreSubmitLogic, isEditMode]);
+  }, [chatId, handleSubmit, coreSubmitLogic, isEditMode]);
 
   const uploadFile = useCallback(
     async (
@@ -706,10 +729,10 @@ function PureMultimodalInput({
             uploadQueue={uploadQueue}
           />
 
-          {criterionTarget && isActive && !isEditMode ? (
-            <CriterionTargetChip
-              onClear={() => setCriterionTarget(null)}
-              title={criterionTarget.title}
+          {isActive && !isEditMode ? (
+            <CriterionTargetBar
+              onClear={clearCriterionTarget}
+              target={criterionTarget}
             />
           ) : null}
 
@@ -948,6 +971,36 @@ const TARGET_HINT = {
   "offline-only":
     "What did you find? Who you spoke to, how many, when, and what they said.",
 } as const;
+
+/**
+ * THE TARGET, SEEN AND HEARD.
+ *
+ * The chip is only visible, and a control that appears is not announced, so a
+ * screen-reader user who pressed "Answer" would be told nothing. The region is
+ * mounted all the time and only its text changes, which is what a polite live
+ * region announces reliably. It carries the hint too, since the placeholder that
+ * shows it is not read as a label. Empty (so silent) when there is no target.
+ */
+function CriterionTargetBar({
+  onClear,
+  target,
+}: {
+  onClear: () => void;
+  target: CriterionTarget | null;
+}) {
+  return (
+    <>
+      <output className="sr-only">
+        {target
+          ? `Answering ${target.title}. ${TARGET_HINT[target.closure]}`
+          : ""}
+      </output>
+      {target ? (
+        <CriterionTargetChip onClear={onClear} title={target.title} />
+      ) : null}
+    </>
+  );
+}
 
 function PureChatInputBottomControls({
   selectedModelId,

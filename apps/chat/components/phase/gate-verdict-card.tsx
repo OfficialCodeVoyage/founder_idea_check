@@ -2,7 +2,7 @@
 
 import { ChevronDown } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { config } from "@/lib/config";
@@ -29,7 +29,11 @@ import {
   type StatusStrip,
 } from "@/lib/phases/rail";
 import type { GateObstacle } from "@/lib/phases/types";
-import { useSendDraftChatSubmission } from "@/lib/send-draft-chat-submission";
+import {
+  isSendInFlight,
+  useSendDraftChatSubmission,
+  useSendInFlight,
+} from "@/lib/send-draft-chat-submission";
 import { useChatStatus } from "@/lib/stores/base";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
 import { cn } from "@/lib/utils";
@@ -333,11 +337,18 @@ function planRequestText(title: string): string {
  * selection. `followup-suggestions.tsx` sends none of those, and a reply with no
  * placeholder has nowhere to render.
  *
- * ONE CLICK, ONE REQUEST. The button locks at the click and unlocks only when
- * the chat has gone busy and come back: the chat status turns busy a render
- * after `sendMessage` runs, and a second click in that window would send the
- * same request twice. The tool selection is not carried: a founder who has
- * deep research switched on for their own next message did not ask for it here.
+ * ONE CLICK, ONE REQUEST, ACROSS EVERY SENDER. The chat status turns busy a
+ * frame or two after `sendMessage` runs, so a second click, or Enter in the
+ * composer, in that window would send again. The send flight in
+ * `send-draft-chat-submission.ts` is set the moment a send returns and cleared
+ * when the status has gone busy and come back; the button reads it (disabled
+ * while it is set) and the click checks it again synchronously. The tool
+ * selection is not carried: a founder who has deep research switched on for
+ * their own next message did not ask for it here.
+ *
+ * FOCUS GOES TO THE EDITOR after the send. The button disables itself the moment
+ * it is pressed, and a focused control that disables strands keyboard and
+ * screen-reader focus on nothing.
  *
  * THIS HOOK LIVES IN `ChecklistBody`, not in the card, on purpose: it reads the
  * composer's context, which changes as the founder types, and everything above
@@ -359,18 +370,9 @@ function useCriterionActions({
   const status = useChatStatus();
   const lastMessageId = useLastMessageId();
   const sendDraftChatSubmission = useSendDraftChatSubmission(chatId);
-  const [lock, setLock] = useState<"open" | "armed" | "running">("open");
+  const sending = useSendInFlight(chatId);
 
-  const busy = status === "submitted" || status === "streaming";
-  useEffect(() => {
-    if (lock === "armed" && busy) {
-      setLock("running");
-    } else if (lock === "running" && !busy) {
-      setLock("open");
-    }
-  }, [busy, lock]);
-
-  const canSend = (status === "ready" || status === "error") && lock === "open";
+  const canSend = (status === "ready" || status === "error") && !sending;
 
   return {
     canSend,
@@ -384,7 +386,7 @@ function useCriterionActions({
       editorRef.current?.focus();
     },
     planFieldwork(row: GroupedChecklistRow) {
-      if (!canSend) {
+      if (!canSend || isSendInFlight(chatId)) {
         return;
       }
       const { message, requestSpecs } = buildDraftChatSubmission({
@@ -399,8 +401,10 @@ function useCriterionActions({
         selectedTool: null,
         targetCriterionId: null,
       });
-      setLock("armed");
+      // The send flight starts when this returns, so a send that throws leaves
+      // the buttons enabled.
       sendDraftChatSubmission({ message, requestSpecs });
+      editorRef.current?.focus();
     },
   };
 }
@@ -804,6 +808,32 @@ function VerdictNotices({ view }: { view: AssessedView }) {
 }
 
 /**
+ * WHY THERE IS NO CHECKLIST, when there is not one and nothing above said so.
+ *
+ * Not for the fail-closed and unreadable arms, whose notices already say it, and
+ * not for a `judge-incomplete` verdict: its obstacle note ("did not return a
+ * usable judgement") is the same fact in the gate's own words, and stating it
+ * twice is noise. What is left is a verdict that scored something and still has
+ * no rows (the judge's ids matched none of this phase's criteria).
+ */
+function ChecklistAbsence({
+  checklist,
+  view,
+}: {
+  checklist: CriterionChecklist;
+  view: AssessedView;
+}) {
+  if (
+    checklist.available ||
+    view.coverage.kind !== "scored" ||
+    view.obstacle?.kind === "judge-incomplete"
+  ) {
+    return null;
+  }
+  return <p className="mt-2 text-foreground/75 text-sm">{checklist.note}</p>;
+}
+
+/**
  * WHAT THIS STATE IS, AND WHAT CLOSES IT.
  *
  * The rows are a set of findings with no instruction attached, and for
@@ -948,9 +978,10 @@ function VerdictDetails({
       {groups ? null : <RepeatNote note={standing.repeatNote} />}
 
       {/*
-        THE CHECKLIST IS THE BODY. Where it cannot be drawn, the note says why —
-        unless the card already said so a few lines up (the fail-closed and
-        unreadable notices), so the same fact is not stated twice.
+        THE CHECKLIST IS THE BODY. Where it cannot be drawn (nothing scored, an
+        unreadable verdict, a `judge-incomplete` one) the flat open set above
+        stands in for it and `ChecklistAbsence` says why, unless something
+        already did.
       */}
       {groups ? (
         <ChecklistBody
@@ -962,9 +993,7 @@ function VerdictDetails({
           projectId={projectId}
         />
       ) : null}
-      {checklist.available || view.coverage.kind !== "scored" ? null : (
-        <p className="mt-2 text-foreground/75 text-sm">{checklist.note}</p>
-      )}
+      <ChecklistAbsence checklist={checklist} view={view} />
 
       <VerdictFootnotes view={view} />
 
@@ -1046,6 +1075,7 @@ function deriveCardView(
     perCriterion: data.perCriterion,
     repeats: standing.repeats,
     verdictReadable: data.verdictReadable,
+    obstacle: data.obstacle,
   });
   return {
     kind: "verdict",

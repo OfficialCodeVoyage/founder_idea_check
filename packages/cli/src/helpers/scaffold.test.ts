@@ -209,7 +209,7 @@ describe("scaffoldFromTemplate", () => {
 		expect(packageJson.dependencies["@better-auth/core"]).toBe("1.6.34");
 		expect(packageJson.dependencies["@better-auth/electron"]).toBe("1.6.34");
 		expect(packageJson.dependencies["better-auth"]).toBe("1.6.34");
-		expect(packageJson.overrides?.["@better-auth/core"]).toBe("1.6.34");
+		expect(packageJson.overrides?.["@better-auth/core"]).toBeUndefined();
 	});
 
 	it("rewrites the generated web app to be npm-friendly", async () => {
@@ -421,7 +421,7 @@ describe.skip("scaffoldElectron", () => {
 			expect(script).not.toContain("bun ");
 			expect(script).not.toContain("bunx");
 		}
-		expect(packageJson.overrides?.["@better-auth/core"]).toBe("1.5.6");
+		expect(packageJson.overrides?.["@better-auth/core"]).toBeUndefined();
 		expect(
 			await readFile(join(projectDir, "electron", "README.md"), "utf8"),
 		).not.toContain("bun ");

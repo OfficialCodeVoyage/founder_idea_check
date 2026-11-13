@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AuthCardSkeleton } from "@/components/auth-card-skeleton";
 import { DeviceLoginPage } from "@/components/device-login-page";
-import { auth } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { toSearchParamRecord } from "@/lib/electron-auth";
+import { getRequestSession } from "@/lib/request-session";
 
 export const metadata: Metadata = {
   title: "Device Login",
@@ -54,7 +53,7 @@ async function DeviceLoginContent({
   const currentHref = queryString
     ? `/device-login?${queryString}`
     : "/device-login";
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getRequestSession();
 
   if (!(session?.user || isCompletedView)) {
     redirect(`/login?returnTo=${encodeURIComponent(currentHref)}`);

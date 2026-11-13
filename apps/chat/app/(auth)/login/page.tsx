@@ -1,6 +1,5 @@
 import { ChevronLeft } from "lucide-react";
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { Suspense } from "react";
 import { AuthCardSkeleton } from "@/components/auth-card-skeleton";
 import { DevLoginTool } from "@/components/dev-login-tool";
@@ -8,12 +7,12 @@ import { ElectronTransferUser } from "@/components/electron-auth-ui";
 import { InternalLink } from "@/components/internal-link";
 import { LoginForm } from "@/components/login-form";
 import { buttonVariants } from "@/components/ui/button";
-import { auth } from "@/lib/auth";
 import { config } from "@/lib/config";
 import {
   ELECTRON_AUTH_CLIENT_ID,
   toSearchParamRecord,
 } from "@/lib/electron-auth";
+import { getRequestSession } from "@/lib/request-session";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -64,9 +63,7 @@ async function LoginPageContent({
   const query = toSearchParamRecord(resolvedSearchParams);
   const isElectronTransfer =
     config.desktopApp.enabled && query.client_id === ELECTRON_AUTH_CLIENT_ID;
-  const session = isElectronTransfer
-    ? await auth.api.getSession({ headers: await headers() })
-    : null;
+  const session = isElectronTransfer ? await getRequestSession() : null;
 
   if (session?.user && isElectronTransfer) {
     return <ElectronTransferUser query={query} session={session} />;

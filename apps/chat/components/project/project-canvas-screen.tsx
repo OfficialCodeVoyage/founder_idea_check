@@ -1,10 +1,9 @@
-import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { ProjectCanvas } from "@/components/canvas/project-canvas";
 import { PersonaCard } from "@/components/persona/persona-card";
-import { auth } from "@/lib/auth";
 import { loadProjectCanvas } from "@/lib/project/canvas-data";
+import { getRequestSession } from "@/lib/request-session";
 
 /**
  * The project canvas screen: facts, personas, artifacts and the tasks that
@@ -64,7 +63,7 @@ async function ProjectCanvasContent({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getRequestSession();
   if (!session?.user) {
     redirect("/");
   }

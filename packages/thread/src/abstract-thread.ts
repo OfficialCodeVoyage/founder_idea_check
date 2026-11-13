@@ -704,7 +704,7 @@ export abstract class AbstractThread<TMessage extends UIMessage = UIMessage> {
 		}
 		const tree = this.createTree();
 		const message = tree.getMessage(messageId);
-		if (!message || message.role !== "assistant") {
+		if (message?.role !== "assistant") {
 			return;
 		}
 		const parentMessageId = tree.getParentId(messageId) ?? null;
@@ -815,7 +815,7 @@ export abstract class AbstractThread<TMessage extends UIMessage = UIMessage> {
 		} else {
 			const tree = this.createTree();
 			const message = tree.getMessage(messageId);
-			if (!message || message.role !== "assistant") {
+			if (message?.role !== "assistant") {
 				throw new Error(`Message ${messageId} is not an assistant message`);
 			}
 			this.#runs.assertHasCapacity(tree.getParentId(messageId) ?? null);

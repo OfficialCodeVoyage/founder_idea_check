@@ -127,8 +127,12 @@ A FastAPI service the app reaches only over HTTP; it owns every call to a demand
 
 **File Storage:**
 - Vercel Blob through `files-sdk` (`apps/chat/lib/storage-provider.ts`, `apps/chat/lib/file-storage.ts`), private access, keys carry a
-  digest of the owner id. Token variable `BLOB_READ_WRITE_TOKEN` is listed in `turbo.json` and no app source reads it; the adapter
-  reads it. Unused today: `features.attachments` is false and image generation is off in `apps/chat/chat.config.ts`.
+  digest of the owner id. Two credential modes: `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` with a Vercel OIDC token (from each
+  request's `x-vercel-oidc-token` header on Vercel, else `VERCEL_OIDC_TOKEN`, which `vercel env pull` writes). The adapter
+  (`@vercel/blob`) reads them; app code only declares them (`apps/chat/lib/env-schema.ts`, `turbo.json`) and checks that one mode
+  is met (`apps/chat/scripts/check-env.ts::validateStorage`, rules in `apps/chat/lib/storage-provider-metadata.ts`). Every read
+  streams through `/api/files/content` after the access check; nothing redirects to a provider link. Unused today:
+  `features.attachments` is false and image generation is off in `apps/chat/chat.config.ts`.
 - The export is never written on the server: the app returns a plan and the browser downloads files (`apps/chat/lib/export/handoff.ts`).
 
 **Caching:**
@@ -194,7 +198,7 @@ A FastAPI service the app reaches only over HTTP; it owns every call to a demand
   flag is `ai.tools.deepResearch.hosted` in `apps/chat/chat.config.ts` (false there, for local use only), and the sidecar reads
   `RESEARCH_HOSTED` on its own (default hosted).
 - Search backends: `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `EXA_API_KEY` (unread).
-- Stores: `REDIS_URL`, `BLOB_READ_WRITE_TOKEN`.
+- Stores: `REDIS_URL`, `BLOB_READ_WRITE_TOKEN`, `BLOB_STORE_ID` (with `VERCEL_OIDC_TOKEN`, listed under model gateways).
 - Cron and platform: `CRON_SECRET`, `APP_URL`, `VERCEL_URL`, `VERCEL_ENV`, `VERCEL_PROJECT_PRODUCTION_URL`.
 - Dormant features: `MCP_ENCRYPTION_KEY`, the `VERCEL_SANDBOX_*`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`, `VERCEL_TOKEN` group.
 - Dev and test: `PORT`, `DEBUG`, `PLAYWRIGHT`, `PLAYWRIGHT_TEST_BASE_URL`, `CI_PLAYWRIGHT`, `CHATJS_DEV_SLOT`.

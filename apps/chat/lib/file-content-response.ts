@@ -3,7 +3,6 @@ import { canReadStoredFile } from "./file-access";
 import {
   downloadFile,
   getFileMetadata,
-  getFileProviderUrl,
   storageSupportsRange,
 } from "./file-storage";
 import { fileRequestFromUrl } from "./file-url";
@@ -42,6 +41,11 @@ function parseRange(value: string, size: number) {
  * signed-out request with no chat to check answers 401; any refused key
  * answers 404, the same as a missing file, so the response does not reveal
  * whether someone else's key exists.
+ *
+ * An allowed file is always streamed from here, never answered with a
+ * redirect to a provider link: a presigned URL (files-sdk signs them for a
+ * private Vercel Blob, S3, GCS, Azure, R2 and more) is a bearer link that
+ * works for whoever holds it, without this check, until it expires.
  */
 export async function createFileContentResponse(
   request: Request,
@@ -60,17 +64,6 @@ export async function createFileContentResponse(
   }
 
   try {
-    const providerUrl = await getFileProviderUrl(key);
-    if (providerUrl) {
-      return new Response(null, {
-        headers: {
-          Location: providerUrl,
-          "Cache-Control": "private, no-store",
-        },
-        status: 307,
-      });
-    }
-
     const rangeHeader = request.headers.get("range");
     const supportsRange = storageSupportsRange();
     let range: { start: number; end: number } | undefined;

@@ -128,13 +128,12 @@ Attachments and generated images and videos are stored in Vercel Blob through fi
 (`apps/chat/lib/storage-provider.ts`), as **private** blobs (`access: "private"`). A public blob can be read by anyone
 who has the store id and the key, straight from the Blob CDN, around the access checks in `/api/files/content`. A
 private blob is read only with the app's own credentials, so that route is the only way in. The Blob store must accept
-private blobs. The route never answers a read with a redirect to a provider link either: a presigned URL (a private
-Vercel Blob since files-sdk 3, S3, GCS, Azure, R2 and the rest) is a bearer link that works without the access check
-until it expires, so the file is streamed through the app. Only a store whose options say `access: "public"` is
-redirected, because such a store already serves every key to anyone
-(`apps/chat/lib/file-storage.ts::getFileProviderUrl`). The app needs `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` plus
-`VERCEL_OIDC_TOKEN`; `check-env` (`apps/chat/scripts/check-env.ts`) reports which is missing. Nothing is deployed
-yet, so no stored file is at risk today. Two consequences matter for a deployment:
+private blobs. Every read, from any store, is streamed through `/api/files/content` after its access check; no store
+is ever answered with a redirect to a provider link, because a presigned URL (files-sdk signs them for a private Vercel
+Blob, S3, GCS, Azure, R2 and more) works for whoever holds it, without the check, until it expires
+(`apps/chat/lib/file-content-response.ts::createFileContentResponse`). The app needs `BLOB_READ_WRITE_TOKEN`, or
+`BLOB_STORE_ID` plus `VERCEL_OIDC_TOKEN`; `check-env` (`apps/chat/scripts/check-env.ts`) reports which is missing.
+Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a deployment:
 
 - **Blobs uploaded as public before this change will not load.** In private mode files-sdk reads every file with
   `blob.get(key, { access: "private" })` and reports anything that does not come back that way as `NotFound`, so a

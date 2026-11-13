@@ -7,7 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type { inferInput } from "@trpc/tanstack-react-query";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody } from "@/components/ui/table";
@@ -17,6 +17,15 @@ import type { UserModelPreference } from "@/lib/db/schema";
 import { useChatModels } from "@/providers/chat-models-provider";
 import { useTRPC } from "@/trpc/react";
 import { ModelRow } from "./model-row";
+
+// False on the server and during hydration, true after: the error block is
+// drawn only after mount. During SSR query-core does not retry, so a failed
+// preferences read is already `error` on the server while the browser is still
+// retrying it (still pending); drawing the block from that state would make
+// the two renders differ. Both render the disabled table first instead.
+const subscribeNothing = () => () => undefined;
+const isMountedSnapshot = () => true;
+const isServerSnapshot = () => false;
 
 type SetModelEnabledInput = inferInput<
   ReturnType<typeof useTRPC>["settings"]["setModelEnabled"]
@@ -210,7 +219,13 @@ export function ModelsTable({
     [setModelEnabled]
   );
 
-  if (!preferencesKnown && queryFailed) {
+  const hasMounted = useSyncExternalStore(
+    subscribeNothing,
+    isMountedSnapshot,
+    isServerSnapshot
+  );
+
+  if (hasMounted && !preferencesKnown && queryFailed) {
     return (
       <div className="flex flex-col items-center gap-3 py-8 text-center">
         <p className="text-muted-foreground text-sm">

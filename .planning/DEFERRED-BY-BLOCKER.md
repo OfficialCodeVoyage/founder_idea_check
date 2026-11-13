@@ -126,6 +126,16 @@ in six clean-restart loads after sign-in on Next 16.4.5 (checked by hand).
 **Clearing condition:** a hydration error from a model picker is seen, or the provider is given the server-read
 preferences (as the models page does) so that both sides render from the same data.
 
+### SWEEP-F15 — The models settings page can show cached switch states up to a minute old after a client-side navigation
+**Raised:** 2026-11-13, `fix/next-16-4-render-errors-261112`, `/code-review` (high) of the Next 16.4 render fixes.
+**Status:** OPEN (low, not observed)
+`app/(chat)/settings/models/page.tsx` reads the preferences on the server and hands them to
+`components/settings/models-table.tsx::ModelsTable`, which fixes the row order from that fresh read but takes the switch
+states from the query cache first. The page no longer dehydrates the cache, so after a soft navigation within the
+query's 60-second `staleTime`, a change made in another tab or device shows in the order but not yet in the switches.
+**Clearing condition:** the switches are seen disagreeing with the saved state, or the page writes its server read into
+the cache when it is newer than the cached copy.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

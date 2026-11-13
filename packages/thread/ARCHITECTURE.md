@@ -322,6 +322,18 @@ assistant node, so its parent may have any role or be `null`. Resume checks
 concurrency capacity but does not apply the new-response parent-role rule,
 matching AI SDK's `resumeStream` behavior over the current message history.
 
+Reconnection needs a transport whose `resumeStreamIsReplay` is `true`, one that
+returns the whole response from its first chunk. AI SDK 6.0.323 rebuilds a
+resumed response from empty state and seeds it from the stored message only for
+a tool call still streaming its input. A stream that merely continues the
+stored response would replace it with the continuation, and a continuation
+chunk for a part opened before the disconnect would find no part. This is
+unsupported: a resume over a transport that does not replay ends the run in
+`error` with a message saying so, before the transport is asked for a stream. A
+resume that finds no stream leaves a failed run's error in place, where AI SDK
+would report `ready` and clear it; a stop during the reconnect still ends in
+`ready`.
+
 ## AI SDK Integration
 
 `ThreadRunChat` extends AI SDK's `AbstractChat` for one run. It reuses AI SDK

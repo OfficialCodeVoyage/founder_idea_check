@@ -166,6 +166,28 @@ the cache when it is newer than the cached copy.
 `app/(chat)/settings/models/page.tsx::readInitialPreferences` awaits `getRequestSession()` (to skip the protected read for signed-out visitors) and then `getRequestQueryClient()`, so `connection()` is awaited twice. Harmless (it is idempotent); a simplification only.
 **Clearing condition:** the page is next edited.
 
+### SWEEP-F21 — Billing and agent comments cite ai@6.0.219 behaviour that was not re-checked on 6.0.323
+**Raised:** 2026-11-13, `fix/dependabot-minor-patch-261112`, code review of the AI SDK 6.0.323 bump. **Status:** OPEN (low)
+Comments in `apps/chat/lib/credits/main-chat-usage.ts`, `apps/chat/app/(chat)/api/chat/route.ts`,
+`apps/chat/lib/ai/followup-suggestions.ts`, `apps/chat/chat.config.ts`, `apps/chat/lib/config-schema.ts` and
+`apps/chat/tools/platform/deep-research/researcher-agent.ts` give the reason for a charge or a limit as `ai@6.0.219`
+behaviour (when a stop is charged and in what order the abort reaches the stream, `ToolLoopAgent`'s default step count,
+`convertToModelMessages` part handling). The bump to 6.0.323 did not re-check any of them.
+**Clearing condition:** re-run each cited mock-model check on 6.0.323 (the stop-and-charge ordering in
+`main-chat-usage.ts` and the route first), then correct the comment or the code and update the version the comment cites.
+
+### SWEEP-F22 — A reload after a stream ended gets its finished message as one transient data part, not as a UI-message stream
+**Raised:** 2026-11-13, `fix/dependabot-minor-patch-261112`, code review of the AI SDK 6.0.323 bump. **Status:** OPEN (low)
+`apps/chat/app/(chat)/api/chat/[id]/stream/route.ts::appendMessageResponse` answers a reload after the stream already
+ended with a one-shot stream that carries only a transient `data-appendMessage` part, no `start`, parts or `finish`;
+`hooks/use-complete-data-part.ts` puts the real message into the chat. Since `ai` 6.0.323 rebuilds a resumed response
+from empty state, the SDK finishes that resume with a part-less assistant message under a fresh id, which
+`onFinish` would add to the tree and the cached list. The mitigation today is the guard at the top of `onFinish` in
+`apps/chat/components/chat-sync.tsx` (a part-less assistant message the chat never held is dropped). A `start` chunk
+alone does not replace it: the SDK would write a part-less copy over the stored message and finish with it under the real id.
+**Clearing condition:** the route replays the finished message as a real UI-message stream (`start` with the stored id,
+its parts, `finish`), so the SDK rebuilds it like any replay; then remove the guard.
+
 ### SWEEP-F23 — The root `.env.example` does not name the Vercel Blob variables
 **Raised:** 2026-11-13, `fix/files-sdk-3-261112`, `/code-review` (high) of the files-sdk 3 update.
 **Status:** OPEN (low)

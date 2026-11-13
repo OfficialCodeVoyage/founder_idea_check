@@ -43,6 +43,9 @@ export function ChatSync({ id }: { id: string }) {
       ? `${lastMessage.id}:${activeStreamId}`
       : null;
 
+  // The reply each running resume started from, by message id, for `onFinish`.
+  // An entry belongs to one resume and goes when that resume settles.
+  const resumedRepliesRef = useRef(new Map<string, { reply: ChatMessage }>());
   // `onFinish` is built before `useChat` returns `setMessages`, so it reads it here.
   const setMessagesRef = useRef<UseChatHelpers<ChatMessage>["setMessages"]>(
     () => undefined
@@ -56,29 +59,90 @@ export function ChatSync({ id }: { id: string }) {
     // messages at ChatSync remount time, we can likely remove this override.
     messages: threadInitialMessages,
     generateId: generateUUID,
-    onFinish: ({ message: finished, isAbort }) => {
+    onFinish: ({
+      message: finished,
+      messages,
+      isAbort,
+      isDisconnect,
+      isError,
+    }) => {
+      // A RESUME THAT STREAMED NOTHING HANDS BACK A MESSAGE THAT DOES NOT EXIST.
+      // Since ai 6.0.323 a resumed stream is rebuilt from empty state under
+      // `generateId()`, not seeded with the last message. The one-shot stream
+      // that `app/(chat)/api/chat/[id]/stream/route.ts::appendMessageResponse`
+      // returns (a reload after the stream already ended) carries only a
+      // transient `data-appendMessage` part and no `start` chunk, so the SDK
+      // never writes anything into the chat and finishes with
+      // `{ id: <fresh uuid>, role: "assistant", parts: [] }`. Adding that to the
+      // tree would put a phantom root sibling next to the real reply, and
+      // `saveChatMessage` would append it to the cached list. The real message
+      // arrives through `hooks/use-complete-data-part.ts`, so there is nothing
+      // to record here.
+      //
+      // The fix is this guard, not a `start` chunk on that response: with one,
+      // the SDK writes a part-less copy over the stored message in the chat
+      // (its metadata and any text it already had vanish until the data part
+      // lands) and finishes with that part-less copy under the REAL id, which
+      // `addMessageToTree` would then store over the real one. A message the
+      // SDK never wrote into `messages` and that has no parts is never a real
+      // reply: every real stream writes its message at `start`.
+      if (
+        finished.role === "assistant" &&
+        finished.parts.length === 0 &&
+        !messages.some((existing) => existing.id === finished.id)
+      ) {
+        return;
+      }
+
+      // A RESUME THAT ENDS EARLY NEVER RECORDS ITS OWN COPY. The replay rebuilds
+      // the message from empty state (the SDK no longer seeds it with the stored
+      // parts), so a Stop, an error or a dropped fetch before the buffered chunks
+      // have rebuilt it finishes with a message that is empty or cut short under
+      // the real id, and the chat already holds that copy. Telling a short copy
+      // from a complete one is not reliable (parts loaded from the database differ
+      // in shape from streamed ones), so none is recorded: the reply the resume
+      // started from goes back into the chat and the server's own save of the
+      // generation wins later. A Stop below still marks that reply as stopped.
+      const resumedFrom = resumedRepliesRef.current.get(finished.id)?.reply;
+      const stored =
+        resumedFrom && (isAbort || isDisconnect || isError)
+          ? resumedFrom
+          : undefined;
+      if (stored && !isAbort) {
+        setMessagesRef.current((current) =>
+          current.map((existing) =>
+            existing.id === stored.id ? stored : existing
+          )
+        );
+        return;
+      }
+
       // A STOP LEAVES THE MESSAGE LOOKING ALIVE. Its `finish` chunk never came,
       // so the client's copy keeps the `activeStreamId` it got at `start` and
       // the chat is `ready`: a tool part still in `input-streaming` kept its
       // "Creating" spinner until a reload (live QA, re-check 5). Note the Stop on
       // the message itself, in the chat's state and in the tree copy, so a
       // renderer can tell it from a page about to reattach to a live stream.
+      const recorded = stored ?? finished;
       const message: ChatMessage = isAbort
         ? {
-            ...finished,
-            metadata: { ...finished.metadata, streamStopped: true },
+            ...recorded,
+            metadata: { ...recorded.metadata, streamStopped: true },
           }
-        : finished;
+        : recorded;
       if (isAbort) {
-        setMessagesRef.current((messages) =>
-          messages.map((existing) =>
-            existing.id === message.id
-              ? {
+        setMessagesRef.current((current) =>
+          current.map((existing) => {
+            if (existing.id !== message.id) {
+              return existing;
+            }
+            return stored
+              ? message
+              : {
                   ...existing,
                   metadata: { ...existing.metadata, streamStopped: true },
-                }
-              : existing
-          )
+                };
+          })
         );
       }
       addMessageToTree(message);
@@ -155,7 +219,20 @@ export function ChatSync({ id }: { id: string }) {
       return;
     }
     resumedKeyRef.current = resumeKey;
-    resumeStream();
+    const reply = lastMessageRef.current;
+    if (!reply) {
+      return;
+    }
+    // One entry per resume: it is dropped when this resume settles, whether it
+    // streamed, found no stream (204) or failed, and a newer resume of the same
+    // message that replaced it keeps its own.
+    const entry = { reply };
+    resumedRepliesRef.current.set(reply.id, entry);
+    resumeStream().finally(() => {
+      if (resumedRepliesRef.current.get(reply.id) === entry) {
+        resumedRepliesRef.current.delete(reply.id);
+      }
+    });
   }, [resumeKey, resumeStream]);
 
   useCompleteDataPart();

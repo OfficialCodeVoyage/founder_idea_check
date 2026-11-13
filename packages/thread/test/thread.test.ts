@@ -13,6 +13,8 @@ class ControlledTransport implements ChatTransport<UIMessage> {
 		options: Parameters<ChatTransport<UIMessage>["sendMessages"]>[0];
 	}> = [];
 	#reconnectStream: ReadableStream<UIMessageChunk> | null = null;
+	/** A reconnect replays the whole response, the only resume a run accepts. */
+	readonly resumeStreamIsReplay = true;
 
 	sendMessages: ChatTransport<UIMessage>["sendMessages"] = (options) => {
 		return Promise.resolve(
@@ -562,26 +564,43 @@ describe("Thread", () => {
 	});
 
 	test("refreshes the canonical message path before resuming", async () => {
+		const pathsSeen: UIMessage[][] = [];
 		const transport = new ControlledTransport();
-		const chat = new Thread({ transport });
+		const chat = new Thread({
+			sendAutomaticallyWhen: ({ messages }) => {
+				pathsSeen.push(messages);
+				return false;
+			},
+			transport,
+		});
 		const run = await chat.startRun({ message: user("user-1") });
 		await waitFor(() => transport.requests.length === 1);
 		transport.emitText(0, "assistant-1", "original");
 		await run.finished;
 		chat.setMessages([
-			user("user-1"),
+			{
+				id: "user-1",
+				parts: [{ text: "edited question", type: "text" }],
+				role: "user",
+			},
 			{
 				id: "assistant-1",
 				parts: [{ text: "edited ", type: "text" }],
 				role: "assistant",
 			},
 		]);
+		pathsSeen.length = 0;
 		const reconnect = transport.prepareReconnect();
 
 		const resumed = chat.resumeRun(run.id);
 		await Bun.sleep(0);
+		reconnect.enqueue({ messageId: "assistant-1", type: "start" });
 		reconnect.enqueue({ id: "resumed", type: "text-start" });
-		reconnect.enqueue({ delta: "resumed", id: "resumed", type: "text-delta" });
+		reconnect.enqueue({
+			delta: "edited resumed",
+			id: "resumed",
+			type: "text-delta",
+		});
 		reconnect.enqueue({ id: "resumed", type: "text-end" });
 		reconnect.enqueue({ finishReason: "stop", type: "finish" });
 		reconnect.close();
@@ -589,6 +608,10 @@ describe("Thread", () => {
 
 		expect(getMessageText(requireMessage(chat.getMessage("assistant-1")))).toBe(
 			"edited resumed",
+		);
+		// The run resumed from the edited path, not the one it streamed before.
+		expect(pathsSeen.at(-1)?.map((message) => getMessageText(message))).toEqual(
+			["edited question", "edited resumed"],
 		);
 	});
 

@@ -13,7 +13,7 @@ export type SearchProviderOptions =
     } & Omit<TavilySearchOptions, "limit">)
   | ({
       provider: "firecrawl";
-    } & Omit<SearchRequest, "query">);
+    } & Omit<SearchRequest, "query" | "sources">);
 
 export interface WebSearchResult {
   content: string;
@@ -40,24 +40,32 @@ const log = createModuleLogger("tools/steps/web-search");
  * `scrapeOptions` asks for formats, a scraped `Document`. The API may carry the
  * title and url at the top level or only inside `metadata`, so each field reads
  * the top level first and falls back to the metadata.
+ *
+ * `content` is the scraped page only. A hit whose scrape failed has no
+ * markdown, and passing its one-line search snippet in the same field would
+ * hand the researcher a snippet as if it were the page. A hit with no url is
+ * dropped: it cannot be cited, and an empty url would collapse every such hit
+ * into one in the caller's url/domain de-duplication.
  */
-function toWebSearchResult(item: SearchResultWeb | Document): WebSearchResult {
+function toWebSearchResult(
+  item: SearchResultWeb | Document
+): WebSearchResult | null {
   const metadata = "metadata" in item ? item.metadata : undefined;
-  const title = ("title" in item ? item.title : undefined) || metadata?.title;
   const url =
     ("url" in item ? item.url : undefined) ||
     metadata?.url ||
     metadata?.sourceURL;
+  if (!url) {
+    return null;
+  }
+  const title = ("title" in item ? item.title : undefined) || metadata?.title;
   const markdown = "markdown" in item ? item.markdown : undefined;
-  const description =
-    ("description" in item ? item.description : undefined) ||
-    metadata?.description;
 
   return {
     source: "web",
     title: title || "",
-    url: url || "",
-    content: markdown || description || "",
+    url,
+    content: markdown || "",
   };
 }
 
@@ -148,12 +156,31 @@ export async function webSearchStep({
         timeout: providerOptions.timeout || 15_000,
         limit: maxResults,
         scrapeOptions: { formats: ["markdown"] },
+        // v2 computes query highlights by default; this step never reads them,
+        // and they cost time inside the timeout above.
+        highlights: false,
         ...providerOptions,
+        // Results come back grouped by source and this step reads only the web
+        // group, so no caller option may ask for another one.
+        sources: ["web"],
       });
 
-      // `response.data` is a getter that throws in v4: results are grouped by
-      // source, and this step only wants the web group.
-      results = (response.web ?? []).map(toWebSearchResult);
+      // `response.data` is a getter that throws in v4.
+      results = (response.web ?? []).flatMap((item) => {
+        const result = toWebSearchResult(item);
+        return result ? [result] : [];
+      });
+      if (response.warning) {
+        log.warn(
+          { query, warning: response.warning, count: results.length },
+          "firecrawl search returned a warning"
+        );
+        // A warning with nothing usable is a failed search, not "nothing
+        // found": say why.
+        if (results.length === 0) {
+          return { results, error: response.warning };
+        }
+      }
     }
 
     log.debug(

@@ -25,7 +25,7 @@ async function SharedChatPageContent({
 
   // Before the prefetch: its tRPC context looks the session up without a
   // barrier, and this page renders alongside the layouts that have one
-  // (`lib/request-session.ts::lookupRequestSession`).
+  // (`lib/request-session.ts`, `trpc/init.ts::createTRPCContext`).
   await connection();
   // Prefetch the queries used in shared-chat-page.tsx
   prefetch(trpc.chat.getPublicChat.queryOptions({ chatId: id }));

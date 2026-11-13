@@ -57,7 +57,7 @@ async function ConnectorDetailsContent({
   const { connectorId } = await params;
   // Before the prefetch: its tRPC context looks the session up without a
   // barrier, and this page renders alongside the layouts that have one
-  // (`lib/request-session.ts::lookupRequestSession`).
+  // (`lib/request-session.ts`, `trpc/init.ts::createTRPCContext`).
   await connection();
   const queryClient = getQueryClient();
   await queryClient.prefetchQuery(trpc.mcp.list.queryOptions());

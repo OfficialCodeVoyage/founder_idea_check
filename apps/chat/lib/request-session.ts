@@ -4,31 +4,6 @@ import { cache } from "react";
 import { auth } from "@/lib/auth";
 
 /**
- * The raw session lookup, one per request: `getRequestSession` and
- * `trpc/init.ts::createTRPCContext` both read it, so a request that renders a
- * layout and runs server-side tRPC asks better-auth once.
- *
- * It has no request-time barrier of its own, and React `cache()` keeps the
- * first promise for the rest of the request: a lookup started before
- * `connection()` would read the clock inside a prerender stage and would be
- * reused by every later caller. So every Server Component that reaches it
- * through server-side tRPC (`trpc/server.tsx`) awaits `connection()` first:
- * the (chat) layout before its prefetches, and the models, connectors,
- * connector-details and shared-chat pages before theirs. A new server-side
- * prefetch, `fetchQuery` or caller needs the same `await connection()` ahead
- * of it. The barrier is not put inside `createTRPCContext` itself: that made
- * the Next 16.4.5 dev server reload `/` about 25 times in a row on the first
- * load after sign-in (checked by hand).
- *
- * The tRPC route handler (`app/api/trpc`) also creates its context through
- * here, but it runs outside a Server Component render: `cache()` does not
- * memoize there and there is no prerender stage to guard, so it needs neither.
- */
-export const lookupRequestSession = cache(async () =>
-  auth.api.getSession({ headers: await headers() })
-);
-
-/**
  * The signed-in session for the current request, for code that runs while a
  * Server Component renders (layouts and pages).
  *
@@ -47,11 +22,19 @@ export const lookupRequestSession = cache(async () =>
  * prefetch.
  *
  * Wrapped in React `cache()`, so within one request the (chat) layout, the
- * settings layout and the project screens share a single call, and the
- * lookup behind it is the same one server-side tRPC uses
- * (`lookupRequestSession`).
+ * settings layout and the project screens share a single lookup.
+ *
+ * Server-side tRPC does its own lookup in `trpc/init.ts::createTRPCContext`,
+ * with no barrier, and stays apart from this one. Both ways of joining them
+ * broke the Next 16.4.5 dev server on the first load after sign-in (clean
+ * restarts, checked by hand): `connection()` inside the tRPC context reloaded
+ * `/` about 25 times in a row, and having the context share a `cache()`d
+ * lookup with this helper reloaded it 435 times before the test stopped it.
+ * So every Server Component that calls server-side tRPC awaits `connection()`
+ * itself before the call: the (chat) layout before its prefetches, and the
+ * models, connectors, connector-details and shared-chat pages before theirs.
  */
 export const getRequestSession = cache(async () => {
   await connection();
-  return await lookupRequestSession();
+  return await auth.api.getSession({ headers: await headers() });
 });

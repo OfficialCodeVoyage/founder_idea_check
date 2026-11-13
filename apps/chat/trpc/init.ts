@@ -8,10 +8,11 @@
  */
 
 import { initTRPC, TRPCError } from "@trpc/server";
+import { headers } from "next/headers";
 import { cache } from "react";
 import superjson from "superjson";
 import { ZodError } from "zod";
-import { lookupRequestSession } from "@/lib/request-session";
+import { auth } from "@/lib/auth";
 
 /**
  * 1. CONTEXT
@@ -25,11 +26,8 @@ import { lookupRequestSession } from "@/lib/request-session";
  *
  * @see https://trpc.io/docs/server/context
  */
-// The session lookup is shared with `lib/request-session.ts::getRequestSession`
-// and has no request-time barrier: Server Components that call server-side
-// tRPC await `connection()` before they do (see `lookupRequestSession`).
 export const createTRPCContext = cache(async () => {
-  const session = await lookupRequestSession();
+  const session = await auth.api.getSession({ headers: await headers() });
   return {
     user: session?.user,
   };

@@ -416,12 +416,14 @@ beyond each side's own tests.
   no reserve before a chat turn, and an unpriced model is charged as zero.
 - **The session lookup's clock read while prerendering (Next 16.4 `blocking-prerender-current-time`)**
   (`apps/chat/lib/request-session.ts`): better-auth reads the clock, so every Server Component that looks the session up
-  must first await `connection()`. Layouts and pages do it through `getRequestSession`. Server-side tRPC shares the same
-  per-request lookup (`lookupRequestSession`) with no barrier of its own, so each page that prefetches through tRPC
+  must first await `connection()`. Layouts and pages do it through `getRequestSession`. Server-side tRPC does its own
+  lookup in `trpc/init.ts::createTRPCContext` with no barrier, so each page that prefetches through tRPC
   (`/settings/models`, `/settings/connectors`, `/settings/connectors/[connectorId]`, `/share/[id]`) awaits `connection()`
   before it: a page renders alongside its layouts, so theirs does not cover it. A new server-side prefetch without that
-  await brings the error back, and nothing checks for it. Putting the barrier in the tRPC context, or inside the (chat)
-  layout's `Promise.all`, made the Next 16.4.5 dev server reload `/` dozens of times after sign-in; both stay out.
+  await brings the error back, and nothing checks for it. Three tidier designs each made the Next 16.4.5 dev server
+  reload `/` over and over after sign-in, so all stay out: the barrier in the tRPC context (about 25 reloads), the barrier
+  inside the (chat) layout's `Promise.all` (26–47), and the tRPC context sharing `getRequestSession`'s `cache()`d lookup
+  (435 before the test was stopped). Each request therefore still looks the session up twice.
 
 ## Tooling
 

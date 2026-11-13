@@ -102,29 +102,57 @@ export const chat = pgTable("Chat", {
 
 export type Chat = InferSelectModel<typeof chat>;
 
-export const message = pgTable("Message", {
-  id: uuid("id").primaryKey().notNull().defaultRandom(),
-  chatId: uuid("chatId")
-    .notNull()
-    .references(() => chat.id, {
-      onDelete: "cascade",
-    }),
-  parentMessageId: uuid("parentMessageId"),
-  role: varchar("role").notNull(),
-  // parts column removed - parts are now stored in Part table
-  attachments: json("attachments").notNull(),
-  createdAt: timestamp("createdAt").notNull(),
-  annotations: json("annotations"),
-  selectedModel: json("selectedModel"),
-  selectedTool: varchar("selectedTool", { length: 256 }).default(""),
-  parallelGroupId: uuid("parallelGroupId"),
-  parallelIndex: integer("parallelIndex"),
-  isPrimaryParallel: boolean("isPrimaryParallel"),
-  lastContext: json("lastContext"),
-  activeStreamId: varchar("activeStreamId", { length: 64 }),
-  /** Timestamp when this message's stream was canceled by the user. Null means not canceled. */
-  canceledAt: timestamp("canceledAt"),
-});
+export const message = pgTable(
+  "Message",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    chatId: uuid("chatId")
+      .notNull()
+      .references(() => chat.id, {
+        onDelete: "cascade",
+      }),
+    parentMessageId: uuid("parentMessageId"),
+    role: varchar("role").notNull(),
+    // parts column removed - parts are now stored in Part table
+    attachments: json("attachments").notNull(),
+    createdAt: timestamp("createdAt").notNull(),
+    annotations: json("annotations"),
+    selectedModel: json("selectedModel"),
+    selectedTool: varchar("selectedTool", { length: 256 }).default(""),
+    parallelGroupId: uuid("parallelGroupId"),
+    parallelIndex: integer("parallelIndex"),
+    isPrimaryParallel: boolean("isPrimaryParallel"),
+    lastContext: json("lastContext"),
+    activeStreamId: varchar("activeStreamId", { length: 64 }),
+    /** Timestamp when this message's stream was canceled by the user. Null means not canceled. */
+    canceledAt: timestamp("canceledAt"),
+    /**
+     * This user message's criterion target (CONTEXT.md): the exit criterion
+     * the founder said it answers, as the client sent it; NULL means none.
+     * Every write goes through `lib/message-conversion.ts::chatMessageToDbMessage`,
+     * whose shape check stores anything else as NULL; the CHECK below is the
+     * backstop for a writer that skips it. It is a CLAIM about intent, not a
+     * link: it is not checked against a phase here, because the phase moves on
+     * and the target must still read back as what the founder said at the
+     * time. Whether it names a criterion of the current phase is decided per
+     * turn, in `lib/phases/runtime.ts::buildPhaseSystemBlock`.
+     */
+    targetCriterionId: varchar("targetCriterionId", { length: 64 }),
+  },
+  (t) => ({
+    /**
+     * `lib/ai/types.ts::TARGET_CRITERION_ID_PATTERN`, spelled in SQL: the
+     * shape `lib/message-conversion.ts::chatMessageToDbMessage` stores, so a
+     * row written by any path that skips it (a script, a hand repair, a future
+     * writer) cannot store text the bubble and the prompt would then replay.
+     * Change the two together.
+     */
+    target_criterion_shape_chk: check(
+      "Message_target_criterion_shape",
+      sql`${t.targetCriterionId} IS NULL OR ${t.targetCriterionId} ~ '^[a-z0-9-]{1,64}$'`
+    ),
+  })
+);
 
 export type DBMessage = InferSelectModel<typeof message>;
 

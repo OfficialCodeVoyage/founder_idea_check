@@ -234,7 +234,7 @@ lib/
 **Files (other):**
 - Python: snake_case modules (`web_search_keyless.py`, `oasis_runner.py`), tests `test_<area>.py`.
 - Migrations: `NNNN_<adjective>_<noun>.sql` from drizzle-kit, or `NNNN_<what>.sql` when hand-written
-  (`apps/chat/lib/db/migrations/0051_absent_part_checks.sql`); latest is `0053_project_fact_origin.sql`.
+  (`apps/chat/lib/db/migrations/0051_absent_part_checks.sql`); latest is `0054_message_target_criterion.sql`.
 - Prompts: `phase-0N-<slug>.md` under `apps/chat/prompts/phases/`.
 - Docs: `docs/ADR/NNNN-<slug>.md`; root docs in SCREAMING-CASE (`CLAUDE.md`, `CONTEXT.md`, `README-DEV.md`).
 

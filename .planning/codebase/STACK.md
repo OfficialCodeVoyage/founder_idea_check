@@ -17,7 +17,7 @@ Versions below are the ones resolved in `bun.lock` for the TypeScript side, and 
   `apps/research`. The upper bound is kept as tested (OASIS 0.2.6 itself allows `<3.15`); see Pins below.
 
 **Secondary:**
-- SQL - hand-reviewed Drizzle migrations in `apps/chat/lib/db/migrations/` (files `0000` to `0053`, ordered by
+- SQL - hand-reviewed Drizzle migrations in `apps/chat/lib/db/migrations/` (files `0000` to `0054`, ordered by
   `apps/chat/lib/db/migrations/meta/_journal.json`, not by file number: there is no `0035` and two files are numbered `0036`).
 - Bash - `scripts/verify.sh`, `scripts/test-integrity.sh`, `apps/chat/scripts/dev-local.sh`, `apps/chat/scripts/with-db.sh`.
 - CSS (Tailwind 4) - `apps/chat/app/globals.css`.
@@ -169,7 +169,7 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
 ## Platform Requirements
 
 **Development:**
-- Bun 1.3.14, Node 22 or newer (files-sdk 3 needs it), Docker (for `postgres` and `redis` services in `docker-compose.yml`), Python 3.11 with a venv for
+- Bun 1.3.14, Node 22 or newer (files-sdk 3 needs it; `@types/node` stays on 22, and Dependabot holds its majors in `.github/dependabot.yml`), Docker (for `postgres` and `redis` services in `docker-compose.yml`), Python 3.11 with a venv for
   the sidecar, and an `OPENAI_API_KEY` in the repo-root `.env.local` for any model call.
 - Start services with `docker compose up -d postgres redis`; plain `docker compose up -d` also builds and starts the sidecar on :8099.
   Ports are bound to `127.0.0.1` only (Postgres 5433, Valkey 6380, sidecar 8099, optional SearXNG 8888).

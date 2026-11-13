@@ -6,6 +6,7 @@ import {
   type ReactNode,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -103,6 +104,15 @@ export type PhaseGateData = {
 
 const PhaseGateContext = createContext<PhaseGateState | null>(null);
 
+/**
+ * THE PHASE KEY ALONE, in a context of its own. A consumer that needs only
+ * which phase the gate is on (the composer, to drop a criterion target from
+ * another phase) would otherwise re-render on every change of `PhaseGateContext`,
+ * and that value changes on every poll tick while a verdict is awaited. A string
+ * is compared by value, so this one changes only when the phase does.
+ */
+const PhaseKeyContext = createContext<string | null>(null);
+
 export function PhaseGateProvider({
   projectId,
   isStreaming,
@@ -141,9 +151,16 @@ export function PhaseGateProvider({
     enabled: ledgerKey !== null && ledgerKey.attemptCount > 0,
     staleTime: Number.POSITIVE_INFINITY,
   });
-  const data: PhaseGateData | null = state
-    ? { ...state, ledger: ledger ?? [] }
-    : null;
+  // MEMOISED so the payload keeps its identity between polls that returned the
+  // same state and for every render the provider takes for another reason (a
+  // parent re-render while streaming). The card derives its whole view from this
+  // object, and an object rebuilt on every render would make that derivation
+  // rerun on each one.
+  const data = useMemo<PhaseGateData | null>(
+    () => (state ? { ...state, ledger: ledger ?? [] } : null),
+    [state, ledger]
+  );
+  const value = useMemo(() => ({ data, wait }), [data, wait]);
 
   // Held in a ref so the turn-ended effect can seed its baseline without taking
   // `data` as a dependency — re-running it on every poll would restart the
@@ -177,10 +194,17 @@ export function PhaseGateProvider({
   }, [observed]);
 
   return (
-    <PhaseGateContext.Provider value={{ data, wait }}>
-      {children}
+    <PhaseGateContext.Provider value={value}>
+      <PhaseKeyContext.Provider value={data?.phaseKey ?? null}>
+        {children}
+      </PhaseKeyContext.Provider>
     </PhaseGateContext.Provider>
   );
+}
+
+/** Null outside a project, and until the first read lands. */
+export function usePhaseKey(): string | null {
+  return useContext(PhaseKeyContext);
 }
 
 /**

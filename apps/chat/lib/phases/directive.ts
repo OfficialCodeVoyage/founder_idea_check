@@ -1,4 +1,5 @@
 import {
+  type CriterionClosure,
   type CriterionStatus,
   type GateDecisionValue,
   type GateObstacle,
@@ -123,6 +124,9 @@ const MAX_GAP_LENGTH = 300;
 const MAX_PROJECTED_LENGTH = 2000;
 /** Punctuation and space left dangling once a sentence is cut at a word. */
 const TRAILING_BREAK = /[\s,;:—-]+$/;
+
+/** A description's own full stop, dropped so it can sit inside parentheses. */
+const TRAILING_STOP = /[.\s]+$/;
 /**
  * Most gaps that reach the MODEL. `missing[0]` is the one that matters there.
  *
@@ -279,6 +283,38 @@ export type PhaseDirectiveInput = {
   nextPhase: PhaseDefinition | null;
   /** Every phase is passed. `phase` is then the last one. */
   workflowComplete: boolean;
+  /**
+   * The criterion target of the founder's latest message (CONTEXT.md),
+   * already resolved against `phase` by the caller. Absent when nothing was
+   * targeted or the target did not name a criterion of this phase.
+   */
+  target?: DirectiveTarget | null;
+  /**
+   * Titles of the current phase's offline-only exit criteria that the last
+   * verdict did not count as met, in definition order. Built by the caller
+   * from the phase DEFINITION (humanised ids), never from model or founder
+   * text. Absent or empty: no planning paragraph (`fieldworkPlanLines`).
+   */
+  openFieldworkTitles?: readonly string[];
+};
+
+/**
+ * WHAT THE FOUNDER SAID THEIR MESSAGE WAS FOR — and only server-side text.
+ *
+ * Every text field here is copied from the phase DEFINITION, never from the
+ * founder's input: the composer saves an id on the message,
+ * `lib/phases/runtime.ts::buildPhaseSystemBlock` looks it up among the current
+ * phase's exit criteria, and only what the definition says about that
+ * criterion reaches the prompt. An id that matches nothing is dropped there,
+ * so no client string is ever interpolated below.
+ */
+export type DirectiveTarget = {
+  /** The criterion's id, humanised ("willingness-to-pay" → "Willingness to pay"). */
+  title: string;
+  description: string;
+  closure: CriterionClosure;
+  /** The last verdict scored this criterion `met`. */
+  alreadyMet: boolean;
 };
 
 function phaseLabel(phase: PhaseDefinition): string {
@@ -338,9 +374,119 @@ function askLine(nextQuestion: string | null): string {
 const FIELDWORK_INSTRUCTION =
   "WHAT IS LEFT CANNOT BE ANSWERED FROM MEMORY. Every criterion still open needs field data that does not exist yet, so do NOT ask the founder to score, estimate, guess or 'ballpark' any of it, and do not accept a number they produce on the spot — a figure invented to clear this gate is the exact fabrication this phase exists to prevent, and you would be the one who asked for it. Help them build the instrument instead: the recruiting plan, the sample size, the questions asked verbatim, and the pass/fail threshold committed to BEFORE any data arrives. Treat a defined protocol with a pre-registered threshold as real progress and say so — it is not a pass, and you must still not advance the phase, but it is the work that makes a pass possible.";
 
+/**
+ * A CRITERION TARGET IS INTENT, NOT EVIDENCE.
+ *
+ * A founder can tag a message as answering one exit criterion. That tells the
+ * interviewer what the message is FOR; it does not make the message adequate.
+ * Read as "the founder says this closes it", the target would be a one-click way
+ * to talk the interviewer into treating a criterion as settled.
+ *
+ * THIS PARAGRAPH ADDS ONLY WHAT THE TARGET CHANGES, and leaves everything else to
+ * the text around it. How to acknowledge what a message establishes is already
+ * said by the BLOCK paragraph and by `askLine`; restating that rule here, or
+ * contradicting it, gives the model two instructions to choose between. What
+ * the target adds is narrow: it is not evidence, it does not mean the message
+ * answers the criterion, and only the gate decides whether a criterion is met.
+ * That last part matters beyond tone — the judge (`lib/phases/gate.ts`) quotes
+ * transcript text, assistant turns included, as evidence, so an interviewer
+ * saying "that criterion is met" would hand the judge a quotable verdict. A gap
+ * is safe to quote; a verdict is not.
+ *
+ * IT SETS NO QUESTION. The one question of the turn comes from `askLine`, which
+ * may not be swapped for an easier one. A paragraph that said "ask about the
+ * targeted criterion" would let a founder target an easy criterion and pull the
+ * interviewer off the blocking question — the gate's leverage, given away by
+ * a chip.
+ *
+ * ALREADY MET is a different line, not the same one with a caveat. Told to
+ * name the part of the criterion still open, a model invents one for a
+ * criterion the last verdict already scored `met`; so that case says so and
+ * nothing more. (The verdict predates this message — `VERDICT_VINTAGE` — but a
+ * criterion it counted as met is not reopened by the founder pointing at it.)
+ *
+ * An OFFLINE-ONLY criterion still open gets Incident 2's rule restated at the
+ * point of use. Targeting a message as "my willingness-to-pay evidence" is
+ * exactly where a founder is likeliest to type a number to clear the gate, and
+ * the interviewer must not accept one produced on the spot.
+ *
+ * Placed immediately before `askLine` (or where it would go), so it conditions
+ * the question that follows rather than replacing it.
+ */
+function targetLines(target: DirectiveTarget | null | undefined): string[] {
+  if (!target) {
+    return [];
+  }
+  if (target.alreadyMet) {
+    return [
+      "",
+      `The founder marked their latest message as addressing the exit criterion "${target.title}". The last verdict already counted that criterion as met: do not reopen it, and do not invent a gap for it.`,
+    ];
+  }
+  const description = target.description.trim().replace(TRAILING_STOP, "");
+  const lines = [
+    "",
+    `The founder marked their latest message as addressing the exit criterion "${target.title}" (${description}). That mark is their intent, not evidence, and it does not mean the message answers the criterion. Only the gate decides whether a criterion is met, so never say this one is. If the message leaves part of this criterion open, name that part.`,
+  ];
+  if (target.closure === "offline-only") {
+    lines.push(
+      "",
+      "This criterion needs field data: only a report of fieldwork already done (who, how many, when, in their own words) can go toward it. If the message is an estimate, a score or an opinion, say plainly that it cannot count and help plan how to collect it; never ask for or accept a number produced on the spot."
+    );
+  }
+  return lines;
+}
+
+/**
+ * A REQUEST FOR A FIELDWORK PLAN IS ANSWERED, NOT DEFLECTED.
+ *
+ * The gate card's "Plan how to find out" sends a fixed request for help
+ * planning the evidence for one offline-only criterion. When the obstacle is
+ * not `fieldwork-required` — some in-conversation criterion is also still open
+ * — `FIELDWORK_INSTRUCTION` is not rendered, and `askLine` ("ask exactly this
+ * ... Then stop") won outright: in QA the whole reply to that request was the
+ * gate's question about a different criterion, and no plan.
+ *
+ * This paragraph does not change `askLine`; it puts one instruction before it.
+ * It is MODEL-JUDGED: nothing here parses the founder's text, and the
+ * paragraph only says what to do IF the latest message asks how to gather
+ * evidence for one of the named criteria. It names them by title, from the
+ * phase definition, so the model can recognise the request without being told
+ * which message triggered it. Not rendered when the obstacle is already
+ * `fieldwork-required` (`FIELDWORK_INSTRUCTION` covers that case in full) or
+ * when no offline-only criterion is open.
+ *
+ * The plan's three parts and the ban on on-the-spot numbers are Incident 2's
+ * rule, restated where it is used. Then the gate's question is asked as usual,
+ * so the plan is an answer the founder asked for, not a way round the gate.
+ */
+function fieldworkPlanLines(
+  state: PhaseGateState,
+  openFieldworkTitles: readonly string[] | undefined,
+  questionFollows: boolean
+): string[] {
+  if (
+    !openFieldworkTitles ||
+    openFieldworkTitles.length === 0 ||
+    state.obstacle?.kind === "fieldwork-required"
+  ) {
+    return [];
+  }
+  const titles = openFieldworkTitles.map((t) => `"${t}"`).join(", ");
+  const then = questionFollows
+    ? "Then ask the question below as usual."
+    : "Then carry on with this phase as usual.";
+  return [
+    "",
+    `Open criteria that only fieldwork can close: ${titles}. If the founder's latest message asks how to gather evidence for one of them, answer that request first and concretely: who to recruit and how many, the questions to ask word for word, and the pass/fail threshold fixed before any data arrives. Never ask for or accept a number produced on the spot. ${then}`,
+  ];
+}
+
 function blockedDirective(
   state: PhaseGateState,
-  phase: PhaseDefinition
+  phase: PhaseDefinition,
+  target: DirectiveTarget | null | undefined,
+  openFieldworkTitles: readonly string[] | undefined
 ): string[] {
   const lines = [
     `${DIRECTIVE_HEADING} — as of last turn, BLOCKED on ${phaseLabel(phase)}.`,
@@ -369,13 +515,17 @@ function blockedDirective(
       `This phase has now been judged ${state.attemptCount} times and is still short. Do not re-ask the same question in the same words — that is a deadlock, not persistence. Name the criterion that is blocking, say explicitly that the phase cannot close without it, and offer one concrete way to get that evidence, or one way to reframe the problem so a different answer becomes possible.`
     );
   }
+  lines.push(...targetLines(target));
+  lines.push(...fieldworkPlanLines(state, openFieldworkTitles, true));
   lines.push("", askLine(state.nextQuestion));
   return lines;
 }
 
 function warnedDirective(
   state: PhaseGateState,
-  phase: PhaseDefinition
+  phase: PhaseDefinition,
+  target: DirectiveTarget | null | undefined,
+  openFieldworkTitles: readonly string[] | undefined
 ): string[] {
   const lines = [
     `${DIRECTIVE_HEADING} — as of last turn, ${phaseLabel(phase)} clears its blocking criteria but the gate flagged a weakness.`,
@@ -392,6 +542,14 @@ function warnedDirective(
   lines.push(
     "",
     "Keep working inside this phase and keep the conversation moving — this is not a refusal. State the weakness above once, in one sentence, the first time it is relevant, and do not treat it as closed. You still may not tell the founder the phase is complete; the gate decides that, not you."
+  );
+  lines.push(...targetLines(target));
+  lines.push(
+    ...fieldworkPlanLines(
+      state,
+      openFieldworkTitles,
+      state.nextQuestion !== null
+    )
   );
   if (state.nextQuestion) {
     lines.push("", askLine(state.nextQuestion));
@@ -456,9 +614,19 @@ export function buildPhaseDirective(input: PhaseDirectiveInput): string {
   if (state === null || state.decision === null) {
     lines = openingDirective(input);
   } else if (state.decision === "BLOCK") {
-    lines = blockedDirective(state, input.phase);
+    lines = blockedDirective(
+      state,
+      input.phase,
+      input.target,
+      input.openFieldworkTitles
+    );
   } else if (state.decision === "WARN") {
-    lines = warnedDirective(state, input.phase);
+    lines = warnedDirective(
+      state,
+      input.phase,
+      input.target,
+      input.openFieldworkTitles
+    );
   } else {
     lines = passedDirective(input);
   }

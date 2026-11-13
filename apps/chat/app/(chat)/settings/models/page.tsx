@@ -1,3 +1,4 @@
+import { getRequestQueryClient } from "@/lib/request-session";
 import { ExternalLink } from "lucide-react";
 import { unstable_rethrow } from "next/navigation";
 import { Suspense } from "react";
@@ -9,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { createModuleLogger } from "@/lib/logger";
-import { getRequestQueryClient, trpc } from "@/trpc/server";
+import { trpc } from "@/trpc/server";
 
 const log = createModuleLogger("settings:models");
 

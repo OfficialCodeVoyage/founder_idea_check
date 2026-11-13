@@ -1,6 +1,7 @@
+import { getRequestQueryClient } from "@/lib/request-session";
 import { Suspense } from "react";
 import { ChatLoadingShell } from "@/components/chat-loading-shell";
-import { getRequestQueryClient, HydrateClient, trpc } from "@/trpc/server";
+import { HydrateClient, trpc } from "@/trpc/server";
 import { SharedChatPage } from "./shared-chat-page";
 
 export default function SharedChatPageRoute({

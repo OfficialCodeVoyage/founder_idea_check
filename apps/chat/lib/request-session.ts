@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { connection } from "next/server";
 import { cache } from "react";
 import { auth } from "@/lib/auth";
+import { getQueryClient } from "@/trpc/server";
 
 /**
  * The signed-in session for the current request, for code that runs while a
@@ -32,9 +33,28 @@ import { auth } from "@/lib/auth";
  * lookup with this helper reloaded it 435 times before the test stopped it.
  * So every Server Component that calls server-side tRPC passes the barrier
  * itself before the call: the (chat) layout through this helper before its
- * prefetches, and each page through `trpc/server.tsx::getRequestQueryClient`.
+ * prefetches, and each page through `getRequestQueryClient` below.
  */
 export const getRequestSession = cache(async () => {
   await connection();
   return await auth.api.getSession({ headers: await headers() });
 });
+
+/**
+ * The request's query client, for a page that prefetches or fetches through
+ * server-side tRPC. Await it on its own line before the first call, never
+ * inside a `Promise.all`.
+ *
+ * `await connection()` first: the tRPC context looks the session up with no
+ * barrier (see `getRequestSession` above), and a page renders alongside its
+ * layouts, so a layout's barrier does not cover it.
+ *
+ * It lives here, not in `trpc/server.tsx`: with this helper there, importing
+ * `connection` into that module made the Next 16.4.5 dev server reload `/`
+ * 71 times after sign-in (clean restart, checked by hand); from here, `/`
+ * loads once.
+ */
+export async function getRequestQueryClient() {
+  await connection();
+  return getQueryClient();
+}

@@ -1,15 +1,14 @@
-import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { PhaseAttemptHistory } from "@/components/project/phase-attempt-history";
 import { Badge } from "@/components/ui/badge";
-import { auth } from "@/lib/auth";
 import { getProjectPhases } from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
 import {
   describePhaseRoster,
   type PhaseRosterEntry,
 } from "@/lib/phases/roster";
+import { getRequestSession } from "@/lib/request-session";
 
 /**
  * The project phases screen: what the eight phases ARE, where the founder is,
@@ -142,7 +141,7 @@ async function ProjectPhasesContent({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getRequestSession();
   if (!session?.user) {
     redirect("/");
   }

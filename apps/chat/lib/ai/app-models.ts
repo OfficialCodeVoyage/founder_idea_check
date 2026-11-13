@@ -130,7 +130,7 @@ const KNOWN_MODEL_IDS = new Set<string>(
  * Returns the default enabled models for a given list of app models.
  * Includes curated defaults + any new models from the API not in models.generated.ts
  */
-export function getDefaultEnabledModels(
+function getDefaultEnabledModels(
   appModels: AppModelDefinition[]
 ): Set<AppModelId> {
   const enabled = new Set<AppModelId>(config.ai.curatedDefaults);
@@ -149,5 +149,28 @@ export function getDefaultEnabledModels(
     }
   }
 
+  return enabled;
+}
+
+/**
+ * The models a user has enabled: the defaults for `appModels`, then each saved
+ * preference turns its model on or off. With no preferences (none saved, or not
+ * loaded yet) this is the default set.
+ */
+export function resolveEnabledModels(
+  appModels: AppModelDefinition[],
+  preferences:
+    | readonly { modelId: string; enabled: boolean }[]
+    | null
+    | undefined
+): Set<AppModelId> {
+  const enabled = getDefaultEnabledModels(appModels);
+  for (const pref of preferences ?? []) {
+    if (pref.enabled) {
+      enabled.add(pref.modelId as AppModelId);
+    } else {
+      enabled.delete(pref.modelId as AppModelId);
+    }
+  }
   return enabled;
 }

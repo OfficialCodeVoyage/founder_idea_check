@@ -1,13 +1,12 @@
-import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AssertFactForm } from "@/components/project/assert-fact-form";
 import { FactRow } from "@/components/project/fact-row";
-import { auth } from "@/lib/auth";
 import { getProjectFacts, getProjectPhases } from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
 import { resolveCurrentPhase } from "@/lib/phases/advance";
 import { PHASES } from "@/lib/phases/definitions";
+import { getRequestSession } from "@/lib/request-session";
 
 /**
  * The fact ledger, browsable, correctable, and now writable by hand.
@@ -62,7 +61,7 @@ async function ProjectFactsContent({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  const session = await auth.api.getSession({ headers: await headers() });
+  const session = await getRequestSession();
   if (!session?.user) {
     redirect("/");
   }

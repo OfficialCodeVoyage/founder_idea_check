@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { ChatLoadingShell } from "@/components/chat-loading-shell";
-import { HydrateClient, prefetch, trpc } from "@/trpc/server";
+import { getRequestQueryClient } from "@/lib/request-session";
+import { HydrateClient, trpc } from "@/trpc/server";
 import { SharedChatPage } from "./shared-chat-page";
 
 export default function SharedChatPageRoute({
@@ -22,9 +23,14 @@ async function SharedChatPageContent({
 }) {
   const { id } = await params;
 
+  const queryClient = await getRequestQueryClient();
   // Prefetch the queries used in shared-chat-page.tsx
-  prefetch(trpc.chat.getPublicChat.queryOptions({ chatId: id }));
-  prefetch(trpc.chat.getPublicChatMessages.queryOptions({ chatId: id }));
+  queryClient.prefetchQuery(
+    trpc.chat.getPublicChat.queryOptions({ chatId: id })
+  );
+  queryClient.prefetchQuery(
+    trpc.chat.getPublicChatMessages.queryOptions({ chatId: id })
+  );
 
   return (
     <HydrateClient>

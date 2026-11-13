@@ -114,6 +114,18 @@ The turn's charge does not depend on any of these: the route drains its own tee 
 that what it hands `waitUntil` is bounded by the chat stream's own end and every rejection in the read loop is caught.
 Check all four paths above, not only the subscribe one.
 
+### SWEEP-F14 — A reload after a stream ended gets its finished message as one transient data part, not as a UI-message stream
+**Raised:** 2026-11-13, `fix/dependabot-minor-patch-261112`, code review of the AI SDK 6.0.323 bump. **Status:** OPEN (low)
+`apps/chat/app/(chat)/api/chat/[id]/stream/route.ts::appendMessageResponse` answers a reload after the stream already
+ended with a one-shot stream that carries only a transient `data-appendMessage` part, no `start`, parts or `finish`;
+`hooks/use-complete-data-part.ts` puts the real message into the chat. Since `ai` 6.0.323 rebuilds a resumed response
+from empty state, the SDK finishes that resume with a part-less assistant message under a fresh id, which
+`onFinish` would add to the tree and the cached list. The mitigation today is the guard at the top of `onFinish` in
+`apps/chat/components/chat-sync.tsx` (a part-less assistant message the chat never held is dropped). A `start` chunk
+alone does not replace it: the SDK would write a part-less copy over the stored message and finish with it under the real id.
+**Clearing condition:** the route replays the finished message as a real UI-message stream (`start` with the stored id,
+its parts, `finish`), so the SDK rebuilds it like any replay; then remove the guard.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

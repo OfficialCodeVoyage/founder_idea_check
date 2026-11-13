@@ -56,7 +56,35 @@ export function ChatSync({ id }: { id: string }) {
     // messages at ChatSync remount time, we can likely remove this override.
     messages: threadInitialMessages,
     generateId: generateUUID,
-    onFinish: ({ message: finished, isAbort }) => {
+    onFinish: ({ message: finished, messages, isAbort }) => {
+      // A RESUME THAT STREAMED NOTHING HANDS BACK A MESSAGE THAT DOES NOT EXIST.
+      // Since ai 6.0.323 a resumed stream is rebuilt from empty state under
+      // `generateId()`, not seeded with the last message. The one-shot stream
+      // that `app/(chat)/api/chat/[id]/stream/route.ts::appendMessageResponse`
+      // returns (a reload after the stream already ended) carries only a
+      // transient `data-appendMessage` part and no `start` chunk, so the SDK
+      // never writes anything into the chat and finishes with
+      // `{ id: <fresh uuid>, role: "assistant", parts: [] }`. Adding that to the
+      // tree would put a phantom root sibling next to the real reply, and
+      // `saveChatMessage` would append it to the cached list. The real message
+      // arrives through `hooks/use-complete-data-part.ts`, so there is nothing
+      // to record here.
+      //
+      // The fix is this guard, not a `start` chunk on that response: with one,
+      // the SDK writes a part-less copy over the stored message in the chat
+      // (its metadata and any text it already had vanish until the data part
+      // lands) and finishes with that part-less copy under the REAL id, which
+      // `addMessageToTree` would then store over the real one. A message the
+      // SDK never wrote into `messages` and that has no parts is never a real
+      // reply: every real stream writes its message at `start`.
+      if (
+        finished.role === "assistant" &&
+        finished.parts.length === 0 &&
+        !messages.some((existing) => existing.id === finished.id)
+      ) {
+        return;
+      }
+
       // A STOP LEAVES THE MESSAGE LOOKING ALIVE. Its `finish` chunk never came,
       // so the client's copy keeps the `activeStreamId` it got at `start` and
       // the chat is `ready`: a tool part still in `input-streaming` kept its

@@ -459,7 +459,7 @@ function PureMultimodalInput({
     // window nothing visibly is.
     if (isSendInFlight()) {
       toast.error(
-        "Your last message is still being sent. Try again in a moment."
+        "Your last message is still being sent. Wait for the reply, or press Stop to cancel it."
       );
       return;
     }

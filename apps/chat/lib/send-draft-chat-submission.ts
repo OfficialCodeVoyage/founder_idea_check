@@ -14,6 +14,7 @@ import {
 } from "@/lib/parallel-chat-requests";
 import { useStartProvisionalChat } from "@/lib/start-provisional-chat";
 import { useChatActions } from "@/lib/stores/base";
+import { useCustomChatStoreApi } from "@/lib/stores/custom-store-provider";
 import { useAddMessageToTree } from "@/lib/stores/hooks-threads";
 import { useStableChatInput } from "@/providers/chat-input-provider";
 import { useTRPC } from "@/trpc/react";
@@ -114,20 +115,24 @@ function hasOwnFlight(chatId: string, owner: unknown): boolean {
  * The current chat instance's send flight for `chatId`.
  *
  * `inFlight` is reactive, for a button that should look disabled while a send
- * is in flight; `isInFlight()` is synchronous, for a click or key handler that
- * must not send twice. Both ask with the `sendMessage` the store holds now,
- * which is the current `Chat` instance's.
+ * is in flight; it asks with the `sendMessage` of the last render.
+ * `isInFlight()` is synchronous, for a click or key handler that must not send
+ * twice, and asks with the `sendMessage` the store holds at the moment of the
+ * click: on a page that has just mounted, the last render's can still be the
+ * store's placeholder while the first message was already sent through the
+ * real instance (`startProvisionalChat` reads the store, not the render).
  */
 export function useSendFlight(chatId: string) {
   const { sendMessage } = useChatActions<ChatMessage>();
+  const storeApi = useCustomChatStoreApi<ChatMessage>();
   const inFlight = useSyncExternalStore(
     subscribeToFlights,
     () => hasOwnFlight(chatId, sendMessage),
     () => false
   );
   const isInFlight = useCallback(
-    () => hasOwnFlight(chatId, sendMessage),
-    [chatId, sendMessage]
+    () => hasOwnFlight(chatId, storeApi.getState().sendMessage ?? sendMessage),
+    [chatId, sendMessage, storeApi]
   );
   return { inFlight, isInFlight };
 }
@@ -149,7 +154,7 @@ export function useSendFlight(chatId: string) {
  * send itself: the composer clears its editor after calling this, and a silent
  * refusal would lose what the founder typed. Callers check
  * `useSendFlight(chatId).isInFlight()` first. A provisional chat (a project's first message) gets a flight too:
- * `startProvisionalChat` returns its send's promise. Without it two Enters
+ * `startProvisionalChat` returns its send's promise and the instance that sent it. Without it two Enters
  * before the status mirror leaves `ready` sent the first message twice — two
  * user turns and two charged replies.
  *
@@ -183,7 +188,7 @@ export function useSendDraftChatSubmission(chatId: string) {
         requestSpecs,
       });
       if (provisional) {
-        trackSendFlight(chatId, provisional, sendMessage);
+        trackSendFlight(chatId, provisional.sent, provisional.owner);
         return true;
       }
 

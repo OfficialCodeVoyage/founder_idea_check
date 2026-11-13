@@ -39,7 +39,6 @@ import {
   buildPhaseDirective,
   buildPhaseSystemBlockText,
   type DirectiveTarget,
-  type PhaseGateState,
   toPhaseGateState,
 } from "./directive";
 import { extractFacts, reconcileFacts } from "./extract";
@@ -49,8 +48,13 @@ import {
   createModelFactExtractor,
   createModelGateJudge,
 } from "./model-adapters";
-import { humanizeCriterionId } from "./rail";
-import type { GateVerdict, PhaseDefinition, TranscriptTurn } from "./types";
+import { humanizeCriterionId, trustedCriterionStatuses } from "./rail";
+import type {
+  CriterionStatus,
+  GateVerdict,
+  PhaseDefinition,
+  TranscriptTurn,
+} from "./types";
 
 const log = createModuleLogger("phases:runtime");
 
@@ -298,27 +302,16 @@ function toStoredFacts(
  * founder a hint; an accepted wrong one would aim the interviewer at the wrong
  * criterion.
  *
- * `alreadyMet` comes from the LAST verdict's per-criterion status. Without it
- * the paragraph presumes a gap, and a model told to name what is still open
- * invents one for a criterion the gate already counted as met.
+ * `alreadyMet` comes from the LAST verdict's statuses, read by the same rule as
+ * the gate card (`statuses`, from `./rail::trustedCriterionStatuses`; null when
+ * there is no verdict or it cannot be trusted). Without it the paragraph
+ * presumes a gap, and a model told to name what is still open invents one for
+ * a criterion the gate already counted as met.
  */
-/**
- * The last verdict's per-criterion statuses, or none when the gate refused to
- * trust them: a `judge-incomplete` verdict (duplicate or missing ids) keeps its
- * `perCriterion` array, but the gate card shows no per-criterion result for it,
- * so the prompt must not call anything "met" from it either.
- */
-function trustedPerCriterion(state: PhaseGateState | null) {
-  if (!state || state.obstacle?.kind === "judge-incomplete") {
-    return [];
-  }
-  return state.perCriterion;
-}
-
 function resolveTarget(
   phase: PhaseDefinition,
   raw: string | null,
-  state: PhaseGateState | null
+  statuses: ReadonlyMap<string, CriterionStatus> | null
 ): DirectiveTarget | null {
   const criterion = raw
     ? phase.exitCriteria.find((c) => c.id === raw)
@@ -331,9 +324,7 @@ function resolveTarget(
     title: humanizeCriterionId(criterion.id),
     description: criterion.description,
     closure: criterion.closure,
-    alreadyMet: trustedPerCriterion(state).some(
-      (e) => e.criterionId === criterion.id && e.status === "met"
-    ),
+    alreadyMet: statuses?.get(criterion.id) === "met",
   };
 }
 
@@ -345,15 +336,11 @@ function resolveTarget(
  */
 function openFieldworkTitles(
   phase: PhaseDefinition,
-  state: PhaseGateState | null
+  statuses: ReadonlyMap<string, CriterionStatus> | null
 ): string[] {
   return phase.exitCriteria
     .filter(
-      (c) =>
-        c.closure === "offline-only" &&
-        !trustedPerCriterion(state).some(
-          (e) => e.criterionId === c.id && e.status === "met"
-        )
+      (c) => c.closure === "offline-only" && statuses?.get(c.id) !== "met"
     )
     .map((c) => humanizeCriterionId(c.id));
 }
@@ -465,7 +452,10 @@ export async function buildPhaseSystemBlock({
   }
 
   const state = toPhaseGateState(row);
-  const target = resolveTarget(phase, targetCriterionId ?? null, state);
+  const statuses = state
+    ? trustedCriterionStatuses(state.perCriterion, state.obstacle)
+    : null;
+  const target = resolveTarget(phase, targetCriterionId ?? null, statuses);
   if (targetCriterionId) {
     // The outcome only, never the value: a dropped id is founder input. An
     // accepted target renders only under a BLOCK or WARN verdict
@@ -497,7 +487,7 @@ export async function buildPhaseSystemBlock({
       nextPhase: resolution.nextPhase,
       workflowComplete: resolution.workflowComplete,
       target,
-      openFieldworkTitles: openFieldworkTitles(phase, state),
+      openFieldworkTitles: openFieldworkTitles(phase, statuses),
     }),
   });
 }

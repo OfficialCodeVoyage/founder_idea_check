@@ -894,11 +894,33 @@ const JUDGE_INCOMPLETE =
 const NONE_MATCHED =
   "The judge scored criteria this phase does not define, so none of this phase's own criteria was scored on this attempt and none of them can be reported as met or unmet. That is a failure of the gate, not a finding about your work.";
 
-function stateOf(
-  id: string,
-  perCriterion: readonly { criterionId: string; status: CriterionStatus }[]
-): ChecklistState {
-  return perCriterion.find((e) => e.criterionId === id)?.status ?? "unscored";
+/**
+ * WHEN A VERDICT'S PER-CRITERION STATUSES CAN BE BELIEVED, in one place for the
+ * gate card (`describeCriterionChecklist`) and the interviewer's prompt
+ * (`runtime.ts::buildPhaseSystemBlock`). Two readings of one verdict let the
+ * card offer "Answer" on a criterion the prompt tells the interviewer is met.
+ *
+ * Null means trust none of them. A `judge-incomplete` obstacle is the gate
+ * declining to believe the judge's answer. A criterion listed twice has no
+ * single status to report, and it is checked here directly because a verdict
+ * stored before the `obstacle` field existed reads `obstacle: null` whatever
+ * rule blocked it.
+ */
+export function trustedCriterionStatuses(
+  perCriterion: readonly { criterionId: string; status: CriterionStatus }[],
+  obstacle: GateObstacle | null
+): ReadonlyMap<string, CriterionStatus> | null {
+  if (obstacle?.kind === "judge-incomplete") {
+    return null;
+  }
+  const statuses = new Map<string, CriterionStatus>();
+  for (const e of perCriterion) {
+    if (statuses.has(e.criterionId)) {
+      return null;
+    }
+    statuses.set(e.criterionId, e.status);
+  }
+  return statuses;
 }
 
 /** Counts of everything except `met`, in a stable order, as clauses. */
@@ -969,17 +991,17 @@ export function describeCriterionChecklist(input: {
     return { available: false, note: NOTHING_SCORED };
   }
   // A JUDGE THAT DID NOT RETURN A USABLE ANSWER HAS NO PER-CRITERION RESULTS TO
-  // REPORT, even when `perCriterion` is not empty: a coverage mismatch or a
-  // duplicated id is the gate refusing to believe the whole answer
-  // (`decideGate`), so "N of M met" over it would be a result the gate itself
-  // declined to stand behind. The card shows the flat open set instead.
-  if (input.obstacle?.kind === "judge-incomplete") {
+  // REPORT, even when `perCriterion` is not empty: "N of M met" over it would
+  // be a result the gate itself declined to stand behind. The card shows the
+  // flat open set instead.
+  const statuses = trustedCriterionStatuses(input.perCriterion, input.obstacle);
+  if (!statuses) {
     return { available: false, note: JUDGE_INCOMPLETE };
   }
 
   const repeats = input.repeats ?? [];
   const rows: ChecklistRow[] = input.criteria.map((c) => {
-    const state = stateOf(c.id, input.perCriterion);
+    const state: ChecklistState = statuses.get(c.id) ?? "unscored";
     return {
       id: c.id,
       description: c.description,

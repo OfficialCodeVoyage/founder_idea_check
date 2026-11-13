@@ -294,17 +294,20 @@ export type PhaseDirectiveInput = {
 /**
  * WHAT THE FOUNDER SAID THEIR MESSAGE WAS FOR — and only server-side text.
  *
- * Every field here is copied from the phase DEFINITION, never from the request:
- * the client sends an id, `lib/phases/runtime.ts::buildPhaseSystemBlock` looks
- * it up among the current phase's exit criteria, and only what the definition
- * says about that criterion reaches the prompt. An id that matches nothing is
- * dropped there, so no client string is ever interpolated below.
+ * Every text field here is copied from the phase DEFINITION, never from the
+ * founder's input: the composer saves an id on the message,
+ * `lib/phases/runtime.ts::buildPhaseSystemBlock` looks it up among the current
+ * phase's exit criteria, and only what the definition says about that
+ * criterion reaches the prompt. An id that matches nothing is dropped there,
+ * so no client string is ever interpolated below.
  */
 export type DirectiveTarget = {
   /** The criterion's id, humanised ("willingness-to-pay" → "Willingness to pay"). */
   title: string;
   description: string;
   closure: CriterionClosure;
+  /** The last verdict scored this criterion `met`. */
+  alreadyMet: boolean;
 };
 
 function phaseLabel(phase: PhaseDefinition): string {
@@ -372,43 +375,51 @@ const FIELDWORK_INSTRUCTION =
  * Read as "the founder says this closes it", the mark would be a one-click way
  * to talk the interviewer into treating a criterion as settled.
  *
- * THE INTERVIEWER'S REPLY IS ITSELF EVIDENCE, which is why this paragraph does
- * not ask it to assess the message. The gate never sees the mark, but the judge
- * (`lib/phases/gate.ts`) quotes transcript text as evidence and the extractor
- * (`lib/phases/extract.ts`) reads the assistant's reply, both of them assistant
- * turns included. An earlier wording asked the interviewer to "say what the
- * message establishes" for the criterion, which produced a quotable
- * restatement of the founder's claim in the interviewer's own voice ("this
- * establishes that early users would pay about $20") — the founder's
- * assertion laundered into an assessment one turn later — and "do not re-ask
- * what it answered" presumed it had answered something. So the interviewer
- * restates nothing, never calls the criterion met, and names only what is
- * still missing: a gap is safe to quote, a verdict is not.
+ * THIS PARAGRAPH ADDS ONLY WHAT THE MARK CHANGES, and leaves everything else to
+ * the text around it. How to acknowledge what a message establishes is already
+ * said by the BLOCK paragraph and by `askLine`; restating that rule here, or
+ * contradicting it, gives the model two instructions to choose between. What
+ * the mark adds is narrow: it is not evidence, it does not mean the message
+ * answers the criterion, and only the gate decides whether a criterion is met.
+ * That last part matters beyond tone — the judge (`lib/phases/gate.ts`) quotes
+ * transcript text, assistant turns included, as evidence, so an interviewer
+ * saying "that criterion is met" would hand the judge a quotable verdict. A gap
+ * is safe to quote; a verdict is not.
  *
- * An OFFLINE-ONLY criterion gets Incident 2's rule restated at the point of
- * use. Marking a message "this is my willingness-to-pay evidence" is exactly
- * where a founder is likeliest to type a number to clear the gate, and the
- * interviewer must not accept one produced on the spot.
+ * IT SETS NO QUESTION. The one question of the turn comes from `askLine`, which
+ * may not be swapped for an easier one. A paragraph that said "ask about the
+ * marked criterion" would let a founder mark an easy criterion and pull the
+ * interviewer off the blocking question — the gate's leverage, given away by
+ * a chip.
  *
- * Placed immediately before `askLine`, so it conditions the question that
- * follows rather than replacing it. `questionFollows` says whether one does:
- * a WARN with no stored question renders no ask line, and the paragraph must
- * not point at one that is not there.
+ * ALREADY MET is a different line, not the same one with a caveat. Told to
+ * name the part of the criterion still open, a model invents one for a
+ * criterion the last verdict already scored `met`; so that case says so and
+ * nothing more. (The verdict predates this message — `VERDICT_VINTAGE` — but a
+ * criterion it counted as met is not reopened by the founder pointing at it.)
+ *
+ * An OFFLINE-ONLY criterion still open gets Incident 2's rule restated at the
+ * point of use. Marking a message "this is my willingness-to-pay evidence" is
+ * exactly where a founder is likeliest to type a number to clear the gate, and
+ * the interviewer must not accept one produced on the spot.
+ *
+ * Placed immediately before `askLine` (or where it would go), so it conditions
+ * the question that follows rather than replacing it.
  */
-function targetLines(
-  target: DirectiveTarget | null | undefined,
-  questionFollows: boolean
-): string[] {
+function targetLines(target: DirectiveTarget | null | undefined): string[] {
   if (!target) {
     return [];
   }
+  if (target.alreadyMet) {
+    return [
+      "",
+      `The founder marked their latest message as addressing the exit criterion "${target.title}". The last verdict already counted that criterion as met: do not reopen it, and do not invent a gap for it.`,
+    ];
+  }
   const description = target.description.trim().replace(TRAILING_STOP, "");
-  const fallback = questionFollows
-    ? "otherwise the question asked for below"
-    : "otherwise the next thing this phase needs";
   const lines = [
     "",
-    `The founder marked their latest message as addressing the exit criterion "${target.title}" (${description}). That mark is their intent, not evidence, and it does not mean the message answers the criterion. Do not restate or summarise their claim as established, and never say this criterion is met; the gate decides that, not you. Name only what this criterion still needs that the message does not give. Then ask one question: about this criterion if anything is still missing, ${fallback}.`,
+    `The founder marked their latest message as addressing the exit criterion "${target.title}" (${description}). That mark is their intent, not evidence, and it does not mean the message answers the criterion. Only the gate decides whether a criterion is met, so never say this one is. If the message leaves part of this criterion open, name that part.`,
   ];
   if (target.closure === "offline-only") {
     lines.push(
@@ -451,7 +462,7 @@ function blockedDirective(
       `This phase has now been judged ${state.attemptCount} times and is still short. Do not re-ask the same question in the same words — that is a deadlock, not persistence. Name the criterion that is blocking, say explicitly that the phase cannot close without it, and offer one concrete way to get that evidence, or one way to reframe the problem so a different answer becomes possible.`
     );
   }
-  lines.push(...targetLines(target, true));
+  lines.push(...targetLines(target));
   lines.push("", askLine(state.nextQuestion));
   return lines;
 }
@@ -477,7 +488,7 @@ function warnedDirective(
     "",
     "Keep working inside this phase and keep the conversation moving — this is not a refusal. State the weakness above once, in one sentence, the first time it is relevant, and do not treat it as closed. You still may not tell the founder the phase is complete; the gate decides that, not you."
   );
-  lines.push(...targetLines(target, state.nextQuestion !== null));
+  lines.push(...targetLines(target));
   if (state.nextQuestion) {
     lines.push("", askLine(state.nextQuestion));
   }

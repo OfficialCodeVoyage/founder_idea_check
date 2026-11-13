@@ -1,12 +1,6 @@
-import type { ModelId } from "@/lib/ai/app-models";
 import type { Chat, DBMessage } from "@/lib/db/schema";
-import { isTargetCriterionId } from "@/lib/phases/target-criterion";
 import type { UIChat } from "@/lib/types/ui-chat";
-import {
-  type ChatMessage,
-  isSelectedModelValue,
-  type UiToolName,
-} from "./ai/types";
+import type { ChatMessage } from "./ai/types";
 
 // Helper functions for type conversion
 export function dbChatToUIChat(chat: Chat): UIChat {
@@ -23,6 +17,16 @@ export function dbChatToUIChat(chat: Chat): UIChat {
 }
 
 /**
+ * THE SHAPE A STORED CRITERION MARK MUST HAVE, spelled the same way as the
+ * `Message_target_criterion_shape` CHECK (migration 0054). It is checked in
+ * exactly one place, `chatMessageToDbMessage` below, because that is the one
+ * mapping every Message write goes through. Whether a stored id names an exit
+ * criterion of the current phase is a different question, answered per turn by
+ * an exact lookup in `lib/phases/runtime.ts::buildPhaseSystemBlock`.
+ */
+const TARGET_CRITERION_ID_SHAPE = /^[a-z0-9-]{1,64}$/;
+
+/**
  * The founder's criterion mark, read back into metadata only when one is
  * stored. Spread rather than assigned so a message with no mark carries no key
  * at all, exactly as the client sent it.
@@ -31,31 +35,6 @@ export function targetMetadata(
   targetCriterionId: string | null
 ): { targetCriterionId: string } | Record<string, never> {
   return targetCriterionId ? { targetCriterionId } : {};
-}
-
-function _dbMessageToChatMessage(message: DBMessage): ChatMessage {
-  // Note: This function should not be used directly for messages with parts
-  // Use getAllMessagesByChatId which reconstructs parts from Part table
-  // Parts are now stored in Part table, not in Message.parts
-  return {
-    id: message.id,
-    parts: [], // Parts are stored in Part table - use getAllMessagesByChatId instead
-    role: message.role as ChatMessage["role"],
-    metadata: {
-      createdAt: message.createdAt,
-      activeStreamId: message.activeStreamId,
-      parentMessageId: message.parentMessageId,
-      parallelGroupId: message.parallelGroupId,
-      parallelIndex: message.parallelIndex,
-      isPrimaryParallel: message.isPrimaryParallel,
-      selectedModel: isSelectedModelValue(message.selectedModel)
-        ? message.selectedModel
-        : ("" as ModelId),
-      selectedTool: (message.selectedTool as UiToolName | null) || undefined,
-      usage: message.lastContext as ChatMessage["metadata"]["usage"],
-      ...targetMetadata(message.targetCriterionId),
-    },
-  };
 }
 
 export function chatMessageToDbMessage(
@@ -76,14 +55,15 @@ export function chatMessageToDbMessage(
     createdAt = new Date();
   }
 
-  // THE GUARD ON EVERY WRITE of a criterion mark. Read as unknown and checked
-  // here, not trusted from upstream: this mapping saves whatever reaches it —
-  // the chat route's message, the prepare route's (which never passes through
-  // normalizeChatMessage), assistant turns and cloned chats. A value the
-  // Message_target_criterion_shape CHECK refuses would fail the whole save, so
-  // it is stored as NULL instead: losing the mark costs a hint.
-  const target = (message.metadata as Record<string, unknown>)
-    .targetCriterionId;
+  // THE GUARD ON EVERY WRITE of a criterion mark. The field is typed, but
+  // neither route that saves a founder's message parses metadata against
+  // `messageMetadataSchema`: the chat route's `normalizeChatMessage` and the
+  // prepare route both pass the client's metadata through as sent. So the
+  // value is checked HERE, at runtime, whatever its type says. A value the
+  // CHECK would refuse fails the whole save, so it is stored as NULL instead:
+  // a spoofed or oversized mark is dropped silently and never errors the
+  // request. Losing the mark costs a hint.
+  const target: unknown = message.metadata.targetCriterionId;
 
   // Parts are stored in Part table, not in Message.parts
   return {
@@ -102,6 +82,9 @@ export function chatMessageToDbMessage(
     isPrimaryParallel: message.metadata?.isPrimaryParallel ?? null,
     activeStreamId: message.metadata?.activeStreamId || null,
     canceledAt: null,
-    targetCriterionId: isTargetCriterionId(target) ? target : null,
+    targetCriterionId:
+      typeof target === "string" && TARGET_CRITERION_ID_SHAPE.test(target)
+        ? target
+        : null,
   };
 }

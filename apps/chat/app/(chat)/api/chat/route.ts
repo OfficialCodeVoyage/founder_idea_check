@@ -75,7 +75,6 @@ import {
   buildPhaseSystemBlock,
   runPostTurnPhasePass,
 } from "@/lib/phases/runtime";
-import { isTargetCriterionId } from "@/lib/phases/target-criterion";
 import type { AnonymousSession } from "@/lib/types/anonymous";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { generateUUID } from "@/lib/utils";
@@ -452,16 +451,24 @@ async function getSystemPrompt({
       //
       // Anonymous chats have no project, so they never enter a phase — that is
       // the deliberate answer to "what happens to the gate for anonymous users".
+      //
+      // THE CRITERION MARK COMES FROM THE SAVED ROW, NOT THE REQUEST. By now
+      // the founder's message is persisted: `handleChatValidation` saved it,
+      // or found it already saved by the prepare route or an earlier attempt
+      // (`saveMessageIfNotExists` keeps the first write). On a retry or a
+      // regenerate the request's copy can differ from that row, and the
+      // "Answering:" label the founder sees is read from the row — so the
+      // prompt reads the row too, and the two can never disagree. A row in
+      // another chat contributes nothing (`handleChatValidation` has already
+      // refused that request; this is the same defence in depth as above).
+      const [storedMessage] = await getMessageById({ id: userMessage.id });
       const phaseBlock = await buildPhaseSystemBlock({
         projectId: currentChat.projectId,
         latestUserMessage: messageText(userMessage),
-        // The client's "this message answers criterion X". Shape-filtered by
-        // normalizeChatMessage, but still typed unknown here:
-        // buildPhaseSystemBlock checks it again and resolves it against the
-        // current phase's exit criteria, and only it decides what reaches the
-        // prompt.
-        targetCriterionId: (userMessage.metadata as Record<string, unknown>)
-          .targetCriterionId,
+        targetCriterionId:
+          storedMessage?.chatId === chatId
+            ? storedMessage.targetCriterionId
+            : null,
         costAccumulator,
       });
       system = `${system}\n\n${phaseBlock}`;
@@ -1818,7 +1825,7 @@ function normalizeChatMessage(value: unknown): ChatMessage | null {
     return null;
   }
 
-  const normalized: ChatMessage = {
+  return {
     ...(value as ChatMessage),
     metadata: {
       ...(metadata as ChatMessage["metadata"]),
@@ -1828,22 +1835,6 @@ function normalizeChatMessage(value: unknown): ChatMessage | null {
       selectedModel: metadata.selectedModel,
     },
   };
-  // AN EARLY FILTER, NOT THE SAVE GUARD. The spread above copies whatever
-  // metadata the client sent, so a non-string or oversized `targetCriterionId`
-  // is dropped here and this request's message never carries it into the
-  // prompt path. Dropped rather than refused: losing the mark costs a hint,
-  // refusing the turn would cost the founder their message. The guard on every
-  // write is `lib/message-conversion.ts::chatMessageToDbMessage`, which other
-  // routes reach without passing through here; whether the id names a
-  // criterion of the current phase is decided in
-  // `lib/phases/runtime.ts::buildPhaseSystemBlock`.
-  if (
-    "targetCriterionId" in metadata &&
-    !isTargetCriterionId(metadata.targetCriterionId)
-  ) {
-    Reflect.deleteProperty(normalized.metadata, "targetCriterionId");
-  }
-  return normalized;
 }
 
 function optionalString(value: unknown): string | undefined {

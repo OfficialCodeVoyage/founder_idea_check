@@ -13,9 +13,9 @@
 -- read back as what the founder said at the time. Whether it names a criterion
 -- of the current phase is decided per turn, in buildPhaseSystemBlock.
 --
--- The CHECK is the same shape the chat route accepts (normalizeChatMessage), so
--- a row written by any other path cannot store text that the bubble and the
--- prompt would then replay.
+-- The CHECK is the same shape chatMessageToDbMessage stores (it writes anything
+-- else as NULL), so a row written by any other path cannot store text that the
+-- bubble and the prompt would then replay.
 ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "targetCriterionId" varchar(64);--> statement-breakpoint
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Message_target_criterion_shape' AND conrelid = '"Message"'::regclass) THEN

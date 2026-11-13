@@ -496,6 +496,7 @@ export async function updateMessage({
           isPrimaryParallel: dbMessage.isPrimaryParallel,
           lastContext: dbMessage.lastContext,
           activeStreamId: dbMessage.activeStreamId,
+          targetCriterionId: dbMessage.targetCriterionId,
         })
         .where(eq(message.id, id));
 

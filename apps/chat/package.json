@@ -3,6 +3,9 @@
   "version": "0.2.0",
   "private": true,
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "prebuild": "bun run check-env",
     "dev": "bun run check-env:dev && bash scripts/with-db.sh bash scripts/next-dev-localhost.sh",

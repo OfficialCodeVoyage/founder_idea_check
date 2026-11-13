@@ -38,7 +38,7 @@ updates:
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "@lexical/*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
-      # better-auth, @better-auth/core (pinned exactly in apps/chat/package.json) and
+      # better-auth and @better-auth/core (both pinned exactly in apps/chat/package.json) and
       # @better-auth/electron move as one set: better-auth requires its own core version exactly.
       # Patches arrive together in the group above; a minor waits for a deliberate upgrade.
       - dependency-name: "better-auth"

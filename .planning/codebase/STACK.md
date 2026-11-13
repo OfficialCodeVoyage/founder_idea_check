@@ -52,8 +52,8 @@ member: it has no `package.json`, and Python is driven by its own `pyproject.tom
   `@ai-sdk/devtools` 0.0.29. All are exact-pinned (no range) in `apps/chat/package.json`.
 - Drizzle ORM 0.45.2 over the `postgres` (postgres.js) driver 3.4.9 (`apps/chat/lib/db/client.ts`); drizzle-kit 0.31.10
   (`apps/chat/drizzle.config.ts`).
-- better-auth 1.6.34 with the Drizzle adapter (`apps/chat/lib/auth.ts`); `@better-auth/core` pinned to the same 1.6.34 in
-  `apps/chat/package.json`, `@better-auth/electron` 1.6.34.
+- better-auth 1.6.34 with the Drizzle adapter (`apps/chat/lib/auth.ts`); both it and `@better-auth/core` are exact pins in
+  `apps/chat/package.json`, `@better-auth/electron` ^1.6.34.
 - tRPC 11.16.0 (`@trpc/server`, `@trpc/client`, `@trpc/tanstack-react-query`) with TanStack Query 5.97.0 and superjson 2.2.6
   (`apps/chat/trpc/`).
 - Tailwind CSS 4.3.2 through `@tailwindcss/postcss` (`apps/chat/postcss.config.mjs`), `tw-animate-css`, `@tailwindcss/typography`.
@@ -122,8 +122,9 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
   0.2.5 an unpinned install succeeded and then failed at `import oasis`. camel-oasis 0.2.6 itself requires `mcp==1.29.0`, so the pin is
   now a guard against a later OASIS release. Dependabot ignores `mcp >= 2` (`.github/dependabot.yml`).
 - **`ultracite 7.4.3` and `@biomejs/biome 2.4.16`** are exact pins (Biome in `apps/chat` and in `packages/thread`; Dependabot holds its minors); an unpinned `bunx ultracite` pulls a newer major (`CLAUDE.md`).
-- **`@better-auth/core` 1.6.34** is an exact pin in `apps/chat/package.json` and must equal the version `better-auth` declares
-  (it requires its own core exactly; `@better-auth/electron` peers on `^1.6.34`). A root `overrides` entry that once forced 1.5.6
+- **`better-auth` and `@better-auth/core` 1.6.34** are exact pins in `apps/chat/package.json` and must stay equal
+  (`better-auth` requires its own core exactly, so a caret there could let a lockfile refresh nest a second core;
+  `@better-auth/electron` peers on `^1.6.34`). A root `overrides` entry that once forced 1.5.6
   is gone: on 1.6.34 it made `import "better-auth"` fail. Do not add an override back; treat any change here as a dependency task.
 - **`apps/chat` overrides** (`apps/chat/package.json`): `commander ^14.0.0`, and `evalite` is pointed at the app's own `ai` and
   `better-sqlite3` so the eval harness runs the same AI SDK.

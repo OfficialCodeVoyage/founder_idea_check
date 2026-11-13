@@ -75,7 +75,7 @@
         "@vercel/sandbox": "^1.0.2",
         "@xyflow/react": "12.12.1",
         "ai": "6.0.323",
-        "better-auth": "^1.6.34",
+        "better-auth": "1.6.34",
         "browser-image-compression": "^2.0.2",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",

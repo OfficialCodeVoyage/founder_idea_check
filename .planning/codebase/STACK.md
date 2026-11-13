@@ -25,7 +25,7 @@ Versions below are the ones resolved in `bun.lock` for the TypeScript side, and 
 ## Runtime
 
 **Environment:**
-- Bun 1.3.14 (`packageManager` in `package.json`; `engines.bun >= 1.3.14`, `engines.node >= 20.9.0`). Bun runs scripts and
+- Bun 1.3.14 (`packageManager` in `package.json`; `engines.bun >= 1.3.14`, `engines.node >= 22`). Bun runs scripts and
   installs; the Next.js server itself runs under Node (`next start`, `apps/chat/package.json`).
 - Python 3.11 in a venv at `apps/research/.venv` (the README suggests `uv venv --python 3.11`; CI uses `python -m venv`,
   `.github/workflows/ci.yml`). Container base image `python:3.11-slim` (`apps/research/Dockerfile`).
@@ -99,7 +99,7 @@ member: it has no `package.json`, and Python is driven by its own `pyproject.tom
   `apps/research/app/simulation/oasis_runner.py`).
 
 **Infrastructure:**
-- `files-sdk` 2.1.0 with `@vercel/blob` 2.4.0 - file storage adapter (`apps/chat/lib/storage-provider.ts`).
+- `files-sdk` 3.1.2 with `@vercel/blob` 2.8.2 - file storage adapter (`apps/chat/lib/storage-provider.ts`).
 - `@vercel/sandbox` 1.9.3 - code execution tool, disabled in config (`apps/chat/tools/platform/code-execution.ts`).
 - `@modelcontextprotocol/sdk` 1.29.0 + `@ai-sdk/mcp` - MCP connectors, disabled in config (`apps/chat/lib/ai/mcp/`).
 - `@tavily/core` 0.3.7, `@mendable/firecrawl-js` 1.29.1 - optional web-search backends (`apps/chat/tools/platform/steps/web-search.ts`).
@@ -168,7 +168,7 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
 ## Platform Requirements
 
 **Development:**
-- Bun 1.3.14, Node 20.9 or newer, Docker (for `postgres` and `redis` services in `docker-compose.yml`), Python 3.11 with a venv for
+- Bun 1.3.14, Node 22 or newer (files-sdk 3 needs it), Docker (for `postgres` and `redis` services in `docker-compose.yml`), Python 3.11 with a venv for
   the sidecar, and an `OPENAI_API_KEY` in the repo-root `.env.local` for any model call.
 - Start services with `docker compose up -d postgres redis`; plain `docker compose up -d` also builds and starts the sidecar on :8099.
   Ports are bound to `127.0.0.1` only (Postgres 5433, Valkey 6380, sidecar 8099, optional SearXNG 8888).

@@ -1,4 +1,3 @@
-import { getRequestQueryClient } from "@/lib/request-session";
 import { Suspense } from "react";
 import { ConnectorsSettings } from "@/components/settings/connectors-settings";
 import {
@@ -6,6 +5,7 @@ import {
   SettingsPageHeader,
 } from "@/components/settings/settings-page";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getRequestQueryClient } from "@/lib/request-session";
 import { HydrateClient, trpc } from "@/trpc/server";
 
 function ConnectorsSettingsHeader() {

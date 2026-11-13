@@ -114,7 +114,17 @@ The turn's charge does not depend on any of these: the route drains its own tee 
 that what it hands `waitUntil` is bounded by the chat stream's own end and every rejection in the read loop is caught.
 Check all four paths above, not only the subscribe one.
 
-### SWEEP-F14 — A reload after a stream ended gets its finished message as one transient data part, not as a UI-message stream
+### SWEEP-F21 — Billing and agent comments cite ai@6.0.219 behaviour that was not re-checked on 6.0.323
+**Raised:** 2026-11-13, `fix/dependabot-minor-patch-261112`, code review of the AI SDK 6.0.323 bump. **Status:** OPEN (low)
+Comments in `apps/chat/lib/credits/main-chat-usage.ts`, `apps/chat/app/(chat)/api/chat/route.ts`,
+`apps/chat/lib/ai/followup-suggestions.ts`, `apps/chat/chat.config.ts`, `apps/chat/lib/config-schema.ts` and
+`apps/chat/tools/platform/deep-research/researcher-agent.ts` give the reason for a charge or a limit as `ai@6.0.219`
+behaviour (when a stop is charged and in what order the abort reaches the stream, `ToolLoopAgent`'s default step count,
+`convertToModelMessages` part handling). The bump to 6.0.323 did not re-check any of them.
+**Clearing condition:** re-run each cited mock-model check on 6.0.323 (the stop-and-charge ordering in
+`main-chat-usage.ts` and the route first), then correct the comment or the code and update the version the comment cites.
+
+### SWEEP-F22 — A reload after a stream ended gets its finished message as one transient data part, not as a UI-message stream
 **Raised:** 2026-11-13, `fix/dependabot-minor-patch-261112`, code review of the AI SDK 6.0.323 bump. **Status:** OPEN (low)
 `apps/chat/app/(chat)/api/chat/[id]/stream/route.ts::appendMessageResponse` answers a reload after the stream already
 ended with a one-shot stream that carries only a transient `data-appendMessage` part, no `start`, parts or `finish`;

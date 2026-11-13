@@ -127,11 +127,12 @@ A FastAPI service the app reaches only over HTTP; it owns every call to a demand
 
 **File Storage:**
 - Vercel Blob through `files-sdk` (`apps/chat/lib/storage-provider.ts`, `apps/chat/lib/file-storage.ts`), private access, keys carry a
-  digest of the owner id. Two credential modes: `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` with a Vercel OIDC token (from each
-  request's `x-vercel-oidc-token` header on Vercel, else `VERCEL_OIDC_TOKEN`, which `vercel env pull` writes). The adapter
+  digest of the owner id. Two credential modes: `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` plus `VERCEL_OIDC_TOKEN` (Vercel builds set
+  it; `vercel env pull` writes it locally; it is short-lived, never a pasted long-lived value). The adapter
   (`@vercel/blob`) reads them; app code only declares them (`apps/chat/lib/env-schema.ts`, `turbo.json`) and checks that one mode
   is met (`apps/chat/scripts/check-env.ts::validateStorage`, rules in `apps/chat/lib/storage-provider-metadata.ts`). Every read
-  streams through `/api/files/content` after the access check; nothing redirects to a provider link. Unused today:
+  streams through `/api/files/content` after the access check, with `Cache-Control: private, no-store`; nothing redirects to a
+  provider link. Unused today:
   `features.attachments` is false and image generation is off in `apps/chat/chat.config.ts`.
 - The export is never written on the server: the app returns a plan and the browser downloads files (`apps/chat/lib/export/handoff.ts`).
 

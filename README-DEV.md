@@ -131,11 +131,14 @@ private blob is read only with the app's own credentials, so that route is the o
 private blobs. Every read, from any store, is streamed through `/api/files/content` after its access check; no store
 is ever answered with a redirect to a provider link, because a presigned URL (files-sdk signs them for a private Vercel
 Blob, S3, GCS, Azure, R2 and more) works for whoever holds it, without the check, until it expires
-(`apps/chat/lib/file-content-response.ts::createFileContentResponse`). The app needs `BLOB_READ_WRITE_TOKEN`, or
-`BLOB_STORE_ID` with the OIDC token Vercel supplies: on Vercel it comes with each request, so `BLOB_STORE_ID` is enough
-there; elsewhere set `VERCEL_OIDC_TOKEN` (`vercel env pull` writes it). `check-env` (`apps/chat/scripts/check-env.ts`)
-names both options when neither is met. Nothing is deployed yet, so no stored file is at risk today. Two consequences
-matter for a deployment:
+(`apps/chat/lib/file-content-response.ts::createFileContentResponse`). That is the price of the access check: every
+file passes through the app's function, so its bandwidth and run time grow with the file's size, and no browser fetches
+a byte range straight from the store. Each response carries `Cache-Control: private, no-store`, so no shared cache can
+replay a file to someone the check would refuse. The app needs `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` plus
+`VERCEL_OIDC_TOKEN`. Vercel builds set `VERCEL_OIDC_TOKEN` for you and `vercel env pull` writes it locally; it is a
+short-lived token, so do not paste a long-lived value. `check-env` (`apps/chat/scripts/check-env.ts`) names both
+options when neither is met. Nothing is deployed yet, so no stored file is at risk today. Two consequences matter for a
+deployment:
 
 - **Blobs uploaded as public before this change will not load.** In private mode files-sdk reads every file with
   `blob.get(key, { access: "private" })` and reports anything that does not come back that way as `NotFound`, so a

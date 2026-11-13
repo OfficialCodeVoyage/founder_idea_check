@@ -8,7 +8,10 @@ import {
 	type ProviderSlug,
 } from "files-sdk/providers";
 import { z } from "zod";
-import { getStorageEnvironmentRequirements } from "../../../../apps/chat/lib/storage-provider-metadata";
+import {
+	getStorageEnvironmentRequirements,
+	STORAGE_VARIABLE_HINTS,
+} from "../../../../apps/chat/lib/storage-provider-metadata";
 
 export type StorageSelection = {
 	provider: ProviderSlug;
@@ -101,14 +104,16 @@ function findFilesSdkPackageJson(): string {
 }
 
 function renderEnvVariable(
-	variable: { description: string; key: string; platformFlag?: string },
+	variable: { description: string; key: string },
 	optional = false,
 ): string[] {
-	// A variable the platform supplies (VERCEL_OIDC_TOKEN) is described, never
-	// left as a blank line for the user to paste a value into.
-	if (variable.platformFlag) {
+	// A required variable that must not be pasted by hand (VERCEL_OIDC_TOKEN)
+	// says where it comes from and stays commented out.
+	const hint = STORAGE_VARIABLE_HINTS[variable.key];
+	if (hint) {
 		return [
-			`# ${variable.key}: supplied by the platform, not pasted here. ${variable.description}`,
+			`# ${variable.key} is required for this option: ${hint}.`,
+			`# ${variable.key}=`,
 		];
 	}
 	return optional

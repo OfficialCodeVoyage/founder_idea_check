@@ -4,12 +4,6 @@ export type StorageEnvironmentVariable = {
   aliases: readonly string[];
   description: string;
   key: string;
-  /**
-   * Set when the platform supplies this variable instead of the env file: the
-   * env var whose presence means "running there", so the variable counts as
-   * present without being set.
-   */
-  platformFlag?: string;
   secret: boolean;
 };
 
@@ -20,12 +14,16 @@ export type StorageEnvironmentRequirement = {
 
 const STORAGE_OPTION_HINT = /(?:or )?pass `([^`]+)`/;
 
-// @vercel/oidc reads VERCEL_OIDC_TOKEN from the env when it is set (Vercel
-// builds, `vercel env pull`); on Vercel Functions it takes the token from the
-// x-vercel-oidc-token request header instead, so a deployment never has it in
-// the env. Running on Vercel (`VERCEL` set) therefore counts as having it.
-const PLATFORM_FLAGS: Readonly<Record<string, string>> = {
-  VERCEL_OIDC_TOKEN: "VERCEL",
+/**
+ * How to get a variable that is required but never pasted by hand, shown by
+ * `scripts/check-env.ts` when it is missing and by the CLI's generated
+ * `.env.example`. VERCEL_OIDC_TOKEN is a short-lived token: it is checked as
+ * an env var like any other (Vercel Blob's OIDC mode needs it with
+ * BLOB_STORE_ID), but a pasted copy expires.
+ */
+export const STORAGE_VARIABLE_HINTS: Readonly<Record<string, string>> = {
+  VERCEL_OIDC_TOKEN:
+    "set automatically on Vercel builds and written locally by `vercel env pull`; do not paste a long-lived value",
 };
 
 export function getStorageEnvironmentRequirements(
@@ -46,7 +44,6 @@ export function getStorageEnvironmentRequirements(
     aliases: variable.aliases ?? [],
     description: variable.description,
     key: variable.key,
-    platformFlag: PLATFORM_FLAGS[variable.key],
     secret: variable.secret,
   });
   const requirements: StorageEnvironmentRequirement[] = [];

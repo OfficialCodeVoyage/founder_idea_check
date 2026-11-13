@@ -26,6 +26,7 @@ import { isPlaywrightTestEnvironment } from "../lib/playwright-test-environment"
 import { storageProvider } from "../lib/storage-provider";
 import {
   getStorageEnvironmentRequirements,
+  STORAGE_VARIABLE_HINTS,
   type StorageEnvironmentVariable,
 } from "../lib/storage-provider-metadata";
 
@@ -242,11 +243,7 @@ function hasStorageEnvVariable(
   variable: StorageEnvironmentVariable,
   env: NodeJS.ProcessEnv
 ) {
-  return [
-    variable.key,
-    ...(variable.aliases ?? []),
-    ...(variable.platformFlag ? [variable.platformFlag] : []),
-  ].some((key) => !!env[key]);
+  return [variable.key, ...(variable.aliases ?? [])].some((key) => !!env[key]);
 }
 
 function validateStorage(env: NodeJS.ProcessEnv): ValidationError | null {
@@ -287,11 +284,16 @@ function validateStorage(env: NodeJS.ProcessEnv): ValidationError | null {
           option.every((variable) => hasStorageEnvVariable(variable, env))
         )
     )
-    .map((requirement) =>
-      requirement.options
+    .map((requirement) => {
+      const options = requirement.options
         .map((option) => option.map(({ key }) => key).join(" + "))
-        .join(" or ")
-    );
+        .join(" or ");
+      const hints = requirement.options
+        .flat()
+        .filter(({ key }) => STORAGE_VARIABLE_HINTS[key])
+        .map(({ key }) => `${key}: ${STORAGE_VARIABLE_HINTS[key]}`);
+      return hints.length > 0 ? `${options} (${hints.join("; ")})` : options;
+    });
 
   return missing.length > 0
     ? { feature: `fileStorage (${metadata.name})`, missing }

@@ -114,6 +114,18 @@ The turn's charge does not depend on any of these: the route drains its own tee 
 that what it hands `waitUntil` is bounded by the chat stream's own end and every rejection in the read loop is caught.
 Check all four paths above, not only the subscribe one.
 
+### SWEEP-F14 — The chat model list can differ between the server render and the first client render
+**Raised:** 2026-11-13, `fix/next-16-4-render-errors-261112`, `/code-review` (high) of the Next 16.4 render fixes.
+**Status:** OPEN (low, not observed)
+`apps/chat/providers/chat-models-provider.tsx::ChatModelsProvider` builds `models` (the enabled set every model picker
+reads) from `settings.getModelPreferences`, which the (chat) layout prefetches without awaiting. The server and the
+browser can each see that query pending or resolved on the first render, so the enabled set, and any markup built from
+it, could differ and fail hydration: the same cause as the `/settings/models` row-order mismatch, which this branch fixed
+in `apps/chat/components/settings/models-table.tsx::ModelsTable` by rendering server-read preferences. No mismatch on `/`
+in six clean-restart loads after sign-in on Next 16.4.5 (checked by hand).
+**Clearing condition:** a hydration error from a model picker is seen, or the provider is given the server-read
+preferences (as the models page does) so that both sides render from the same data.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

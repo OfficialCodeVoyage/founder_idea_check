@@ -421,8 +421,9 @@ beyond each side's own tests.
   (`/settings/models`, `/settings/connectors`, `/settings/connectors/[connectorId]`, `/share/[id]`) takes its query client
   from `apps/chat/lib/request-session.ts::getRequestQueryClient`, which awaits `connection()` first: a page renders alongside its
   layouts, so theirs does not cover it. A new server-side prefetch, `fetchQuery` or caller must use that helper (awaited
-  on its own, not inside a `Promise.all`); one that takes `getQueryClient()` directly brings the error back, and nothing
-  checks for it. Four tidier designs each made the Next 16.4.5 dev server reload `/` over and over after sign-in, so
+  on its own, not inside a `Promise.all`); one that takes `getQueryClient()` directly brings the error back. Lint
+  catches that: `apps/chat/biome.jsonc` forbids importing `getQueryClient` from `@/trpc/server` outside
+  `lib/request-session.ts` and the (chat) layout. Four tidier designs each made the Next 16.4.5 dev server reload `/` over and over after sign-in, so
   all stay out: the barrier in the tRPC context (about 25 reloads), the barrier inside the (chat) layout's `Promise.all`
   (26–47), the tRPC context sharing `getRequestSession`'s `cache()`d lookup (435 before the test was stopped), and this
   helper placed in `trpc/server.tsx`, which imported `connection` there (71). Each request still looks the session up twice.

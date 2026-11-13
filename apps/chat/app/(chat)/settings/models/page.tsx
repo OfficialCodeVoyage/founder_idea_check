@@ -9,7 +9,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { createModuleLogger } from "@/lib/logger";
-import { getRequestQueryClient } from "@/lib/request-session";
+import {
+  getRequestQueryClient,
+  getRequestSession,
+} from "@/lib/request-session";
 import { trpc } from "@/trpc/server";
 
 const log = createModuleLogger("settings:models");
@@ -70,22 +73,7 @@ export default function ModelsSettingsPage() {
 }
 
 async function ModelsSettingsContent() {
-  const queryClient = await getRequestQueryClient();
-  // Read here and handed to `ModelsTable` as a prop, so its first render
-  // does not depend on the query cache (see `ModelsTable`). Same
-  // request-scoped client as the layout's lazy prefetch, so this joins that
-  // fetch instead of starting another, and the layout's `HydrateClient`
-  // already sends the query to the browser, so this page adds none. Next's
-  // control-flow errors propagate; any other failure is logged and passes
-  // `null` ("not known"), never `[]`, which would read as "no saved
-  // preferences" and fix the table's row order on the defaults.
-  const initialPreferences = await queryClient
-    .fetchQuery(trpc.settings.getModelPreferences.queryOptions())
-    .catch((error: unknown) => {
-      unstable_rethrow(error);
-      log.error({ error }, "Failed to read model preferences");
-      return null;
-    });
+  const initialPreferences = await readInitialPreferences();
 
   return (
     <SettingsPage>
@@ -93,4 +81,39 @@ async function ModelsSettingsContent() {
       <ModelsSettings initialPreferences={initialPreferences} />
     </SettingsPage>
   );
+}
+
+/**
+ * The saved preferences, read here and handed to `ModelsTable` as a prop so
+ * its first render does not depend on the query cache (see `ModelsTable`).
+ * `null` means "not known", never `[]`, which would read as "no saved
+ * preferences".
+ *
+ * Signed out: `null` without a read. The settings layout redirects, but this
+ * page renders alongside it, and `getModelPreferences` is a protected
+ * procedure, so the read would only fail with UNAUTHORIZED. The session check
+ * reuses the request's cached lookup (`getRequestSession`).
+ *
+ * Same request-scoped client as the layout's lazy prefetch, so the read joins
+ * that fetch instead of starting another, and the layout's `HydrateClient`
+ * already sends the query to the browser. Next's control-flow errors
+ * propagate; any other failure is logged and gives `null`.
+ */
+async function readInitialPreferences() {
+  const session = await getRequestSession();
+  if (!session?.user) {
+    return null;
+  }
+  const queryClient = await getRequestQueryClient();
+  try {
+    return await queryClient.fetchQuery(
+      trpc.settings.getModelPreferences.queryOptions()
+    );
+  } catch (err) {
+    unstable_rethrow(err);
+    // `err`, not `error`: this pino serialises only `err` (type, message,
+    // stack); under any other key an Error prints as its own fields.
+    log.error({ err }, "Failed to read model preferences");
+    return null;
+  }
 }

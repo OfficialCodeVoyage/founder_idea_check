@@ -22,8 +22,39 @@
     "rules": {
       "style": {
         /* Allow mixing interface and type — type is required for intersection/mapped types */
-        "useConsistentTypeDefinitions": "off"
+        "useConsistentTypeDefinitions": "off",
+        /* A page that calls server-side tRPC must pass the request-time barrier
+           first (`lib/request-session.ts::getRequestQueryClient`); a bare
+           `getQueryClient()` lets the tRPC context's session lookup read the
+           clock while prerendering. The overrides below list the only files
+           allowed to take it directly. */
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "@/trpc/server": {
+                "importNames": ["getQueryClient"],
+                "message": "Use getRequestQueryClient from @/lib/request-session: it awaits connection() before server-side tRPC reads the session."
+              }
+            }
+          }
+        }
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      /* `lib/request-session.ts` wraps it in the barrier; the (chat) layout
+         reaches its prefetches through `getRequestSession`, which awaits the
+         same barrier. */
+      "includes": ["lib/request-session.ts", "app/(chat)/layout.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    }
+  ]
 }

@@ -2,6 +2,8 @@
 import { memo, useState } from "react";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import type { ChatMessage } from "@/lib/ai/types";
+import { PHASES } from "@/lib/phases/definitions";
+import { humanizeCriterionId } from "@/lib/phases/rail";
 import { useChatId, useMessageById } from "@/lib/stores/base";
 import { cn, getAttachmentsFromMessage } from "@/lib/utils";
 import { AttachmentList } from "./attachment-list";
@@ -15,6 +17,32 @@ export interface BaseMessageProps {
   isReadonly: boolean;
   messageId: string;
   parentMessageId: string | null;
+}
+
+const KNOWN_CRITERION_IDS: ReadonlySet<string> = new Set(
+  PHASES.flatMap((phase) => phase.exitCriteria.map((c) => c.id))
+);
+
+/**
+ * "Answering: Target user", above a message the founder sent from the gate
+ * card's "Answer". Only for an id the phase definitions carry: the label rides
+ * on message metadata that a stored message can lose or garble, and a line
+ * naming a criterion that does not exist would be worse than no line.
+ *
+ * EDITING A LABELLED MESSAGE DROPS ITS LABEL, by design. An edit is resent
+ * through the message editor's own composer, which has no criterion target, so
+ * the new message carries no `targetCriterionId` and this line disappears. The
+ * edited text is no longer known to be an answer to that criterion.
+ */
+function TargetNote({ criterionId }: { criterionId: string | undefined }) {
+  if (!(criterionId && KNOWN_CRITERION_IDS.has(criterionId))) {
+    return null;
+  }
+  return (
+    <p className="text-muted-foreground text-xs">
+      Answering: {humanizeCriterionId(criterionId)}
+    </p>
+  );
 }
 
 const PureUserMessage = ({
@@ -67,6 +95,7 @@ const PureUserMessage = ({
               className="text-left group-[.is-user]:bg-card"
               data-testid="message-content"
             >
+              <TargetNote criterionId={message.metadata?.targetCriterionId} />
               <AttachmentList
                 attachments={getAttachmentsFromMessage(message)}
                 chatId={chatId}
@@ -98,6 +127,7 @@ const PureUserMessage = ({
                 className="text-left group-[.is-user]:max-w-none group-[.is-user]:bg-card"
                 data-testid="message-content"
               >
+                <TargetNote criterionId={message.metadata?.targetCriterionId} />
                 <AttachmentList
                   attachments={getAttachmentsFromMessage(message)}
                   chatId={chatId}

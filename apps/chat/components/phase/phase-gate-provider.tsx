@@ -6,6 +6,7 @@ import {
   type ReactNode,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -141,9 +142,16 @@ export function PhaseGateProvider({
     enabled: ledgerKey !== null && ledgerKey.attemptCount > 0,
     staleTime: Number.POSITIVE_INFINITY,
   });
-  const data: PhaseGateData | null = state
-    ? { ...state, ledger: ledger ?? [] }
-    : null;
+  // MEMOISED so the payload keeps its identity between polls that returned the
+  // same state and for every render the provider takes for another reason (a
+  // parent re-render while streaming). The card derives its whole view from this
+  // object, and an object rebuilt on every render would make that derivation
+  // rerun on each one.
+  const data = useMemo<PhaseGateData | null>(
+    () => (state ? { ...state, ledger: ledger ?? [] } : null),
+    [state, ledger]
+  );
+  const value = useMemo(() => ({ data, wait }), [data, wait]);
 
   // Held in a ref so the turn-ended effect can seed its baseline without taking
   // `data` as a dependency — re-running it on every poll would restart the
@@ -177,7 +185,7 @@ export function PhaseGateProvider({
   }, [observed]);
 
   return (
-    <PhaseGateContext.Provider value={{ data, wait }}>
+    <PhaseGateContext.Provider value={value}>
       {children}
     </PhaseGateContext.Provider>
   );

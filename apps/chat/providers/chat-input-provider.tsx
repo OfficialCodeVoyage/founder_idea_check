@@ -19,11 +19,30 @@ import {
   type SelectedModelValue,
   type UiToolName,
 } from "@/lib/ai/types";
+import type { CriterionClosure } from "@/lib/phases/types";
 import { useChatModels } from "./chat-models-provider";
 import { useDefaultModel, useModelChange } from "./default-model-provider";
 
+/**
+ * The exit criterion the next message is an answer to, set by the gate card's
+ * "Answer" and "Report what you found" and shown as a chip above the composer.
+ *
+ * A label for the message, not text in it: the composer's own value is what is
+ * sent, untouched. `phaseKey` is kept so a target left over from a phase the
+ * founder has since advanced out of can be dropped instead of being sent as the
+ * label of an answer to a different phase's criterion.
+ */
+export type CriterionTarget = {
+  phaseKey: string;
+  criterionId: string;
+  /** The humanised id, as printed on the card and on the chip. */
+  title: string;
+  closure: CriterionClosure;
+};
+
 interface ChatInputContextType {
   attachments: Attachment[];
+  criterionTarget: CriterionTarget | null;
   editorRef: React.RefObject<LexicalChatInputRef | null>;
   getInitialInput: () => string;
   getInputValue: () => string;
@@ -37,6 +56,7 @@ interface ChatInputContextType {
   selectedModelSelection: SelectedModelValue;
   selectedTool: UiToolName | null;
   setAttachments: Dispatch<SetStateAction<Attachment[]>>;
+  setCriterionTarget: Dispatch<SetStateAction<CriterionTarget | null>>;
   setSelectedTool: Dispatch<SetStateAction<UiToolName | null>>;
 }
 
@@ -119,6 +139,8 @@ export function ChatInputProvider({
   );
   const [attachments, setAttachments] =
     useState<Attachment[]>(initialAttachments);
+  const [criterionTarget, setCriterionTarget] =
+    useState<CriterionTarget | null>(null);
 
   // Track if input is empty for reactive UI updates
   const [isEmpty, setIsEmpty] = useState<boolean>(
@@ -242,6 +264,8 @@ export function ChatInputProvider({
         setSelectedTool,
         attachments,
         setAttachments,
+        criterionTarget,
+        setCriterionTarget,
         selectedModelId,
         selectedModelSelection,
         handleModelChange,

@@ -1,7 +1,7 @@
 "use client";
 import type { UseChatHelpers } from "@ai-sdk/react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CameraIcon, FileIcon, ImageIcon, PlusIcon } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import { CameraIcon, FileIcon, ImageIcon, PlusIcon, XIcon } from "lucide-react";
 import type React from "react";
 import {
   type ChangeEvent,
@@ -24,6 +24,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { ContextBar } from "@/components/context-bar";
 import { ContextUsageFromParent } from "@/components/context-usage";
+import { usePhaseGate } from "@/components/phase/phase-gate-provider";
 import { useArtifact } from "@/hooks/use-artifact";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { AppModelId } from "@/lib/ai/app-model-id";
@@ -34,23 +35,24 @@ import {
   type SelectedModelValue,
   type UiToolName,
 } from "@/lib/ai/types";
-import { useCurrentChatRoute } from "@/lib/chat-route";
 import { config } from "@/lib/config";
-import { buildDraftChatSubmission } from "@/lib/draft-chat-submission";
+import {
+  buildDraftChatSubmission,
+  normalizeSelectedModel,
+} from "@/lib/draft-chat-submission";
 import { processFilesForUpload } from "@/lib/files/upload-prep";
 import {
-  addPendingAssistantMessages,
-  createParallelRequestBody,
-  markParallelRequestSpecsFailed,
-  runParallelRequestSpecs,
-} from "@/lib/parallel-chat-requests";
-import { useStartProvisionalChat } from "@/lib/start-provisional-chat";
+  isSendInFlight,
+  useSendDraftChatSubmission,
+} from "@/lib/send-draft-chat-submission";
 import { useChatActions, useChatStoreApi } from "@/lib/stores/base";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
-import { useAddMessageToTree } from "@/lib/stores/hooks-threads";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { cn } from "@/lib/utils";
-import { useChatInput } from "@/providers/chat-input-provider";
+import {
+  type CriterionTarget,
+  useChatInput,
+} from "@/providers/chat-input-provider";
 import { useChatModels } from "@/providers/chat-models-provider";
 import { useSession } from "@/providers/session-provider";
 import { useTRPC } from "@/trpc/react";
@@ -126,16 +128,9 @@ function PureMultimodalInput({
   const { artifact, closeArtifact } = useArtifact();
   const { data: session } = useSession();
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
   const isMobile = useIsMobile();
-  const addMessageToTree = useAddMessageToTree();
-  const currentRoute = useCurrentChatRoute();
-  const startProvisionalChat = useStartProvisionalChat(chatId);
-  const {
-    setMessages,
-    sendMessage,
-    stop: stopHelper,
-  } = useChatActions<ChatMessage>();
+  const sendDraftChatSubmission = useSendDraftChatSubmission(chatId);
+  const { setMessages, stop: stopHelper } = useChatActions<ChatMessage>();
   const lastMessageId = useLastMessageId();
   const {
     editorRef,
@@ -152,7 +147,23 @@ function PureMultimodalInput({
     getInitialInput,
     isEmpty,
     handleSubmit,
+    criterionTarget: storedCriterionTarget,
+    setCriterionTarget,
   } = useChatInput();
+
+  // A TARGET DOES NOT OUTLIVE ITS PHASE, and that is derived where it is read
+  // rather than cleared by an effect. The gate advances in `after()`, so a
+  // founder can have "Answer" armed on a criterion of phase 3 when phase 4
+  // opens; sending the old id then would label an answer with a criterion the
+  // new phase does not have. Read through this, a target from another phase (or
+  // with no gate to say which phase this is) is simply not there: no chip, no
+  // hint, no label. The stale value in the provider is overwritten by the next
+  // "Answer" and cleared by the next send.
+  const gatePhaseKey = usePhaseGate()?.data?.phaseKey ?? null;
+  const criterionTarget =
+    storedCriterionTarget && storedCriterionTarget.phaseKey === gatePhaseKey
+      ? storedCriterionTarget
+      : null;
 
   const isAnonymous = !session?.user;
   const isModelDisallowedForAnonymous =
@@ -164,11 +175,10 @@ function PureMultimodalInput({
   const stopStreamMutation = useMutation(
     trpc.chat.stopStream.mutationOptions()
   );
-  const normalizedSelectedModel = useMemo<SelectedModelValue>(() => {
-    const expanded = expandSelectedModelValue(selectedModelSelection);
-
-    return expanded.length > 1 ? selectedModelSelection : selectedModelId;
-  }, [selectedModelId, selectedModelSelection]);
+  const normalizedSelectedModel = useMemo<SelectedModelValue>(
+    () => normalizeSelectedModel({ selectedModelId, selectedModelSelection }),
+    [selectedModelId, selectedModelSelection]
+  );
   const requestedModelIds = useMemo(
     () => expandSelectedModelValue(normalizedSelectedModel),
     [normalizedSelectedModel]
@@ -352,12 +362,6 @@ function PureMultimodalInput({
     ]
   );
 
-  const invalidatePersistedMessages = useCallback(async () => {
-    await queryClient.invalidateQueries({
-      queryKey: trpc.chat.getChatMessages.queryKey({ chatId }),
-    });
-  }, [chatId, queryClient, trpc]);
-
   const coreSubmitLogic = useCallback(() => {
     const input = getInputValue();
 
@@ -378,71 +382,31 @@ function PureMultimodalInput({
       parallelResponsesEnabled,
       parentMessageId: effectiveParentMessageId,
       selectedTool,
+      // A label on the message, never a prefix on its text: `input` above is
+      // sent exactly as typed.
+      targetCriterionId: criterionTarget?.criterionId,
     });
 
     onSendMessage?.(message);
 
-    const primaryRequest = requestSpecs[0] ?? null;
+    const startedProvisionalChat = sendDraftChatSubmission({
+      message,
+      onStarted: () => {
+        if (!isMobile) {
+          editorRef.current?.focus();
+        }
+      },
+      requestSpecs,
+    });
 
-    if (
-      startProvisionalChat({
-        message,
-        onStarted: () => {
-          if (!isMobile) {
-            editorRef.current?.focus();
-          }
-        },
-        requestSpecs,
-      })
-    ) {
+    // CLEARED ONLY AFTER THE SEND, never before it: the label has to be on the
+    // message when it leaves. `sendDraftChatSubmission` has called
+    // `sendMessage` by the time it returns, on the provisional-chat path too.
+    setCriterionTarget(null);
+
+    // A provisional chat refocuses through `onStarted`.
+    if (startedProvisionalChat) {
       return;
-    }
-
-    if (primaryRequest) {
-      sendMessage(message, {
-        body: {
-          ...createParallelRequestBody(primaryRequest, true),
-          projectId: currentRoute.projectId ?? undefined,
-        },
-      });
-
-      addMessageToTree(message);
-      handleModelChange(primaryRequest.modelId);
-      addPendingAssistantMessages({
-        addMessageToTree,
-        message,
-        requestSpecs,
-      });
-
-      runParallelRequestSpecs({
-        chatId,
-        message,
-        projectId: currentRoute.projectId,
-        requestSpecs: requestSpecs.slice(1),
-      })
-        .then(async (failedRequestSpecs) => {
-          if (failedRequestSpecs.length > 0) {
-            markParallelRequestSpecsFailed({
-              addMessageToTree,
-              message,
-              requestSpecs: failedRequestSpecs,
-            });
-            toast.error("Failed to complete all parallel responses");
-          }
-
-          await invalidatePersistedMessages();
-        })
-        .catch(() => {
-          toast.error("Failed to complete all parallel responses");
-        });
-    } else {
-      sendMessage(
-        message,
-        currentRoute.projectId
-          ? { body: { projectId: currentRoute.projectId } }
-          : undefined
-      );
-      addMessageToTree(message);
     }
 
     // Refocus after submit
@@ -450,14 +414,10 @@ function PureMultimodalInput({
       editorRef.current?.focus();
     }
   }, [
-    addMessageToTree,
     attachments,
+    criterionTarget?.criterionId,
     isMobile,
-    chatId,
-    currentRoute.projectId,
     editorRef,
-    handleModelChange,
-    invalidatePersistedMessages,
     getInputValue,
     isEditMode,
     lastMessageId,
@@ -466,14 +426,31 @@ function PureMultimodalInput({
     parentMessageId,
     parallelResponsesEnabled,
     selectedTool,
-    sendMessage,
-    startProvisionalChat,
+    sendDraftChatSubmission,
+    setCriterionTarget,
     trimMessagesInEditMode,
   ]);
 
+  // The "Stop answering" button that was just pressed unmounts with the chip, so
+  // focus goes where the founder is about to type, not to the document body.
+  const clearCriterionTarget = useCallback(() => {
+    setCriterionTarget(null);
+    editorRef.current?.focus();
+  }, [editorRef, setCriterionTarget]);
+
   const submitForm = useCallback(() => {
+    // EVERY WAY OF SENDING (Enter, the form, the send button) COMES THROUGH
+    // HERE, so this is the one place a send another sender has just made is
+    // seen before the chat status shows it: `submission` above reads a
+    // render-time status, which stays `ready` for a frame or two after the gate
+    // card's "Plan how to find out" sends. Refusing here, before `handleSubmit`,
+    // keeps what the founder typed in the editor.
+    if (isSendInFlight(chatId)) {
+      toast.error("Please wait for the model to finish its response!");
+      return;
+    }
     handleSubmit(coreSubmitLogic, isEditMode);
-  }, [handleSubmit, coreSubmitLogic, isEditMode]);
+  }, [chatId, handleSubmit, coreSubmitLogic, isEditMode]);
 
   const uploadFile = useCallback(
     async (
@@ -677,6 +654,9 @@ function PureMultimodalInput({
   const composerTestId = isActive
     ? `multimodal-input${surfaceSuffix}`
     : undefined;
+  const defaultPlaceholder = isMobile
+    ? "Send a message... (Ctrl+Enter to send)"
+    : "Send a message...";
   const modelSelectorTestId = isActive
     ? `model-selector${surfaceSuffix}`
     : undefined;
@@ -749,6 +729,13 @@ function PureMultimodalInput({
             uploadQueue={uploadQueue}
           />
 
+          {isActive && !isEditMode ? (
+            <CriterionTargetBar
+              onClear={clearCriterionTarget}
+              target={criterionTarget}
+            />
+          ) : null}
+
           <LexicalChatInput
             autoFocus={autoFocus && isActive}
             className="max-h-[max(35svh,5rem)] min-h-[60px] overflow-y-scroll sm:min-h-[80px]"
@@ -773,9 +760,9 @@ function PureMultimodalInput({
             onInputChange={handleInputChange}
             onPaste={handlePaste}
             placeholder={
-              isMobile
-                ? "Send a message... (Ctrl+Enter to send)"
-                : "Send a message..."
+              criterionTarget
+                ? TARGET_HINT[criterionTarget.closure]
+                : defaultPlaceholder
             }
             ref={isActive ? editorRef : undefined}
           />
@@ -936,6 +923,84 @@ function PureAttachmentsButton({
 }
 
 const AttachmentsButton = memo(PureAttachmentsButton);
+
+/**
+ * WHAT THE FOUNDER IS ANSWERING, in the founder's words, above the editor.
+ *
+ * The gate card's "Answer" sets a target; this is where it stays visible until
+ * the message is sent or it is dismissed. It is a label OUTSIDE the editor on
+ * purpose: nothing here is ever put in the message text, so what the gate judges
+ * and what extraction quotes is exactly what the founder typed.
+ *
+ * Not a `PromptInputHeader`: that addon focuses the form's `<input>` on click
+ * and carries a border and a background built for the attachment strip.
+ */
+function CriterionTargetChip({
+  title,
+  onClear,
+}: {
+  title: string;
+  onClear: () => void;
+}) {
+  return (
+    <div
+      className="flex w-full min-w-0 items-center px-3 pt-2"
+      data-testid="criterion-target-chip"
+    >
+      <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border bg-background py-0.5 pr-0.5 pl-2.5 text-xs">
+        <span className="min-w-0 truncate">
+          <span className="text-foreground/75">Answering:</span>{" "}
+          <span className="font-medium">{title}</span>
+        </span>
+        <button
+          aria-label={`Stop answering ${title}`}
+          className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-full text-foreground/75 hover:bg-foreground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onClear}
+          type="button"
+        >
+          <XIcon aria-hidden="true" className="size-3" />
+        </button>
+      </span>
+    </div>
+  );
+}
+
+/** What the empty editor says while a criterion is the target. */
+const TARGET_HINT = {
+  "in-conversation": "Say it in a full sentence, in your own words.",
+  "offline-only":
+    "What did you find? Who you spoke to, how many, when, and what they said.",
+} as const;
+
+/**
+ * THE TARGET, SEEN AND HEARD.
+ *
+ * The chip is only visible, and a control that appears is not announced, so a
+ * screen-reader user who pressed "Answer" would be told nothing. The region is
+ * mounted all the time and only its text changes, which is what a polite live
+ * region announces reliably. It carries the hint too, since the placeholder that
+ * shows it is not read as a label. Empty (so silent) when there is no target.
+ */
+function CriterionTargetBar({
+  onClear,
+  target,
+}: {
+  onClear: () => void;
+  target: CriterionTarget | null;
+}) {
+  return (
+    <>
+      <output className="sr-only">
+        {target
+          ? `Answering ${target.title}. ${TARGET_HINT[target.closure]}`
+          : ""}
+      </output>
+      {target ? (
+        <CriterionTargetChip onClear={onClear} title={target.title} />
+      ) : null}
+    </>
+  );
+}
 
 function PureChatInputBottomControls({
   selectedModelId,

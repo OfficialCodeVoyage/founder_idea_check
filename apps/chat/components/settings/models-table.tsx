@@ -6,20 +6,21 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { inferRouterInputs } from "@trpc/server";
+import type { inferInput } from "@trpc/tanstack-react-query";
 import { useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody } from "@/components/ui/table";
 import type { AppModelId } from "@/lib/ai/app-model-id";
 import { resolveEnabledModels } from "@/lib/ai/app-models";
 import type { UserModelPreference } from "@/lib/db/schema";
 import { useChatModels } from "@/providers/chat-models-provider";
 import { useTRPC } from "@/trpc/react";
-import type { AppRouter } from "@/trpc/routers/_app";
 import { ModelRow } from "./model-row";
 
-type SetModelEnabledInput =
-  inferRouterInputs<AppRouter>["settings"]["setModelEnabled"];
+type SetModelEnabledInput = inferInput<
+  ReturnType<typeof useTRPC>["settings"]["setModelEnabled"]
+>;
 
 /** `preferences` with `pref`'s model set to `pref.enabled`, added if absent. */
 function upsertPreference(
@@ -69,15 +70,19 @@ export function ModelsTable({
   // holds the saved preferences. Not `initialData`: that is written into the
   // shared cache and marked fresh, which would hide an errored query from
   // `ChatModelsProvider`.
-  const { data: queryData } = useQuery(
-    trpc.settings.getModelPreferences.queryOptions()
-  );
+  const {
+    data: queryData,
+    isError: queryFailed,
+    isFetching,
+    refetch,
+  } = useQuery(trpc.settings.getModelPreferences.queryOptions());
   const preferences = queryData ?? initialPreferences;
   // With neither (the server read failed and the query has nothing yet) the
   // saved preferences are unknown: the table shows the default set with every
   // switch disabled, so a toggle can neither present defaults as saved nor
   // cancel the real read. Both sides start in this state when the server read
-  // failed, so they still render the same markup.
+  // failed, so they still render the same markup. If the browser's read then
+  // fails too, the table is replaced by an error with a retry (below).
   const preferencesKnown = preferences !== null && preferences !== undefined;
 
   const queryKey = trpc.settings.getModelPreferences.queryKey();
@@ -115,11 +120,19 @@ export function ModelsTable({
       },
       onSettled: () => {
         // One refetch, after the last toggle: a refetch while another toggle
-        // is in flight would overwrite that row's optimistic value. This
-        // mutation still counts as pending inside `onSettled`, hence `1`.
-        if (queryClient.isMutating({ mutationKey }) === 1) {
-          queryClient.invalidateQueries({ queryKey });
-        }
+        // is in flight would overwrite that row's optimistic value. Checked
+        // on the next task, when every mutation that settled in this tick
+        // (one batched request answers several) has left `pending`, so the
+        // last of them always sees `0`. If two do, `cancelRefetch: false`
+        // makes the second join the first one's fetch.
+        setTimeout(() => {
+          if (queryClient.isMutating({ mutationKey }) === 0) {
+            queryClient.invalidateQueries(
+              { queryKey },
+              { cancelRefetch: false }
+            );
+          }
+        }, 0);
       },
     })
   );
@@ -145,20 +158,25 @@ export function ModelsTable({
   );
 
   // Row order: enabled models first, then the rest, fixed once from real data
-  // and kept, so a row does not jump when it is toggled. Real data is
-  // `initialPreferences`, or, when the server read failed, the query's first
-  // data; switches stay disabled until then, so no optimistic value can be
-  // the one the order is fixed from. Built from what this table renders, not
-  // from `useChatModels().models`, whose query can be pending on one side and
-  // resolved on the other.
+  // and kept, so a row does not jump when it is toggled. `initialPreferences`
+  // comes first: the server read it for this request, while the cache can
+  // hold an older copy after a client-side navigation inside `staleTime`
+  // (the switches still follow the query, which refetches when stale).
+  // Without it (the server read failed), the query's first data; switches
+  // stay disabled until then, so no optimistic value can be the one the order
+  // is fixed from. Both sides get the same prop, so they order alike, and
+  // the order does not come from `useChatModels().models`, whose query can be
+  // pending on one side and resolved on the other.
+  const orderSource = initialPreferences ?? queryData;
   const fixedOrderRef = useRef<AppModelId[] | null>(null);
   const sortedModels = useMemo(() => {
     if (fixedOrderRef.current === null) {
+      const orderEnabled = resolveEnabledModels(allModels, orderSource);
       const sorted = [
-        ...allModels.filter((m) => enabledModelsSet.has(m.id)),
-        ...allModels.filter((m) => !enabledModelsSet.has(m.id)),
+        ...allModels.filter((m) => orderEnabled.has(m.id)),
+        ...allModels.filter((m) => !orderEnabled.has(m.id)),
       ];
-      if (preferencesKnown) {
+      if (orderSource !== undefined) {
         fixedOrderRef.current = sorted.map((m) => m.id);
       }
       return sorted;
@@ -167,7 +185,7 @@ export function ModelsTable({
     return fixedOrderRef.current
       .map((id) => modelMap.get(id))
       .filter((m) => m !== undefined);
-  }, [allModels, enabledModelsSet, preferencesKnown]);
+  }, [allModels, orderSource]);
 
   const filteredModels = useMemo(() => {
     if (!search.trim()) {
@@ -191,6 +209,24 @@ export function ModelsTable({
     },
     [setModelEnabled]
   );
+
+  if (!preferencesKnown && queryFailed) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-8 text-center">
+        <p className="text-muted-foreground text-sm">
+          Your model preferences could not be loaded.
+        </p>
+        <Button
+          disabled={isFetching}
+          onClick={() => refetch()}
+          size="sm"
+          variant="outline"
+        >
+          {isFetching ? "Retrying…" : "Retry"}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <>

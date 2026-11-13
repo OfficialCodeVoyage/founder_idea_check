@@ -24,19 +24,22 @@
         /* Allow mixing interface and type — type is required for intersection/mapped types */
         "useConsistentTypeDefinitions": "off",
         /* A page that calls server-side tRPC must pass the request-time barrier
-           first (`lib/request-session.ts::getRequestQueryClient`); a bare
+           first (`lib/request-query-client.ts::getRequestQueryClient`); a bare
            `getQueryClient()` lets the tRPC context's session lookup read the
            clock while prerendering. The overrides below list the only files
-           allowed to take it directly. */
+           allowed to take it directly. The patterns match the alias and any
+           relative path ending in `trpc/server` (with or without `.tsx`); a
+           sibling import inside `trpc/` (`./server`) is not matched. */
         "noRestrictedImports": {
           "level": "error",
           "options": {
-            "paths": {
-              "@/trpc/server": {
-                "importNames": ["getQueryClient"],
-                "message": "Use getRequestQueryClient from @/lib/request-session: it awaits connection() before server-side tRPC reads the session."
+            "patterns": [
+              {
+                "group": ["**/trpc/server", "**/trpc/server.tsx"],
+                "importNamePattern": "getQueryClient",
+                "message": "Use getRequestQueryClient from @/lib/request-query-client: it awaits connection() before server-side tRPC reads the session."
               }
-            }
+            ]
           }
         }
       }
@@ -44,10 +47,10 @@
   },
   "overrides": [
     {
-      /* `lib/request-session.ts` wraps it in the barrier; the (chat) layout
-         reaches its prefetches through `getRequestSession`, which awaits the
-         same barrier. */
-      "includes": ["lib/request-session.ts", "app/(chat)/layout.tsx"],
+      /* `lib/request-query-client.ts` wraps it in the barrier; the (chat)
+         layout reaches its prefetches through `getRequestSession`, which
+         awaits the same barrier. */
+      "includes": ["lib/request-query-client.ts", "app/(chat)/layout.tsx"],
       "linter": {
         "rules": {
           "style": {

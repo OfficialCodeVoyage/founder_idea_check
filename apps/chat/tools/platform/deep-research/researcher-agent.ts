@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   generateText,
   type ModelMessage,
@@ -8,7 +9,10 @@ import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { countTextTokens } from "@/lib/ai/token-utils";
 import { createModuleLogger } from "@/lib/logger";
-import { buildCompressionPrompt } from "./compression-input";
+import {
+  buildCompressionPrompt,
+  compressionFrameTags,
+} from "./compression-input";
 import {
   compressResearchSimpleHumanMessage,
   compressResearchSystemPrompt,
@@ -253,7 +257,11 @@ async function compressResearch(
     "compression"
   );
 
-  const system = compressResearchSystemPrompt({ date: getTodayStr() });
+  // Tag names no fetched page can know: drawn now, after every search ran
+  // (`compressionFrameTags`), and named in both the system prompt and the
+  // user message.
+  const tags = compressionFrameTags(randomBytes(6).toString("hex"));
+  const system = compressResearchSystemPrompt({ date: getTodayStr(), tags });
   const contextWindow = await getModelContextWindow(
     config.compression_model as ModelId
   );
@@ -273,6 +281,7 @@ async function compressResearch(
   const input = buildCompressionPrompt({
     topic,
     messages: researchMessages,
+    tags,
     system,
     instruction: compressResearchSimpleHumanMessage,
     contextWindow,

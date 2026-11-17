@@ -21,6 +21,12 @@ export interface MultiQuerySearchOptions {
 }
 
 interface MultiQuerySearchResult {
+  /**
+   * Why this search failed, when it did. Without it a provider error (no
+   * credits, rate limit, bad options) reaches the model as an empty search,
+   * which reads as "nothing exists" rather than "the search did not run".
+   */
+  error?: string;
   query: SearchQuery;
   results: Array<{
     url: string;
@@ -95,6 +101,7 @@ export async function multiQueryWebSearchStep({
           title: obj.title,
           content: obj.content,
         })),
+        ...(data.error ? { error: data.error } : {}),
       };
     });
 

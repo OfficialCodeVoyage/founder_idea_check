@@ -32,7 +32,7 @@ remote (push disabled), Bun/TypeScript monorepo plus a Python sidecar.
 | Bun 1.3: a built-in command wins over a same-named script (`bun test` in `apps/chat` runs Bun's runner) | https://bun.com/docs/cli/run, https://bun.com/docs/cli/test |
 | turbo 2.9.5: strict env mode by default; only `env`/`globalEnv` vars reach tasks | https://turborepo.dev/docs/crafting-your-repository/using-environment-variables |
 | drizzle-kit 0.31.10 uses the legacy flat migration layout; current docs describe v1 folders. Do not run `drizzle-kit up`. The migrator runs all pending files in one transaction (installed `drizzle-orm/pg-core/dialect.js`) | https://orm.drizzle.team/docs/kit-overview, https://orm.drizzle.team/docs/upgrade-v1 |
-| better-auth 1.6 (1.6.34 now): `nextCookies` must be the last plugin; cookie-bearing requests from untrusted origins get 403 `INVALID_ORIGIN` (installed `origin-check.mjs`) | https://www.better-auth.com/docs/integrations/next |
+| better-auth 1.7 (1.7.25 now): `nextCookies` must be the last plugin; cookie-bearing requests from untrusted origins get 403 `INVALID_ORIGIN` (installed `origin-check.mjs`) | https://www.better-auth.com/docs/integrations/next |
 | vitest 4.1.4 (current docs are v5; v5 changes do not apply) | https://v4.vitest.dev/guide/migration |
 | Biome 2.4.16 via ultracite 7.4.3: `biome format --write <file>` formats one file; ignored files are skipped with `--no-errors-on-unmatched` (verified by running) | https://biomejs.dev/reference/cli/ |
 | Ruff 0.16.3 in the venv: `ruff check app tests` clean; `ruff format --check` would change 11 files (not enforced) | https://docs.astral.sh/ruff/formatter/ |

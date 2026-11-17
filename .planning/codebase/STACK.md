@@ -132,9 +132,11 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
   already holds direct major bumps (`.github/dependabot.yml`) but cannot reach these nested copies. Bun reads `overrides` from the
   root manifest only. This is not the better-auth override warned about above (that one forced an older `@better-auth/core` and broke
   `import "better-auth"`); do not remove this one for that reason. Raise it together with the Node floor and the Dependabot ignore.
-- **`apps/chat` overrides** (`apps/chat/package.json`): `commander ^14.0.0`, and `evalite` is pointed at the app's own `ai` and
-  `better-sqlite3` so the eval harness runs the same AI SDK. Bun ignores both today (it reads `overrides` from the root manifest
-  only); the lockfile happens to give `evalite` the app's own `ai` anyway. Moving or deleting them is an open dependency task.
+- **No `overrides` in `apps/chat/package.json`.** It had `commander ^14.0.0` and an `evalite` entry (`ai`, `better-sqlite3`), and Bun
+  ignored both because it reads `overrides` from the root manifest only. Both were deleted (SWEEP-F34), not moved: Bun does not support
+  the nested `evalite` form even at the root, and a root `commander ^14.0.0` would have forced `@chat-js/cli` and `files-sdk` (both `^15`)
+  down to 14.0.3. `evalite`'s optional `ai` and `better-sqlite3` peers resolve to the app's own copies (`ai` 6.0.328, `better-sqlite3` 12.8.0)
+  because they are direct dependencies of the same workspace. Do not add `overrides` to a workspace manifest.
 - **`igraph` is GPL-2.0-or-later** and enters only through the `simulation` extra (`apps/research/pyproject.toml`); the default image
   does not install it and no simulation image is published (`THIRD_PARTY-research.md`).
 - **Exact pins without a recorded reason:** `next` 16.3.0, `react` and `react-dom` 19.2.3, `typescript` 6.0.2, the `@ai-sdk/*` family,

@@ -41,6 +41,9 @@
 		"db:branch:stop": "dotenv -e .env.local -- bun --filter=@chatjs/chat run db:branch:stop",
 		"start:chat": "dotenv -e .env.worktree.local -e .env.local -- bun run worktree-env chat -- bun --filter=@chatjs/chat run start"
 	},
+	"overrides": {
+		"@types/node": "^22.20.5"
+	},
 	"devDependencies": {
 		"dotenv-cli": "^11.1.0",
 		"turbo": "2.11.10"

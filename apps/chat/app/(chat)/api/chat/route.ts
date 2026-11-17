@@ -28,7 +28,11 @@ import {
 } from "@/lib/ai/followup-suggestions";
 import { systemPrompt } from "@/lib/ai/prompts";
 import { CHAT_REQUEST_BUDGET_MS } from "@/lib/ai/request-budget";
-import { getStreamErrorMessage, isAbortError } from "@/lib/ai/stream-errors";
+import {
+  getStreamErrorMessage,
+  isAbortError,
+  REFUSED_REPLY_NOTICE,
+} from "@/lib/ai/stream-errors";
 import { calculateMessagesTokens } from "@/lib/ai/token-utils";
 import {
   type ChatMessage,
@@ -605,6 +609,9 @@ async function createChatStream({
   // model on ai@6.0.219: an AbortError out of `execute`, then `Error(<the text>)`),
   // and that echo is part of the same stop.
   let stopEchoMessage: string | null = null;
+  // Set in `execute` when the model declined to answer (see below), read in
+  // `onFinish`, which runs after `execute` has ended.
+  let turnRefused = false;
 
   // WHEN THE TURN'S SPENDING IS ALL RECORDED. The model's "main-chat" usage is
   // recorded step by step by a transform inside `streamText`
@@ -714,6 +721,30 @@ async function createChatStream({
         const response = await result.response;
         const responseMessages = response.messages;
 
+        // A DECLINED REPLY IS SAID, NOT SAVED BLANK. Claude's `refusal` stop
+        // reason arrives as `content-filter` with an empty (or cut-off) reply
+        // and no error, so nothing else would tell the founder why there is
+        // no answer. The notice is written as a text part of this reply, so it
+        // is saved with it, and the post-turn gate is skipped: it must not
+        // judge a turn whose interviewer reply is empty. What the turn is
+        // charged is unchanged. Read after `result.response`, which has
+        // already settled whatever a stop or a failure did.
+        if ((await result.finishReason) === "content-filter") {
+          turnRefused = true;
+          log.warn(
+            { chatId, messageId, selectedModelId },
+            "the model declined to answer: the reply carries the refusal notice and the gate is skipped"
+          );
+          const noticeId = generateUUID();
+          dataStream.write({ type: "text-start", id: noticeId });
+          dataStream.write({
+            type: "text-delta",
+            id: noticeId,
+            delta: REFUSED_REPLY_NOTICE,
+          });
+          dataStream.write({ type: "text-end", id: noticeId });
+        }
+
         // Generate and stream follow-up suggestions, except after an aborted
         // turn (`shouldSuggestFollowups`).
         if (
@@ -764,8 +795,16 @@ async function createChatStream({
       //  - isAnonymous: no project, so no phase and no fact store.
       //  - isPrimaryParallel === false: parallel responses fire onFinish more
       //    than once per user message; only the primary may write facts.
+      //  - turnRefused: the model declined, so there is no interviewer reply
+      //    to judge. The founder's message is not lost to the fact store: the
+      //    extractor reads the whole chat on the next turn that runs the pass.
       // Runs inside `after()` so it never delays the flushed response.
-      if (isAborted || isAnonymous || isPrimaryParallel === false) {
+      if (
+        isAborted ||
+        isAnonymous ||
+        isPrimaryParallel === false ||
+        turnRefused
+      ) {
         return;
       }
       const finishedChat = await getChatById({ id: chatId });

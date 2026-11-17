@@ -64,6 +64,18 @@ function mapKnownStreamErrorMessage(message: string): string {
   return FALLBACK_STREAM_ERROR_MESSAGE;
 }
 
+/**
+ * What the founder reads when the model declined to answer a message (Claude's
+ * `refusal` stop reason, `finishReason: "content-filter"` in the AI SDK).
+ * Sonnet 5.5's safety classifiers decline in more categories than the models
+ * before it, an idea about AI models among them, and a declined reply comes
+ * back as HTTP 200 with no content: without this the reply was saved blank,
+ * with nothing on screen to say why. Written into the reply itself by the chat
+ * route, so it is still there after a reload.
+ */
+export const REFUSED_REPLY_NOTICE =
+  "The model declined to answer this message, so there is no reply to it. This can happen when a message touches a topic its safety rules are cautious about. Try rephrasing the message and sending it again.";
+
 const MAX_CAUSE_DEPTH = 3;
 
 /**

@@ -49,7 +49,7 @@ interface ValidationError {
 }
 
 /** Non-fatal notices collected during validation and printed at the end. */
-const authWarnings: string[] = [];
+const warnings: string[] = [];
 
 type StaticToolEnvVar = {
   description?: string;
@@ -239,6 +239,23 @@ function validateGatewayKey(env: NodeJS.ProcessEnv): ValidationError | null {
   };
 }
 
+/**
+ * OPENAI_API_KEY outside the gateway. It used to be checked as the gateway's
+ * key; with the gateway on Anthropic nothing checked it, although two features
+ * still call OpenAI with it whatever the gateway is: the fact embeddings
+ * (`lib/embeddings/provider.ts`, which fall back to keyword retrieval without
+ * it) and the research sidecar's persona simulation (`/v1/simulate`). A warning,
+ * not a failure: the chat and the gate run without it.
+ */
+function openAiKeyWarning(env: NodeJS.ProcessEnv): string | null {
+  // Prevent TS from narrowing to the current literal config value.
+  const gateway = (() => config.ai.gateway as GatewayType)();
+  if (gateway === "openai" || env.OPENAI_API_KEY) {
+    return null;
+  }
+  return "OPENAI_API_KEY is not set. Chat and the gate run without it, but the fact embeddings fall back to keyword retrieval and the research sidecar's persona simulation cannot run.";
+}
+
 function hasStorageEnvVariable(
   variable: StorageEnvironmentVariable,
   env: NodeJS.ProcessEnv
@@ -416,7 +433,7 @@ function validateAuthentication(env: NodeJS.ProcessEnv): ValidationError[] {
     if (isProductionEnvironment(env)) {
       errors.push(message);
     } else {
-      authWarnings.push(
+      warnings.push(
         "No social auth provider is enabled in chat.config.ts. In development, sign in at /api/dev-login (see GETTING-STARTED.md)."
       );
     }
@@ -541,7 +558,11 @@ async function checkEnv(): Promise<void> {
     }
   }
 
-  for (const warning of authWarnings) {
+  const openAiWarning = openAiKeyWarning(env);
+  if (openAiWarning) {
+    warnings.push(openAiWarning);
+  }
+  for (const warning of warnings) {
     console.warn(`⚠️  ${warning}`);
   }
 

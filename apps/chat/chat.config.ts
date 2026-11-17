@@ -169,8 +169,8 @@ const config = defineConfig({
          * Status updates are cosmetic progress lines, so Haiku is plenty.
          *
          * Every one of these calls runs at low effort, and a researcher step,
-         * compression and the report with the least thinking the model takes:
-         * their output caps are time budgets
+         * compression and the report with the least thinking the model takes
+         * (lib/ai/call-paths.ts): their output caps are time budgets
          * (tools/platform/deep-research/configuration.ts).
          */
         researchModel: "claude-haiku-5-5",

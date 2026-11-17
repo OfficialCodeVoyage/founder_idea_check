@@ -1,9 +1,3 @@
-import {
-  type AnthropicLeastThinkingOptions,
-  anthropicEffortOptions,
-  anthropicLeastThinkingOptions,
-  CALL_EFFORT,
-} from "@/lib/ai/anthropic-thinking";
 import { config } from "@/lib/config";
 import { env } from "@/lib/env";
 
@@ -75,83 +69,6 @@ function getSearchApi(): SearchAPI {
     return "firecrawl";
   }
   return "none";
-}
-
-/** The `gpt-5.6-*` family, with or without a gateway's provider prefix. */
-const GPT_5_6_MODEL = /^(?:openai\/)?gpt-5\.6-/;
-
-/**
- * Provider options for the COMPRESSION call, and for no other: the lowest
- * reasoning effort the model takes, so its reasoning does not eat the output
- * cap. Compression condenses text it is handed, and a model left at its default
- * effort spent part of the 4,000-token cap on reasoning that nothing reads: live
- * QA (re-check 5) saw calls of 3,730, 3,300 and 1,931 output tokens of which
- * 1,459, 516 and 375 were reasoning, one ending 270 short of the cap, and an
- * earlier run ended at exactly the cap with a note cut off. The cap is the time
- * budget (`compression_model_max_tokens`) and is not raised.
- *
- * The `gpt-5.6-*` family is the one this repo has established takes `none` (the
- * sidecar's `RESEARCH_SIM_REASONING_EFFORT` is derived as `none` for it, and
- * `lib/ai/model-capabilities.ts` records the 400 that names it). That holds on
- * the Responses API this call uses, for `gpt-5.6-terra`, the model compression
- * runs on: live QA (re-check 6) sent `reasoningEffort: "none"` on four terra
- * compression calls through the app's own path, and none raised an API error;
- * the four reported 0, 0, 0 and 0 reasoning tokens.
- *
- * The Claude 5.5 models get their own least thinking at low effort
- * (`lib/ai/anthropic-thinking.ts::anthropicLeastThinkingOptions`): thinking is
- * on by default there and counts toward the same cap. Any other model gets no
- * option: whether it takes the key at all is unknown, and a rejected option would
- * fail the whole topic's compression, which is worse than reasoning tokens.
- */
-export function getCompressionProviderOptions(
-  modelId: string
-):
-  | { openai: { reasoningEffort: "none" } }
-  | AnthropicLeastThinkingOptions
-  | undefined {
-  return GPT_5_6_MODEL.test(modelId)
-    ? { openai: { reasoningEffort: "none" } }
-    : anthropicLeastThinkingOptions(modelId);
-}
-
-/**
- * Provider options for the FINAL REPORT call. Its 6,000-token cap is the
- * report's time budget too, and the report is written as the input of one
- * `createTextDocument` call: a cap spent on thinking cuts that input off and
- * the run ends with no document. So a Claude 5.5 model writes it with the least
- * thinking it takes. Nothing for any other model, as before.
- */
-export function getFinalReportProviderOptions(
-  modelId: string
-): AnthropicLeastThinkingOptions | undefined {
-  return anthropicLeastThinkingOptions(modelId);
-}
-
-/**
- * Provider options for ONE STEP of a researcher's tool loop. Its cap,
- * `researcher_step_max_tokens` (1,500), is the tightest in the pipeline and
- * counts thinking: it was sized from tool-call steps that spent 37 to 53 tokens
- * reasoning. Low effort alone leaves adaptive thinking on, and a step that
- * thinks past the cap ends with no tool call, or as a first reply that leaves
- * the topic "NOT RESEARCHED". So a Claude 5.5 model gets the least thinking it
- * takes (Haiku 5.5, the configured researcher, takes `disabled`); any other
- * model keeps what the other research calls get.
- */
-export function getResearcherStepProviderOptions(modelId: string) {
-  return (
-    anthropicLeastThinkingOptions(modelId) ??
-    getResearchProviderOptions(modelId)
-  );
-}
-
-/**
- * Provider options for every other deep-research call (clarify, brief and the
- * supervisor): low effort, because each one runs against the research clock
- * under a small output cap (see `getDeepResearchConfig`).
- */
-export function getResearchProviderOptions(modelId: string) {
-  return anthropicEffortOptions(modelId, CALL_EFFORT.research);
 }
 
 export function getDeepResearchConfig(): DeepResearchRuntimeConfig {

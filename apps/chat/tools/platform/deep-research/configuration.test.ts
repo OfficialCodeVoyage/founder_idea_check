@@ -33,9 +33,10 @@ vi.mock("@/lib/env", () => ({
   env: {},
 }));
 
-const { getCompressionProviderOptions, getDeepResearchConfig } = await import(
-  "./configuration"
-);
+const { getDeepResearchConfig } = await import("./configuration");
+const { callPathProviderOptions } = await import("@/lib/ai/call-paths");
+const getCompressionProviderOptions = (modelId: string) =>
+  callPathProviderOptions("compression", modelId);
 const { researchSystemPrompt } = await import("./prompts");
 
 describe("deep research threads five DISTINCT model roles", () => {

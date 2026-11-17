@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { createSemaphore } from "@/lib/research/supervisor";
-import { getResearchProviderOptions } from "./configuration";
 import { leadResearcherPrompt } from "./prompts";
 import { canStartResearchTopic, recordCut, stopAt } from "./research-clock";
 import { runResearcher } from "./researcher-agent";
@@ -15,7 +14,10 @@ export async function runSupervisor(
   options: AgentOptions
 ): Promise<string[]> {
   const { clock, config, dataStream, toolCallId, abortSignal } = options;
-  const model = await getLanguageModel(config.research_model as ModelId);
+  const model = await getLanguageModel(
+    config.research_model as ModelId,
+    "research"
+  );
 
   /**
    * BOUNDED PARALLEL, not serial.
@@ -100,7 +102,6 @@ export async function runSupervisor(
       researchComplete: researchCompleteTool,
     },
     maxOutputTokens: config.research_model_max_tokens,
-    providerOptions: getResearchProviderOptions(config.research_model),
     stopWhen: [
       hasToolCall("researchComplete"),
       stepCountIs(maxSteps),

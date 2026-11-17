@@ -722,8 +722,8 @@ async function runPhasePass({
   // throws, and the caller turns that into a written fail-closed BLOCK rather
   // than silence.
   const [gateModel, extractModel] = await Promise.all([
-    getLanguageModel(config.ai.workflows.judge),
-    getLanguageModel(config.ai.workflows.extract),
+    getLanguageModel(config.ai.workflows.judge, "judge"),
+    getLanguageModel(config.ai.workflows.extract, "extract"),
   ]);
 
   const extracted = await extractFacts(

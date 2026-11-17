@@ -6,10 +6,6 @@
 // title.
 import "server-only";
 import { generateText, type LanguageModelUsage } from "ai";
-import {
-  anthropicEffortOptions,
-  CALL_EFFORT,
-} from "@/lib/ai/anthropic-thinking";
 import { getLanguageModel } from "@/lib/ai/providers";
 import type { ChatMessage } from "@/lib/ai/types";
 import { config } from "@/lib/config";
@@ -36,7 +32,7 @@ export async function generateTitleFromUserMessage({
   costAccumulator?: CostAccumulator;
 }) {
   const { text: title, usage } = await generateText({
-    model: await getLanguageModel(config.ai.workflows.title),
+    model: await getLanguageModel(config.ai.workflows.title, "title"),
     system: `Generate a concise title for a chat conversation based on the user's first message.
 
 Rules (strictly follow all):
@@ -47,10 +43,6 @@ Rules (strictly follow all):
 - Use title case
 - Return ONLY the title, nothing else`,
     prompt: JSON.stringify(message),
-    providerOptions: anthropicEffortOptions(
-      config.ai.workflows.title,
-      CALL_EFFORT.title
-    ),
     experimental_telemetry: { isEnabled: true },
   });
 

@@ -162,8 +162,8 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
   deep-research summarize, compress and final-report roles; `claude-opus-5-5` for the gate judge (`workflows.judge`);
   `claude-haiku-5-5` for titles, extraction, anonymous users, the text, sheet and code document tools, and the researcher loop and
   status lines. Follow-up suggestions are enabled there but name no model, so they run on the Anthropic gateway default
-  `claude-haiku-5-5` (`apps/chat/lib/ai/gateway-model-defaults.ts`, `anthropicDefaults`). Effort per call path:
-  `apps/chat/lib/ai/anthropic-thinking.ts::CALL_EFFORT`. Embeddings stay on OpenAI, `text-embedding-3-small` at 1536 dimensions
+  `claude-haiku-5-5` (`apps/chat/lib/ai/gateway-model-defaults.ts`, `anthropicDefaults`). Effort and thinking per call path:
+  `apps/chat/lib/ai/call-paths.ts`, applied by `getLanguageModel(id, path)`. Embeddings stay on OpenAI, `text-embedding-3-small` at 1536 dimensions
   (`apps/chat/lib/embeddings/text.ts`).
 
 **Build:**

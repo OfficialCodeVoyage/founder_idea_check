@@ -384,7 +384,8 @@ N+1's system prompt.
   configured off in this fork; their code remains. Documents and deep research are on.
 
 **Gateway provider:**
-- Purpose: one place that maps a model id to a provider client.
+- Purpose: one place that maps a model id to a provider client, with the call path's effort and thinking applied
+  (`getLanguageModel(id, path)`; the table is `apps/chat/lib/ai/call-paths.ts`).
 - Examples: `apps/chat/lib/ai/providers.ts::getLanguageModel`, `apps/chat/lib/ai/active-gateway.ts`,
   `apps/chat/lib/ai/gateways/registry.ts` (`DEFAULT_GATEWAY = "openai"`, used only by a config with no `ai` block), `apps/chat/lib/ai/app-models.ts`.
 

@@ -10,10 +10,6 @@ import { countTextTokens } from "@/lib/ai/token-utils";
 import { createModuleLogger } from "@/lib/logger";
 import { buildCompressionPrompt } from "./compression-input";
 import {
-  getCompressionProviderOptions,
-  getResearcherStepProviderOptions,
-} from "./configuration";
-import {
   compressResearchSimpleHumanMessage,
   compressResearchSystemPrompt,
   researchSystemPrompt,
@@ -31,7 +27,12 @@ export async function runResearcher(
   const { audience, clock, config, dataStream, toolCallId, abortSignal } =
     options;
 
-  const model = await getLanguageModel(config.research_model as ModelId);
+  // The least thinking the model takes, so a step's thinking leaves its cap to
+  // the tool call (lib/ai/call-paths.ts, "researcherStep").
+  const model = await getLanguageModel(
+    config.research_model as ModelId,
+    "researcherStep"
+  );
   // `audience` rides along so the sidecar arm can rank its lanes against the
   // founder's buyer. The cloud arms ignore it: Tavily and Firecrawl are single
   // opaque lanes, so there is nothing to rank. `clock` lets the sidecar arm
@@ -101,9 +102,6 @@ export async function runResearcher(
     // PER STEP, reasoning included, and deliberately far below the 4,000 the
     // other roles get: see `researcher_step_max_tokens` in configuration.ts.
     maxOutputTokens: config.researcher_step_max_tokens,
-    // The least thinking the model takes, so a step's thinking leaves that
-    // cap to the tool call (see `getResearcherStepProviderOptions`).
-    providerOptions: getResearcherStepProviderOptions(config.research_model),
     experimental_telemetry: createTelemetry("researcher", options),
     onStepFinish: ({ usage, response, toolCalls, finishReason }) => {
       // Cumulative: each step's response carries every message so far, with
@@ -248,7 +246,12 @@ async function compressResearch(
   topic: string
 ): Promise<string> {
   const { config, abortSignal } = options;
-  const model = await getLanguageModel(config.compression_model as ModelId);
+  // The lowest reasoning effort the model takes, so reasoning does not eat the
+  // output cap (lib/ai/call-paths.ts, "compression").
+  const model = await getLanguageModel(
+    config.compression_model as ModelId,
+    "compression"
+  );
 
   const system = compressResearchSystemPrompt({ date: getTodayStr() });
   const contextWindow = await getModelContextWindow(
@@ -307,9 +310,6 @@ async function compressResearch(
       system,
       prompt: input.prompt,
       maxOutputTokens: config.compression_model_max_tokens,
-      // The lowest reasoning effort the model takes, so reasoning does not eat
-      // the output cap (see `getCompressionProviderOptions`).
-      providerOptions: getCompressionProviderOptions(config.compression_model),
       experimental_telemetry: createTelemetry("compressResearch", options),
       maxRetries: 3,
       abortSignal: stop.signal,

@@ -1,9 +1,8 @@
 import { generateText, jsonSchema, type LanguageModel, Output } from "ai";
 import { z } from "zod";
-import { CALL_EFFORT } from "@/lib/ai/anthropic-thinking";
 import {
   generateReportingUsage,
-  structuredOutputOptions,
+  LENIENT_SCHEMA_OPTIONS,
   type UsageSink,
 } from "../phases/model-adapters";
 import type { PersonaGenerator } from "./generate";
@@ -21,7 +20,7 @@ import { type PersonaDraft, PersonaDraftSchema } from "./types";
  *
  * This is the same trap lib/phases/model-adapters.ts documents hitting live on
  * 2026-08-19, where strict mode made every gate call fail. Relaxing strict mode
- * (`structuredOutputOptions`) keeps the lenient schema (which is the deliberate
+ * (`LENIENT_SCHEMA_OPTIONS`) keeps the lenient schema (which is the deliberate
  * design — see types.ts) and is safe because generate.ts re-validates:
  * normalizePersona() discards every claim that arrives without evidence, and an
  * unreadable response falls to failClosedPersonaArtifact().
@@ -86,7 +85,7 @@ export function createModelPersonaGenerator({
         system,
         prompt,
         output: Output.object({ schema: PERSONA_DRAFT_OUTPUT }),
-        providerOptions: structuredOutputOptions(model, CALL_EFFORT.persona),
+        providerOptions: LENIENT_SCHEMA_OPTIONS,
         experimental_telemetry: {
           isEnabled: true,
           functionId: "persona-generate",

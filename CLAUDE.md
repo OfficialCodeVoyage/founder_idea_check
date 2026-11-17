@@ -24,8 +24,9 @@ validated project to a coding agent. It is a fork of ChatJS (Apache-2.0, see `NO
   pgvector, better-auth 1.7, tRPC 11, Tailwind 4, Biome through ultracite 7.4.3, vitest 4. `apps/research`: Python
   3.11 FastAPI sidecar. `packages/thread`, `packages/cli`, `packages/registry`: inherited ChatJS packages.
 - Text models come from Anthropic through `apps/chat/chat.config.ts` (`claude-sonnet-5-5` for chat,
-  `claude-opus-5-5` for the gate judge, `claude-haiku-5-5` for titles, extraction and the research loop; effort per
-  path in `lib/ai/anthropic-thinking.ts::CALL_EFFORT`). Fact embeddings and the sidecar stay on OpenAI.
+  `claude-opus-5-5` for the gate judge, `claude-haiku-5-5` for titles, extraction and the research loop; effort and
+  thinking per call path in `lib/ai/call-paths.ts`, applied by `getLanguageModel(id, path)`). Fact embeddings and the
+  sidecar stay on OpenAI.
 - Pins with a reason: Python `<3.12` (kept as tested; OASIS 0.2.6 itself allows `<3.15`) and `mcp<2` (a guard for the
   OASIS extra, `apps/research/pyproject.toml`); `ultracite@7.4.3`
   (an unpinned `bunx ultracite` pulls a newer major); `better-auth`, `@better-auth/core` and `@better-auth/electron` in `apps/chat/package.json`,

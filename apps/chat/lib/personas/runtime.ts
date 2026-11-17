@@ -207,7 +207,7 @@ function buildGenerator(costAccumulator: CostAccumulator | undefined) {
   // workflows.chat is the strong interview model (the gate judge has its own,
   // workflows.judge). The persona IS the product's output for phase 3, so it
   // does not get the cheap model the extractor runs on.
-  return getLanguageModel(config.ai.workflows.chat).then((model) =>
+  return getLanguageModel(config.ai.workflows.chat, "persona").then((model) =>
     createModelPersonaGenerator({
       model,
       onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.chat),

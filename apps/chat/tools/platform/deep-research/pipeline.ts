@@ -12,11 +12,7 @@ import { generateUUID, getTextContentFromModelMessage } from "@/lib/utils";
 import { createTextDocumentTool } from "../documents/create-text-document";
 import type { DocumentToolResult } from "../documents/types";
 import type { ToolSession } from "../types";
-import {
-  type DeepResearchRuntimeConfig,
-  getFinalReportProviderOptions,
-  getResearchProviderOptions,
-} from "./configuration";
+import type { DeepResearchRuntimeConfig } from "./configuration";
 import {
   clarifyWithUserInstructions,
   finalReportGenerationPrompt,
@@ -166,7 +162,10 @@ async function clarifyWithUser(
     return { needsClarification: false };
   }
 
-  const model = await getLanguageModel(config.research_model as ModelId);
+  const model = await getLanguageModel(
+    config.research_model as ModelId,
+    "research"
+  );
   const contextWindow = await getModelContextWindow(
     config.research_model as ModelId
   );
@@ -193,7 +192,6 @@ async function clarifyWithUser(
           output: Output.object({ schema: ClarifyWithUserSchema }),
           messages: truncatedMessages,
           maxOutputTokens: config.research_model_max_tokens,
-          providerOptions: getResearchProviderOptions(config.research_model),
           experimental_telemetry: createTelemetry("clarifyWithUser", ctx),
           abortSignal,
         })
@@ -219,7 +217,10 @@ async function writeResearchBrief(
   ctx: AgentOptions
 ): Promise<ResearchBrief> {
   const { config, dataStream, toolCallId, costAccumulator, abortSignal } = ctx;
-  const model = await getLanguageModel(config.research_model as ModelId);
+  const model = await getLanguageModel(
+    config.research_model as ModelId,
+    "research"
+  );
   const dataPartId = generateUUID();
 
   dataStream.write({
@@ -259,7 +260,6 @@ async function writeResearchBrief(
           output: Output.object({ schema: ResearchQuestionSchema }),
           messages: truncatedMessages,
           maxOutputTokens: config.research_model_max_tokens,
-          providerOptions: getResearchProviderOptions(config.research_model),
           experimental_telemetry: createTelemetry("writeResearchBrief", ctx),
           abortSignal,
         })
@@ -364,7 +364,12 @@ async function generateFinalReport(
 IMPORTANT: You MUST call the createTextDocument tool with the complete report content. Do not output the report as text - save it using the tool.`;
 
   const result = streamText({
-    model: await getLanguageModel(config.final_report_model as ModelId),
+    // The least thinking the model takes: the cap is the report's time
+    // budget (lib/ai/call-paths.ts, "report").
+    model: await getLanguageModel(
+      config.final_report_model as ModelId,
+      "report"
+    ),
     system: systemPrompt,
     prompt: `Write a comprehensive research report with the title "${reportTitle}" based on the following instructions and findings.
 
@@ -377,7 +382,6 @@ To write the report, call the createTextDocument tool with:
 - content: the full markdown content of your report`,
     tools: { createTextDocument: reportTool },
     maxOutputTokens: config.final_report_model_max_tokens,
-    providerOptions: getFinalReportProviderOptions(config.final_report_model),
     experimental_telemetry: createTelemetry("finalReportGeneration", input),
     abortSignal,
   });

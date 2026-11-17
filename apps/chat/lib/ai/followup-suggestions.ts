@@ -1,9 +1,5 @@
 import { type ModelMessage, Output, streamText } from "ai";
 import { z } from "zod";
-import {
-  anthropicEffortOptions,
-  CALL_EFFORT,
-} from "@/lib/ai/anthropic-thinking";
 import { getLanguageModel } from "@/lib/ai/providers";
 import type { StreamWriter } from "@/lib/ai/types";
 import { config } from "@/lib/config";
@@ -75,7 +71,10 @@ export async function generateFollowupSuggestions(
   const maxCharactersPerQuestion = 80;
   const recentMessages = followupContext(modelMessages);
   return streamText({
-    model: await getLanguageModel(config.ai.tools.followupSuggestions.default),
+    model: await getLanguageModel(
+      config.ai.tools.followupSuggestions.default,
+      "followups"
+    ),
     messages: [
       ...recentMessages,
       {
@@ -91,10 +90,6 @@ export async function generateFollowupSuggestions(
           .max(maxQuestionCount),
       }),
     }),
-    providerOptions: anthropicEffortOptions(
-      config.ai.tools.followupSuggestions.default,
-      CALL_EFFORT.followups
-    ),
   });
 }
 

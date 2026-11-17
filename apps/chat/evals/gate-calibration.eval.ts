@@ -33,7 +33,8 @@ import { type GateFixture, PHASE_ONE_FIXTURES } from "./fixtures/gate-phase-01";
  * that is a rubric job and promptfoo would earn its place there.
  *
  * MODEL: pinned to config.ai.workflows.judge, the same model the live gate uses,
- * and through `createModelGateJudge` the same request (effort included).
+ * and through `getLanguageModel(..., "judge")` and `createModelGateJudge` the
+ * same request (effort included).
  * Calibrating a model the product does not run would measure nothing. If these
  * numbers come out lenient, the first lever is raising THIS model, not editing
  * prompts.
@@ -91,7 +92,7 @@ type FixtureResult = {
 };
 
 async function runFixture(fixture: GateFixture): Promise<FixtureResult> {
-  const model = await getLanguageModel(GATE_MODEL_ID);
+  const model = await getLanguageModel(GATE_MODEL_ID, "judge");
   const usage: ModelUsage[] = [];
   const judge = createModelGateJudge({
     model,

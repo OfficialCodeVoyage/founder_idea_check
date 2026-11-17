@@ -115,6 +115,10 @@ export type AnthropicEffort = "low" | "medium" | "high";
  *  - research: `low`. Every deep-research call runs against the research
  *    clock and an output cap that is a time budget (see
  *    tools/platform/deep-research/configuration.ts), so thinking must not eat it.
+ *
+ * Applied per call path by `getLanguageModel(id, path)` from the table in
+ * `call-paths.ts`, which also holds the deep-research paths that take the
+ * least thinking a model allows.
  */
 export const CALL_EFFORT = {
   chat: "medium",

@@ -22,7 +22,7 @@ describe("workflow model knobs", () => {
     // The gate is the product. It must never share a knob with anything
     // cheaper by accident, and it is no longer the interviewer's knob either.
     expect(config.ai.workflows.judge).toBeDefined();
-    expect("judge" in config.ai.workflows).toBe(true);
+    expect(config.ai.workflows.chat).not.toBe(config.ai.workflows.title);
     expect(config.ai.workflows.judge).not.toBe(config.ai.workflows.title);
     expect(config.ai.workflows.judge).not.toBe(config.ai.workflows.extract);
   });

@@ -12,14 +12,16 @@ import { GATEWAY_MODEL_DEFAULTS } from "./ai/gateway-model-defaults";
 import type { ToolName } from "./ai/types";
 
 /**
- * The fork's default. Upstream chat-js defaults to "vercel", which needs an
- * AI_GATEWAY_API_KEY this project does not use — a self-hoster who deletes the
- * `gateway` line from chat.config.ts would get a config that cannot resolve a
- * single model, and the error surfaces as a failed chat turn rather than as a
- * config error. "anthropic" matches what chat.config.ts actually sets and what
- * GETTING-STARTED.md documents.
+ * The fork's default, used only by a config with no `ai` block at all:
+ * `defineConfig` requires `ai.gateway` whenever `ai` is given, and
+ * chat.config.ts names `gateway: "anthropic"`. Upstream chat-js defaults to
+ * "vercel", which needs an AI_GATEWAY_API_KEY this project does not use, so a
+ * config without the block could not resolve a single model, and the error
+ * would surface as a failed chat turn rather than as a config error. "openai"
+ * needs only OPENAI_API_KEY, which this app needs anyway for the fact
+ * embeddings and the research sidecar.
  */
-const DEFAULT_GATEWAY = "anthropic" as const satisfies GatewayType;
+const DEFAULT_GATEWAY = "openai" as const satisfies GatewayType;
 
 // Helper to create typed model ID schemas
 const toolName = () => z.custom<ToolName>();
@@ -686,14 +688,25 @@ export function applyDefaults(input: ConfigInput): Config {
   const gateway = input.ai?.gateway ?? DEFAULT_GATEWAY;
   const gatewayDefaults = GATEWAY_MODEL_DEFAULTS[gateway];
   const aiInput = input.ai as Record<string, unknown> | undefined;
+  const workflowsInput = aiInput?.workflows as
+    | Record<string, unknown>
+    | undefined;
+  const workflows = { ...gatewayDefaults.workflows, ...workflowsInput };
 
   const mergedAi = {
     gateway,
     ...gatewayDefaults,
     ...aiInput,
     workflows: {
-      ...gatewayDefaults.workflows,
-      ...(aiInput?.workflows as Record<string, unknown> | undefined),
+      ...workflows,
+      // AN UNSET JUDGE FOLLOWS THE CONFIGURED CHAT MODEL, not the gateway's
+      // defaults table. The judge was `chat` until it got its own knob, so a
+      // config that names `chat` and no `judge` keeps its gate on the model it
+      // chose. Taking the table's `judge` instead would move every PASS/WARN/
+      // BLOCK verdict to a model nobody picked, with no error. The table's
+      // `judge` rows are read only by `aiConfigSchema`'s `.default()`, for a
+      // config with no `ai` block at all.
+      judge: workflowsInput?.judge ?? workflows.chat,
     },
     tools: mergeToolsConfig(
       gatewayDefaults.tools,

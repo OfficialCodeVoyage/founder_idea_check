@@ -20,14 +20,16 @@ export type GatewayProvider = GatewayProviderBase<GatewayType>;
 export type GatewayType = keyof typeof gatewayRegistry;
 
 /**
- * The fork's default. Upstream chat-js defaults to "vercel", which needs an
- * AI_GATEWAY_API_KEY this project does not use — a self-hoster who deletes the
- * `gateway` line from chat.config.ts would get a config that cannot resolve a
- * single model, and the error surfaces as a failed chat turn rather than as a
- * config error. "anthropic" matches what chat.config.ts actually sets and what
- * GETTING-STARTED.md documents.
+ * The fork's default, used only by a config with no `ai` block at all:
+ * `defineConfig` requires `ai.gateway` whenever `ai` is given, and
+ * chat.config.ts names `gateway: "anthropic"`. Upstream chat-js defaults to
+ * "vercel", which needs an AI_GATEWAY_API_KEY this project does not use, so a
+ * config without the block could not resolve a single model, and the error
+ * would surface as a failed chat turn rather than as a config error. "openai"
+ * needs only OPENAI_API_KEY, which this app needs anyway for the fact
+ * embeddings and the research sidecar.
  */
-export const DEFAULT_GATEWAY = "anthropic" as const satisfies GatewayType;
+export const DEFAULT_GATEWAY = "openai" as const satisfies GatewayType;
 export type DefaultGateway = typeof DEFAULT_GATEWAY;
 /** Infer model ID type from a gateway's `createLanguageModel` parameter */
 type InferLanguageModelId<T extends GatewayType> = Parameters<

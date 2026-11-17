@@ -345,9 +345,21 @@ export function useSaveMessageMutation() {
       const key = trpc.chat.getChatMessages.queryKey({ chatId });
       await qc.cancelQueries({ queryKey: key });
       const previousMessages = qc.getQueryData<ChatMessage[]>(key);
-      qc.setQueryData<ChatMessage[]>(key, (old) =>
-        old ? [...old, message] : [message]
-      );
+      // Replace a message the list already holds (a reply resumed after a
+      // reload is cached as its empty placeholder) instead of adding a second
+      // entry with the same id.
+      qc.setQueryData<ChatMessage[]>(key, (old) => {
+        if (!old) {
+          return [message];
+        }
+        const index = old.findIndex((existing) => existing.id === message.id);
+        if (index === -1) {
+          return [...old, message];
+        }
+        const next = [...old];
+        next[index] = message;
+        return next;
+      });
       return { previousMessages, chatId };
     },
     onSuccess: async (_data, { message, chatId }) => {

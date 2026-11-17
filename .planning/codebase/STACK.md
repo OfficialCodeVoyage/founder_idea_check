@@ -52,7 +52,7 @@ member: it has no `package.json`, and Python is driven by its own `pyproject.tom
   `@ai-sdk/devtools` 0.0.29. All are exact-pinned (no range) in `apps/chat/package.json`.
 - Drizzle ORM 0.45.2 over the `postgres` (postgres.js) driver 3.4.9 (`apps/chat/lib/db/client.ts`); drizzle-kit 0.31.10
   (`apps/chat/drizzle.config.ts`).
-- better-auth 1.6.34 with the Drizzle adapter (`apps/chat/lib/auth.ts`); it, `@better-auth/core` and `@better-auth/electron`
+- better-auth 1.7.25 with the Drizzle adapter (`apps/chat/lib/auth.ts`); it, `@better-auth/core` and `@better-auth/electron`
   are exact pins in `apps/chat/package.json`.
 - tRPC 11.16.0 (`@trpc/server`, `@trpc/client`, `@trpc/tanstack-react-query`) with TanStack Query 5.97.0 and superjson 2.2.6
   (`apps/chat/trpc/`).
@@ -95,7 +95,7 @@ member: it has no `package.json`, and Python is driven by its own `pyproject.tom
 - `ai` 6.0.323 - the agent loop, `streamText`, tool calling. `ToolLoopAgent`'s default `stopWhen` of 20 steps is why
   `maxResearcherSteps` is set explicitly in `apps/chat/chat.config.ts`.
 - `drizzle-orm` 0.45.2 + `pgvector` column type - facts, embeddings and the gate ledger (`apps/chat/lib/db/schema.ts`).
-- `better-auth` 1.6.34 - sessions and OAuth (`apps/chat/lib/auth.ts`).
+- `better-auth` 1.7.25 - sessions and OAuth (`apps/chat/lib/auth.ts`).
 - `fastapi` + `camel-oasis` 0.2.6 - the sidecar surface and persona simulation (`apps/research/app/main.py`,
   `apps/research/app/simulation/oasis_runner.py`).
 
@@ -104,7 +104,7 @@ member: it has no `package.json`, and Python is driven by its own `pyproject.tom
 - `@vercel/sandbox` 1.9.3 - code execution tool, disabled in config (`apps/chat/tools/platform/code-execution.ts`).
 - `@modelcontextprotocol/sdk` 1.29.0 + `@ai-sdk/mcp` - MCP connectors, disabled in config (`apps/chat/lib/ai/mcp/`).
 - `@tavily/core` 0.3.7, `@mendable/firecrawl-js` 4.52.0 - optional web-search backends (`apps/chat/tools/platform/steps/web-search.ts`).
-- `@better-auth/electron` 1.6.34 - imported unconditionally by `apps/chat/lib/auth.ts`, registered only when `desktopApp.enabled`
+- `@better-auth/electron` 1.7.25 - imported unconditionally by `apps/chat/lib/auth.ts`, registered only when `desktopApp.enabled`
   (false in `apps/chat/chat.config.ts`).
 - `@ai-sdk/devtools` 0.0.29 - dev middleware wired in `apps/chat/lib/ai/providers.ts`.
 
@@ -122,9 +122,9 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
   0.2.5 an unpinned install succeeded and then failed at `import oasis`. camel-oasis 0.2.6 itself requires `mcp==1.29.0`, so the pin is
   now a guard against a later OASIS release. Dependabot ignores `mcp >= 2` (`.github/dependabot.yml`).
 - **`ultracite 7.4.3` and `@biomejs/biome 2.4.16`** are exact pins (Biome in `apps/chat` and in `packages/thread`; Dependabot holds its minors); an unpinned `bunx ultracite` pulls a newer major (`CLAUDE.md`).
-- **`better-auth`, `@better-auth/core` and `@better-auth/electron` 1.6.34** are exact pins in `apps/chat/package.json` and
+- **`better-auth`, `@better-auth/core` and `@better-auth/electron` 1.7.25** are exact pins in `apps/chat/package.json` and
   must stay equal (`better-auth` requires its own core exactly, so a caret there could let a lockfile refresh nest a second
-  core, and the electron plugin peers on core `^1.6.34`). A root `overrides` entry that once forced 1.5.6
+  core, and the electron plugin peers on core `^1.7.25`). A root `overrides` entry that once forced 1.5.6
   is gone: on 1.6.34 it made `import "better-auth"` fail. Do not add an override back; treat any change here as a dependency task.
 - **`apps/chat` overrides** (`apps/chat/package.json`): `commander ^14.0.0`, and `evalite` is pointed at the app's own `ai` and
   `better-sqlite3` so the eval harness runs the same AI SDK.

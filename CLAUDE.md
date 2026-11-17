@@ -21,7 +21,7 @@ validated project to a coding agent. It is a fork of ChatJS (Apache-2.0, see `NO
 
 ### Tech stack
 - Bun 1.3 + turbo 2.9.5 monorepo. `apps/chat`: Next.js 16.3, React 19.2, AI SDK 6, Drizzle 0.45 on Postgres 17 with
-  pgvector, better-auth 1.6, tRPC 11, Tailwind 4, Biome through ultracite 7.4.3, vitest 4. `apps/research`: Python
+  pgvector, better-auth 1.7, tRPC 11, Tailwind 4, Biome through ultracite 7.4.3, vitest 4. `apps/research`: Python
   3.11 FastAPI sidecar. `packages/thread`, `packages/cli`, `packages/registry`: inherited ChatJS packages.
 - Models come from OpenAI through `apps/chat/chat.config.ts` (`gpt-5.6-terra` for chat and the gate judge,
   `gpt-5.6-luna` for titles, extraction and research).

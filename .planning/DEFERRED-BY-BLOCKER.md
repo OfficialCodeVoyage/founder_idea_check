@@ -242,6 +242,12 @@ For an offline-only criterion target, `lib/phases/directive.ts::targetLines` and
 `lib/phases/directive.ts::openingDirective` and `passedDirective` never call `targetLines`, so a target that `lib/phases/runtime.ts::resolveTarget` accepted adds neither the intent-not-evidence paragraph nor, for an offline-only criterion, the rule against a number produced on the spot. Before a verdict only a crafted request reaches this: the gate card (`components/phase/gate-verdict-card.tsx`) renders only with a stored verdict, and a chip left from an earlier phase is dropped by its `phaseKey`. A PASS on phases 1 to 7 moves the current phase on (`lib/phases/advance.ts::resolveCurrentPhase`), so `resolveTarget` drops the old id. The one UI path: after the last phase passes (workflow complete) the current phase stays the last one, and `CriterionRow` still renders `RowActions` on an open advisory criterion of that PASS card (met criteria collapse to one line with no actions), so "Answer" there reaches `passedDirective` without the rules.
 **Clearing condition:** both directives render `targetLines` (checked with one paid turn), or a PASS card offers no row actions.
 
+### SWEEP-F33 — `next dev` logs an error for `/device-login` while the desktop app is off
+**Raised:** 2026-11-17, `chore/better-auth-1-7-261117`, browser check of the better-auth upgrade.
+**Status:** OPEN (low, pre-existing, dev only)
+With `desktopApp.enabled: false`, `app/(auth)/device-login/page.tsx::DeviceLoginRoute` calls `redirect("/login")` before any auth code runs, and `next dev` logs `Route "/device-login": Could not validate \`instant\` because an error prevented the target segment from rendering` with `NEXT_REDIRECT` as the cause. The page still answers and redirects; the log line is noise that hides real instant-validation errors.
+**Clearing condition:** the redirect moves where instant validation does not see it (for example the proxy, or a `notFound()` the route opts out of validating), or the desktop app is turned on.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

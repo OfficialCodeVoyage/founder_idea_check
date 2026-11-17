@@ -28,12 +28,40 @@ export function targetMetadata(
 }
 
 /**
- * The refused mark, read back into metadata only when it is set, like
- * `targetMetadata`: a reply that was not declined carries no key at all.
+ * THE REFUSAL MARKER, stored in `Message.annotations`, a JSON column nothing
+ * else reads (every other row holds `[]`, or NULL on old rows). It marks an
+ * assistant reply the model declined, so that no model reads that reply or
+ * the founder message behind it again (`lib/thread-utils.ts::withoutRefusedTurns`).
+ * Only the server writes it: the chat route's end-of-turn save passes it
+ * explicitly (`updateMessage`'s `refused`), and `chatMessageToDbMessage` never
+ * derives it from a message's metadata, so a client cannot set it.
+ */
+export const REFUSAL_ANNOTATION = { type: "refusal" } as const;
+
+/** PURE. The annotations column for a reply that was or was not declined. */
+export function refusalAnnotations(
+  refused: boolean
+): (typeof REFUSAL_ANNOTATION)[] {
+  return refused ? [REFUSAL_ANNOTATION] : [];
+}
+
+/**
+ * The refusal marker, read back into metadata only when the stored
+ * annotations carry it, like `targetMetadata`: any other row (`[]`, NULL,
+ * anything unreadable) carries no key at all, exactly as before.
  */
 export function refusedMetadata(
-  refused: boolean
+  annotations: unknown
 ): { refused: true } | Record<string, never> {
+  const refused =
+    Array.isArray(annotations) &&
+    annotations.some(
+      (annotation) =>
+        typeof annotation === "object" &&
+        annotation !== null &&
+        "type" in annotation &&
+        annotation.type === REFUSAL_ANNOTATION.type
+    );
   return refused ? { refused: true } : {};
 }
 
@@ -84,9 +112,6 @@ export function chatMessageToDbMessage(
     isPrimaryParallel: message.metadata?.isPrimaryParallel ?? null,
     activeStreamId: message.metadata?.activeStreamId || null,
     canceledAt: null,
-    // Only a reply can be declined; a mark a client puts on its own message is
-    // not stored.
-    refused: message.role === "assistant" && message.metadata.refused === true,
     targetCriterionId:
       typeof target === "string" && TARGET_CRITERION_ID_PATTERN.test(target)
         ? target

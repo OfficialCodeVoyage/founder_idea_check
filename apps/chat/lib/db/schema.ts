@@ -116,6 +116,14 @@ export const message = pgTable(
     // parts column removed - parts are now stored in Part table
     attachments: json("attachments").notNull(),
     createdAt: timestamp("createdAt").notNull(),
+    /**
+     * `[]` (or NULL on old rows) for every message, except the server's
+     * refusal marker on an assistant reply the model declined
+     * (`lib/message-conversion.ts::REFUSAL_ANNOTATION`). Written only by the
+     * chat route's end-of-turn save (`updateMessage`'s `refused`) and by the
+     * chat clone, which copies a marker it read from here; a client-sent value
+     * never reaches it.
+     */
     annotations: json("annotations"),
     selectedModel: json("selectedModel"),
     selectedTool: varchar("selectedTool", { length: 256 }).default(""),
@@ -126,15 +134,6 @@ export const message = pgTable(
     activeStreamId: varchar("activeStreamId", { length: 64 }),
     /** Timestamp when this message's stream was canceled by the user. Null means not canceled. */
     canceledAt: timestamp("canceledAt"),
-    /**
-     * True on an assistant reply the model declined (Claude's `refusal` stop
-     * reason, `content-filter` in the AI SDK). The reply and the founder
-     * message it answers stay on screen, but no model reads either again
-     * (`lib/thread-utils.ts::withoutRefusedTurns`): resending a declined turn
-     * invites the same refusal. Only ever true on an assistant row
-     * (`lib/message-conversion.ts::chatMessageToDbMessage`).
-     */
-    refused: boolean("refused").notNull().default(false),
     /**
      * This user message's criterion target (CONTEXT.md): the exit criterion
      * the founder said it answers, as the client sent it; NULL means none.

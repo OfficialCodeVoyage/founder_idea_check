@@ -713,8 +713,10 @@ async function createChatStream({
                   activeStreamId: null,
                   // A declined reply is marked here, from the same finish
                   // reason `execute` reads below, so the mark reaches the
-                  // client and the stored row (`Message.refused`) and no model
-                  // reads this turn again (`withoutRefusedTurns`).
+                  // client at once and no model reads this turn again
+                  // (`withoutRefusedTurns`). The stored marker is written
+                  // from `turnRefused`, not from this metadata
+                  // (`persistFinishedAssistantMessage`).
                   ...(part.finishReason === "content-filter"
                     ? { refused: true }
                     : {}),
@@ -787,6 +789,7 @@ async function createChatStream({
     onFinish: async ({ isAborted, messages }) => {
       await finalizeMessageAndCredits({
         messages,
+        refused: turnRefused,
         stopCause: turnStopCause(abortController, requestDeadlineAt),
         userId,
         isAnonymous,
@@ -1698,6 +1701,7 @@ async function chargeTurnOnce({
 
 async function finalizeMessageAndCredits({
   messages,
+  refused,
   stopCause,
   userId,
   isAnonymous,
@@ -1710,6 +1714,8 @@ async function finalizeMessageAndCredits({
   isPrimaryParallel,
 }: {
   messages: ChatMessage[];
+  /** The model declined this reply (the server's own `turnRefused`). */
+  refused: boolean;
   /** Why the turn ended early, or null when it ran to its end or failed. */
   stopCause: TurnStopCause | null;
   userId: string | null;
@@ -1747,6 +1753,7 @@ async function finalizeMessageAndCredits({
   try {
     await persistFinishedAssistantMessage({
       messages,
+      refused,
       stopCause,
       userId,
       isAnonymous,
@@ -1781,6 +1788,7 @@ async function finalizeMessageAndCredits({
  */
 async function persistFinishedAssistantMessage({
   messages,
+  refused,
   stopCause,
   userId,
   isAnonymous,
@@ -1791,6 +1799,7 @@ async function persistFinishedAssistantMessage({
   isPrimaryParallel,
 }: {
   messages: ChatMessage[];
+  refused: boolean;
   stopCause: TurnStopCause | null;
   userId: string | null;
   isAnonymous: boolean;
@@ -1822,6 +1831,10 @@ async function persistFinishedAssistantMessage({
     await updateMessage({
       id: assistantMessage.id,
       chatId,
+      // The END-OF-TURN SAVE is where the refusal marker is written: the row
+      // was inserted empty when the turn began. From the server's own reading
+      // of the finish reason, never from the message's metadata.
+      refused,
       message: {
         ...assistantMessage,
         metadata: {

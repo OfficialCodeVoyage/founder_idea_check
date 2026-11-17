@@ -21,6 +21,27 @@ function isResumableActiveStreamId(activeStreamId: string | null | undefined) {
   return !!(activeStreamId && !activeStreamId.startsWith("pending:"));
 }
 
+function textLength(message: ChatMessage) {
+  let length = 0;
+  for (const part of message.parts) {
+    if (part.type === "text" || part.type === "reasoning") {
+      length += part.text.length;
+    }
+  }
+  return length;
+}
+
+// Whether copy `a` of a reply got further than copy `b` of the same
+// generation. While a reply streams its parts are only appended or updated in
+// place, and its text parts only grow, so more parts, or as many parts and
+// more text, means further along.
+function isFurtherAlong(a: ChatMessage, b: ChatMessage) {
+  if (a.parts.length !== b.parts.length) {
+    return a.parts.length > b.parts.length;
+  }
+  return textLength(a) > textLength(b);
+}
+
 export function ChatSync({ id }: { id: string }) {
   const { data: session } = useSession();
   const { mutate: saveChatMessage } = useSaveMessageMutation();
@@ -94,35 +115,32 @@ export function ChatSync({ id }: { id: string }) {
         return;
       }
 
-      // A RESUME THAT ENDS EARLY NEVER OVERWRITES A STORED REPLY THAT HAS PARTS.
-      // The replay rebuilds the message from empty state (the SDK no longer seeds
-      // it with the stored parts), so a Stop, an error or a dropped fetch before
-      // the buffered chunks have rebuilt it finishes with a message that is empty
-      // or cut short under the real id, and the chat already holds that copy.
-      // Telling a short copy from a complete one is not reliable (parts loaded
-      // from the database differ in shape from streamed ones), so when the reply
-      // the resume started from has parts, the replay's copy is not recorded: that
-      // reply goes back into the chat and the server's own save of the generation
-      // wins later. A Stop below still marks that reply as stopped.
+      // A RESUME THAT ENDS EARLY NEVER MAKES THE REPLY ON SCREEN SHORTER.
+      // The replay rebuilds the message from empty state (the SDK no longer
+      // seeds it with the stored parts), so a Stop, an error or a dropped fetch
+      // ends it with whatever the buffered chunks had rebuilt so far, under the
+      // real id. The reply the resume started from goes back into the chat only
+      // when it got further than that replay (`isFurtherAlong`); otherwise the
+      // replay's own copy is recorded below, as for a stream that was never
+      // resumed. Either way a Stop below marks the reply as stopped.
       //
-      // A STORED REPLY WITHOUT PARTS HAS NOTHING TO PROTECT, AND PUTTING IT BACK
-      // BLANKS THE TEXT. The database never holds a resumable row with parts:
-      // `app/(chat)/api/chat/route.ts::executeChatRequest` saves the assistant row
-      // empty when the turn begins, and `persistFinishedAssistantMessage` writes
-      // the parts and clears `activeStreamId` in one `updateMessage` transaction
-      // when it ends. So the reply a reload mid-reply resumes from is always an
-      // empty placeholder, and restoring it over a replay that had already shown
-      // text left the reply blank after a Stop (the same way after an error or a
-      // dropped fetch) until the next reload: `saveChatMessage` writes only the
-      // client cache, and its refetch of `getChatMessages` never reaches a chat
-      // that is live. The replay's own copy is the best one there is, so a reply
-      // without parts falls through to the recording below, as a stream that was
-      // never resumed does. A stored reply that has parts is a copy this tab
-      // recorded itself, and is put back as before.
+      // The two copies are built the same way, so comparing them is fair: the
+      // database never holds a resumable row with parts.
+      // `app/(chat)/api/chat/route.ts::executeChatRequest` saves the assistant
+      // row empty when the turn begins, and `persistFinishedAssistantMessage`
+      // writes the parts and clears `activeStreamId` in one `updateMessage`
+      // transaction when it ends. So a reply resumed after a reload is an empty
+      // placeholder, which never wins (putting it back used to blank the text
+      // after a Stop until the next reload), and a reply that has parts is a
+      // copy this tab recorded from an earlier stream of the same generation.
+      // The server's own save of the generation shows on the next load from the
+      // database; nothing re-syncs a live chat from it (`saveChatMessage`
+      // writes only the client cache).
       const resumedFrom = resumedRepliesRef.current.get(finished.id)?.reply;
-      const storedHasParts = (resumedFrom?.parts.length ?? 0) > 0;
       const stored =
-        resumedFrom && storedHasParts && (isAbort || isDisconnect || isError)
+        resumedFrom &&
+        (isAbort || isDisconnect || isError) &&
+        isFurtherAlong(resumedFrom, finished)
           ? resumedFrom
           : undefined;
       if (stored && !isAbort) {

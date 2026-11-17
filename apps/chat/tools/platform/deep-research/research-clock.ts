@@ -71,8 +71,11 @@ const REPORT_TOKENS_PER_SECOND = 40;
  * `createTextDocument` call, whose escaping adds more. A word limit worked out
  * at 0.75 could ask for more words than the 6,000-token cap holds, and a report
  * cut off at the cap never becomes a document. Too few words is the safe side.
+ *
+ * Also the rate the compression note's word limit is stated at
+ * (`prompts.ts::COMPRESSION_NOTE_TOKENS`): the same model, the same cap rule.
  */
-const WORDS_PER_TOKEN = 0.55;
+export const WORDS_PER_TOKEN = 0.55;
 /** Below this a report cannot say anything useful; asked for anyway. */
 const MIN_REPORT_WORDS = 400;
 

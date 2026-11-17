@@ -129,9 +129,26 @@ export function getFinalReportProviderOptions(
 }
 
 /**
- * Provider options for every other deep-research call (clarify, brief, the
- * supervisor and the researchers): low effort, because each one runs against
- * the research clock under a small output cap (see `getDeepResearchConfig`).
+ * Provider options for ONE STEP of a researcher's tool loop. Its cap,
+ * `researcher_step_max_tokens` (1,500), is the tightest in the pipeline and
+ * counts thinking: it was sized from tool-call steps that spent 37 to 53 tokens
+ * reasoning. Low effort alone leaves adaptive thinking on, and a step that
+ * thinks past the cap ends with no tool call, or as a first reply that leaves
+ * the topic "NOT RESEARCHED". So a Claude 5.5 model gets the least thinking it
+ * takes (Haiku 5.5, the configured researcher, takes `disabled`); any other
+ * model keeps what the other research calls get.
+ */
+export function getResearcherStepProviderOptions(modelId: string) {
+  return (
+    anthropicLeastThinkingOptions(modelId) ??
+    getResearchProviderOptions(modelId)
+  );
+}
+
+/**
+ * Provider options for every other deep-research call (clarify, brief and the
+ * supervisor): low effort, because each one runs against the research clock
+ * under a small output cap (see `getDeepResearchConfig`).
  */
 export function getResearchProviderOptions(modelId: string) {
   return anthropicEffortOptions(modelId, CALL_EFFORT.research);
@@ -192,7 +209,8 @@ export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
     researcher_step_max_tokens: 1500,
     compression_model: compressionModel,
     // The cap is the time budget, not a length target: `compressResearchSystemPrompt`
-    // asks for a note of at most about 2,000 words (about 2,800 tokens) so that it
+    // asks for a note of at most about 2,800 tokens, stated in words at
+    // `WORDS_PER_TOKEN` (`COMPRESSION_NOTE_TOKENS` in prompts.ts), so that it
     // ends well before this. Lower or raise one with the other in mind.
     compression_model_max_tokens: 4000,
     final_report_model: finalReportModel,

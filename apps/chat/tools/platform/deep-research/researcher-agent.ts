@@ -6,11 +6,12 @@ import {
 } from "ai";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
-import { truncateMessages } from "@/lib/ai/token-utils";
+import { countTextTokens } from "@/lib/ai/token-utils";
 import { createModuleLogger } from "@/lib/logger";
+import { buildCompressionPrompt } from "./compression-input";
 import {
   getCompressionProviderOptions,
-  getResearchProviderOptions,
+  getResearcherStepProviderOptions,
 } from "./configuration";
 import {
   compressResearchSimpleHumanMessage,
@@ -100,8 +101,9 @@ export async function runResearcher(
     // PER STEP, reasoning included, and deliberately far below the 4,000 the
     // other roles get: see `researcher_step_max_tokens` in configuration.ts.
     maxOutputTokens: config.researcher_step_max_tokens,
-    // Low effort, so a step's thinking leaves that cap to the tool call.
-    providerOptions: getResearchProviderOptions(config.research_model),
+    // The least thinking the model takes, so a step's thinking leaves that
+    // cap to the tool call (see `getResearcherStepProviderOptions`).
+    providerOptions: getResearcherStepProviderOptions(config.research_model),
     experimental_telemetry: createTelemetry("researcher", options),
     onStepFinish: ({ usage, response, toolCalls, finishReason }) => {
       // Cumulative: each step's response carries every message so far, with
@@ -240,35 +242,6 @@ function withoutTruncatedReply(messages: ModelMessage[]): ModelMessage[] {
     : messages;
 }
 
-/**
- * PURE. The researcher's messages without its thinking, for the compression
- * call.
- *
- * A Claude 5.5 thinking block is bound to everything sent before it: the
- * system prompt, the tool set and the earlier messages. Compression replays the
- * researcher's steps under a different system prompt, with no tools and maybe
- * truncated, so every replayed block fails that check, and on an account created
- * on or after 2026-08-31 the API answers it with HTTP 400 rather than dropping
- * the block. The thinking is not what compression condenses anyway: the tool
- * calls, their results and the researcher's text all stay. An assistant step
- * that held nothing but thinking is dropped whole, since an empty message is
- * rejected too.
- */
-function withoutReasoning(messages: ModelMessage[]): ModelMessage[] {
-  const kept: ModelMessage[] = [];
-  for (const message of messages) {
-    if (message.role !== "assistant" || typeof message.content === "string") {
-      kept.push(message);
-      continue;
-    }
-    const content = message.content.filter((part) => part.type !== "reasoning");
-    if (content.length > 0) {
-      kept.push({ ...message, content });
-    }
-  }
-  return kept;
-}
-
 async function compressResearch(
   researchMessages: ModelMessage[],
   options: AgentOptions,
@@ -277,36 +250,47 @@ async function compressResearch(
   const { config, abortSignal } = options;
   const model = await getLanguageModel(config.compression_model as ModelId);
 
-  const messages: ModelMessage[] = [
-    {
-      role: "system" as const,
-      content: compressResearchSystemPrompt({ date: getTodayStr() }),
-    },
-    // The topic the researcher was given, as the opening user turn. Its own
-    // messages start with an assistant step. A precaution: the claude-api
-    // skill's rules say the first message must be a user turn, which the
-    // Messages API reference does not state; the topic is useful context
-    // to the compressor either way.
-    { role: "user" as const, content: topic },
-    ...withoutReasoning(researchMessages),
-    {
-      role: "user" as const,
-      content: compressResearchSimpleHumanMessage,
-    },
-  ];
-
+  const system = compressResearchSystemPrompt({ date: getTodayStr() });
   const contextWindow = await getModelContextWindow(
     config.compression_model as ModelId
   );
-  // ISSUE #189: this is the only truncateMessages call site with real history,
-  // and it drops the oldest turns silently. Left as-is deliberately — a research
-  // loop is stateless between runs, so nothing durable is lost here. The phase
-  // workflow solves the same problem the other way: lib/phases/extract.ts
-  // distils turns into project facts and lib/phases/context.ts re-injects them,
-  // ranked and budgeted, into every system prompt, so state survives truncation
-  // instead of being raced by it. Use that pattern if this loop ever needs to
-  // remember something across calls.
-  const truncatedMessages = truncateMessages(messages, contextWindow);
+  // ONE user message, the research as text: no tool blocks and no assistant
+  // turn are replayed (see compression-input.ts for the two 400s that caused).
+  //
+  // ISSUE #189: this is the only place with real history to fit into a window.
+  // Over budget, `buildCompressionPrompt` leaves out the OLDEST search results
+  // first and always keeps the topic, every call line and the closing
+  // instruction; what it left out is logged below. Left as a cut rather than a
+  // carry-over deliberately — a research loop is stateless between runs, so
+  // nothing durable is lost here. The phase workflow solves the same problem
+  // the other way: lib/phases/extract.ts distils turns into project facts and
+  // lib/phases/context.ts re-injects them, ranked and budgeted, into every
+  // system prompt, so state survives truncation instead of being raced by it.
+  // Use that pattern if this loop ever needs to remember something across calls.
+  const input = buildCompressionPrompt({
+    topic,
+    messages: researchMessages,
+    system,
+    instruction: compressResearchSimpleHumanMessage,
+    contextWindow,
+    maxOutputTokens: config.compression_model_max_tokens,
+    countTokens: countTextTokens,
+  });
+  if (
+    input.resultsLeftOut > 0 ||
+    input.newestResultCut ||
+    input.entriesDropped > 0
+  ) {
+    log.warn(
+      {
+        resultsLeftOut: input.resultsLeftOut,
+        newestResultCut: input.newestResultCut,
+        entriesDropped: input.entriesDropped,
+        contextWindow,
+      },
+      "research log was over the compression model's window: the oldest results were left out"
+    );
+  }
 
   // Compression must finish by `compressionDueAt` so the report keeps its
   // time (research-clock.ts). Stopped there, the researcher's own words and
@@ -320,7 +304,8 @@ async function compressResearch(
   try {
     response = await generateText({
       model,
-      messages: truncatedMessages,
+      system,
+      prompt: input.prompt,
       maxOutputTokens: config.compression_model_max_tokens,
       // The lowest reasoning effort the model takes, so reasoning does not eat
       // the output cap (see `getCompressionProviderOptions`).

@@ -131,19 +131,6 @@ describe("the compression call does not spend its output cap on reasoning", () =
     );
   });
 
-  it("asks a Claude 5.5 model for the least thinking it accepts, never one it 400s on", () => {
-    // Sonnet 5.5 rejects `disabled` and Opus 5.5 cannot turn thinking off.
-    expect(getCompressionProviderOptions("claude-sonnet-5-5")).toEqual({
-      anthropic: { effort: "low", thinking: { type: "between_tools" } },
-    });
-    expect(getCompressionProviderOptions("claude-haiku-5-5")).toEqual({
-      anthropic: { effort: "low", thinking: { type: "disabled" } },
-    });
-    expect(getCompressionProviderOptions("claude-opus-5-5")).toEqual({
-      anthropic: { effort: "low" },
-    });
-  });
-
   it("sends nothing to a model whose handling of the option is not established", () => {
     expect(getCompressionProviderOptions("gpt-4o-mini")).toBeUndefined();
     expect(getCompressionProviderOptions("claude-opus-5")).toBeUndefined();

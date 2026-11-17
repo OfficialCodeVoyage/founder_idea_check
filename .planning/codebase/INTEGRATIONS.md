@@ -11,8 +11,8 @@ Sidecar variables are read in `apps/research/app/config.py` and `apps/research/a
 ## APIs & External Services
 
 **Model provider (chat, judge, extraction, research, titles):**
-- Anthropic - the selected gateway (`ai.gateway: "anthropic"` in `apps/chat/chat.config.ts`; `DEFAULT_GATEWAY` in
-  `apps/chat/lib/ai/gateways/registry.ts`).
+- Anthropic - the selected gateway (`ai.gateway: "anthropic"` in `apps/chat/chat.config.ts`). `DEFAULT_GATEWAY` in
+  `apps/chat/lib/ai/gateways/registry.ts` stays `"openai"`; it applies only to a config with no `ai` block.
   - SDK/Client: `@ai-sdk/anthropic` through `apps/chat/lib/ai/gateways/anthropic-gateway.ts`
   - Auth: `ANTHROPIC_API_KEY`, optional `ANTHROPIC_BASE_URL` (read straight from `process.env`, not through `lib/env`, so
     scripts and tests can load the registry)

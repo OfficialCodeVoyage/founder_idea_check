@@ -386,7 +386,7 @@ N+1's system prompt.
 **Gateway provider:**
 - Purpose: one place that maps a model id to a provider client.
 - Examples: `apps/chat/lib/ai/providers.ts::getLanguageModel`, `apps/chat/lib/ai/active-gateway.ts`,
-  `apps/chat/lib/ai/gateways/registry.ts` (`DEFAULT_GATEWAY = "anthropic"`), `apps/chat/lib/ai/app-models.ts`.
+  `apps/chat/lib/ai/gateways/registry.ts` (`DEFAULT_GATEWAY = "openai"`, used only by a config with no `ai` block), `apps/chat/lib/ai/app-models.ts`.
 
 ## Entry Points
 

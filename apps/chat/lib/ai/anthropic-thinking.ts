@@ -160,8 +160,8 @@ const CLAUDE_5_5 = /claude-(opus|sonnet|haiku)-5-5(?!\d)/;
 
 /**
  * PURE. The least thinking a model accepts, for a call whose output cap is a
- * TIME BUDGET rather than a length target (deep research's compression and
- * final report). Thinking counts toward `max_tokens`, so on these models a
+ * TIME BUDGET rather than a length target (deep research's researcher steps,
+ * compression and final report). Thinking counts toward `max_tokens`, so on these models a
  * call left at its default effort can spend the cap thinking and stop before
  * the visible output is finished.
  *

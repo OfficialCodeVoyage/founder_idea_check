@@ -168,9 +168,10 @@ const config = defineConfig({
          *
          * Status updates are cosmetic progress lines, so Haiku is plenty.
          *
-         * Every one of these calls runs at low effort, and compression and the
-         * report with the least thinking the model takes: their output caps
-         * are time budgets (tools/platform/deep-research/configuration.ts).
+         * Every one of these calls runs at low effort, and a researcher step,
+         * compression and the report with the least thinking the model takes:
+         * their output caps are time budgets
+         * (tools/platform/deep-research/configuration.ts).
          */
         researchModel: "claude-haiku-5-5",
         summarizationModel: "claude-sonnet-5-5",

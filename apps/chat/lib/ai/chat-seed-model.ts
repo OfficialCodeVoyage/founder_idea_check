@@ -81,7 +81,7 @@ export type UsableStoredModel = ChatSeedModel & {
   /**
    * `stored`: the message's own choice, which the catalog still serves.
    * `composer`: the message named only models the catalog no longer serves,
-   * so the composer's current choice stands in for it.
+   * so the composer's current primary model stands in for it, alone.
    */
   source: "stored" | "composer";
 };
@@ -98,8 +98,10 @@ export type UsableStoredModel = ChatSeedModel & {
  *  - the first candidate with a model the catalog still serves (unknown ids
  *    dropped from a parallel selection), same rule as the seed path
  *    (`readSeed`): `source: "stored"`;
- *  - else, when a candidate NAMED a model, the composer's current choice: the
- *    founder's own pick, never a default they did not make (`source:
+ *  - else, when a candidate NAMED a model, the composer's current primary
+ *    model, as a single model even when the composer holds a parallel
+ *    selection: the founder's own pick, never a default they did not make,
+ *    and never a fan-out a single-model message did not ask for (`source:
  *    "composer"`);
  *  - else null: the message named no model at all, and each caller does what
  *    it did before this check existed. "Named" is what those callers tested:
@@ -108,13 +110,13 @@ export type UsableStoredModel = ChatSeedModel & {
 export function usableStoredModel({
   candidates,
   isKnownModel,
-  composer,
+  composerModelId,
 }: {
   /** Stored values in order of preference; `""` and null count as none. */
   candidates: readonly (SelectedModelValue | null | undefined)[];
   isKnownModel: (id: string) => boolean;
-  /** The composer's current choice (`useStableChatInput`). */
-  composer: ChatSeedModel;
+  /** The composer's current primary model (`useStableChatInput`). */
+  composerModelId: AppModelId;
 }): UsableStoredModel | null {
   let named = false;
   for (const candidate of candidates) {
@@ -124,7 +126,13 @@ export function usableStoredModel({
     }
     named ||= getPrimarySelectedModelId(candidate) !== null;
   }
-  return named ? { ...composer, source: "composer" } : null;
+  return named
+    ? {
+        modelId: composerModelId,
+        selection: composerModelId,
+        source: "composer",
+      }
+    : null;
 }
 
 /**

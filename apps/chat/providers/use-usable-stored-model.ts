@@ -12,8 +12,8 @@ import { useChatModels } from "@/providers/chat-models-provider";
 /**
  * The ONE place a stored model choice is checked before a client path sends it
  * again (Retry, the message editor, a parallel response card): against the
- * catalog, with the composer's current choice standing in for a model the
- * catalog no longer serves (`lib/ai/chat-seed-model.ts::usableStoredModel`).
+ * catalog, with the composer's current primary model standing in for a model
+ * the catalog no longer serves (`lib/ai/chat-seed-model.ts::usableStoredModel`).
  * Read from the composer's stable context, so a caller does not re-render as
  * the founder types; the returned function changes only when the catalog or
  * the composer's model does.
@@ -22,17 +22,14 @@ export function useUsableStoredModel(): (
   candidates: readonly (SelectedModelValue | null | undefined)[]
 ) => UsableStoredModel | null {
   const { getModelById } = useChatModels();
-  const { selectedModelId, selectedModelSelection } = useStableChatInput();
+  const { selectedModelId } = useStableChatInput();
   return useCallback(
     (candidates) =>
       usableStoredModel({
         candidates,
         isKnownModel: (modelId) => Boolean(getModelById(modelId)),
-        composer: {
-          modelId: selectedModelId,
-          selection: selectedModelSelection,
-        },
+        composerModelId: selectedModelId,
       }),
-    [getModelById, selectedModelId, selectedModelSelection]
+    [getModelById, selectedModelId]
   );
 }

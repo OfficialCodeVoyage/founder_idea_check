@@ -38,10 +38,7 @@ const retryCatalog = {
       candidates,
       isKnownModel: (modelId: string) =>
         ["claude-sonnet-5-5", "claude-haiku-5-5"].includes(modelId),
-      composer: {
-        modelId: "claude-sonnet-5-5",
-        selection: "claude-sonnet-5-5",
-      },
+      composerModelId: "claude-sonnet-5-5",
     }),
 };
 

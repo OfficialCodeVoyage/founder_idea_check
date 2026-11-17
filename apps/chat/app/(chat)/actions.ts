@@ -15,6 +15,9 @@ import { createModuleLogger } from "@/lib/logger";
 
 const log = createModuleLogger("chat:title");
 
+/** A new chat's title when the title model declined or wrote nothing. */
+const PLACEHOLDER_CHAT_TITLE = "New chat";
+
 export async function generateTitleFromUserMessage({
   message,
   userId,
@@ -31,7 +34,7 @@ export async function generateTitleFromUserMessage({
    */
   costAccumulator?: CostAccumulator;
 }) {
-  const { text: title, usage } = await generateText({
+  const { text, finishReason, usage } = await generateText({
     model: await getLanguageModel(config.ai.workflows.title, "title"),
     system: `Generate a concise title for a chat conversation based on the user's first message.
 
@@ -56,7 +59,20 @@ Rules (strictly follow all):
     await chargeTitleCost({ userId, usage });
   }
 
-  return title;
+  // A DECLINED TITLE IS NOT A BLANK ONE. Claude's `refusal` stop reason comes
+  // back as `content-filter` with empty or partial text and no error, and the
+  // chat was created with that text as its title: a blank entry in the
+  // sidebar. A declined or empty title becomes the placeholder instead; the
+  // founder can rename the chat. The call is still charged, as before.
+  const title = text.trim();
+  if (finishReason === "content-filter" || title.length === 0) {
+    log.warn(
+      { finishReason, titleLength: title.length },
+      "the title model returned no usable title; the chat gets the placeholder"
+    );
+    return PLACEHOLDER_CHAT_TITLE;
+  }
+  return text;
 }
 
 /**

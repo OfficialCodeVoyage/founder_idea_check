@@ -335,6 +335,25 @@ async function compressResearch(
     );
   }
 
+  // A DECLINED COMPRESSION IS A CUT, NEVER EMPTY NOTES. Claude's `refusal`
+  // stop reason arrives as `content-filter`, with no error and an empty or
+  // partial text. Returned as it came, that was this topic's findings: the
+  // report dropped the topic and its "Research cut short" section never named
+  // it. So it is recorded as a cut for this topic, and the notes say what
+  // happened, after whatever text did arrive. Checked before `length`: a
+  // declined call is not a full one.
+  if (response.finishReason === "content-filter") {
+    log.warn(
+      { outputTokens: response.usage?.outputTokens },
+      "the compression model declined to condense a researcher's findings"
+    );
+    recordCut(options.clock, COMPRESSION_DECLINED_REASON, {}, topic);
+    const partial = response.text.trim();
+    return partial.length > 0
+      ? `${partial}\n\n${COMPRESSION_DECLINED_NOTE}`
+      : COMPRESSION_DECLINED_NOTE;
+  }
+
   // THE CAP IS NOT RAISED (it is the time budget: `compression_model_max_tokens`
   // is what fits the 30 s compression allowance), but a note that stops at it is
   // not a finished note. Live QA (2026-11-12) saw one compression call end at
@@ -370,6 +389,17 @@ const COMPRESSION_CUT_OFF_REASON =
 /** The last line of compressed notes that were cut off at the output cap. */
 const COMPRESSION_CUT_OFF_NOTE =
   "[These notes were cut off at the output limit and are incomplete: findings and sources from the end of this researcher's work are missing.]";
+
+/**
+ * The cut the report is told about when the model declined to condense a
+ * researcher's findings (`content-filter`). Not about time or length.
+ */
+const COMPRESSION_DECLINED_REASON =
+  "the model declined to condense a researcher's findings, so that researcher's findings are missing or incomplete";
+
+/** The notes of a topic whose compression the model declined. */
+const COMPRESSION_DECLINED_NOTE =
+  "[The model declined to condense this researcher's findings, so they are missing or incomplete here.]";
 
 /**
  * Enough of the raw transcript to cite from, bounded so that several of these

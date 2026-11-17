@@ -25,6 +25,7 @@ import { keyFromFileUrl } from "@/lib/file-url";
 import { createModuleLogger } from "@/lib/logger";
 import {
   chatMessageToDbMessage,
+  refusedMetadata,
   targetMetadata,
 } from "@/lib/message-conversion";
 import { selectActiveThread } from "@/lib/thread-utils";
@@ -497,6 +498,7 @@ export async function updateMessage({
           lastContext: dbMessage.lastContext,
           activeStreamId: dbMessage.activeStreamId,
           targetCriterionId: dbMessage.targetCriterionId,
+          refused: dbMessage.refused,
         })
         .where(eq(message.id, id));
 
@@ -578,6 +580,7 @@ async function hydrateMessages(messages: DBMessage[]): Promise<ChatMessage[]> {
           undefined) as ChatMessage["metadata"]["selectedTool"],
         usage: msg.lastContext as ChatMessage["metadata"]["usage"],
         ...targetMetadata(msg.targetCriterionId),
+        ...refusedMetadata(msg.refused),
       },
     };
   });
@@ -1073,6 +1076,7 @@ export async function getChatMessageWithPartsById({
             undefined) as ChatMessage["metadata"]["selectedTool"],
           usage: dbMessage.lastContext as ChatMessage["metadata"]["usage"],
           ...targetMetadata(dbMessage.targetCriterionId),
+          ...refusedMetadata(dbMessage.refused),
         },
       },
     };

@@ -1,0 +1,15 @@
+-- HAND-EDITED. drizzle-kit generated the column; the statement is guarded
+-- (`ADD COLUMN IF NOT EXISTS`) so it also runs on a database that `push`
+-- already changed (same posture as 0052, 0053 and 0054). No CHECK.
+--
+-- True on an assistant reply the model declined (Claude's `refusal` stop
+-- reason). The declined reply and the founder message it answers stay on
+-- screen, but no model reads either on a later turn: the chat's own context,
+-- the gate judge, the fact extractor and the persona pass all leave them out
+-- (lib/thread-utils.ts::withoutRefusedTurns). Resending a declined turn
+-- invites the same refusal. A metadata field with no column vanishes on
+-- reload (see 0054's header), so the mark is stored.
+--
+-- NOT NULL DEFAULT false: every existing row is a reply that was not
+-- declined, and a constant default is a metadata-only change on Postgres 17.
+ALTER TABLE "Message" ADD COLUMN IF NOT EXISTS "refused" boolean DEFAULT false NOT NULL;

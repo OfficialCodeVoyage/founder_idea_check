@@ -27,6 +27,16 @@ export function targetMetadata(
   return targetCriterionId ? { targetCriterionId } : {};
 }
 
+/**
+ * The refused mark, read back into metadata only when it is set, like
+ * `targetMetadata`: a reply that was not declined carries no key at all.
+ */
+export function refusedMetadata(
+  refused: boolean
+): { refused: true } | Record<string, never> {
+  return refused ? { refused: true } : {};
+}
+
 export function chatMessageToDbMessage(
   message: ChatMessage,
   chatId: string
@@ -74,6 +84,9 @@ export function chatMessageToDbMessage(
     isPrimaryParallel: message.metadata?.isPrimaryParallel ?? null,
     activeStreamId: message.metadata?.activeStreamId || null,
     canceledAt: null,
+    // Only a reply can be declined; a mark a client puts on its own message is
+    // not stored.
+    refused: message.role === "assistant" && message.metadata.refused === true,
     targetCriterionId:
       typeof target === "string" && TARGET_CRITERION_ID_PATTERN.test(target)
         ? target

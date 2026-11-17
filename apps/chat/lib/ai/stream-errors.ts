@@ -71,10 +71,11 @@ function mapKnownStreamErrorMessage(message: string): string {
  * before it, an idea about AI models among them, and a declined reply comes
  * back as HTTP 200 with no content: without this the reply was saved blank,
  * with nothing on screen to say why. Written into the reply itself by the chat
- * route, so it is still there after a reload.
+ * route, so it is still there after a reload. True whether or not some text
+ * arrived before the refusal.
  */
 export const REFUSED_REPLY_NOTICE =
-  "The model declined to answer this message, so there is no reply to it. This can happen when a message touches a topic its safety rules are cautious about. Try rephrasing the message and sending it again.";
+  "The model stopped and declined to continue this reply. This can happen when a message touches a topic its safety rules are cautious about. Rephrase the message and send it again.";
 
 const MAX_CAUSE_DEPTH = 3;
 

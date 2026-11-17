@@ -127,6 +127,15 @@ export const message = pgTable(
     /** Timestamp when this message's stream was canceled by the user. Null means not canceled. */
     canceledAt: timestamp("canceledAt"),
     /**
+     * True on an assistant reply the model declined (Claude's `refusal` stop
+     * reason, `content-filter` in the AI SDK). The reply and the founder
+     * message it answers stay on screen, but no model reads either again
+     * (`lib/thread-utils.ts::withoutRefusedTurns`): resending a declined turn
+     * invites the same refusal. Only ever true on an assistant row
+     * (`lib/message-conversion.ts::chatMessageToDbMessage`).
+     */
+    refused: boolean("refused").notNull().default(false),
+    /**
      * This user message's criterion target (CONTEXT.md): the exit criterion
      * the founder said it answers, as the client sent it; NULL means none.
      * Every write goes through `lib/message-conversion.ts::chatMessageToDbMessage`,

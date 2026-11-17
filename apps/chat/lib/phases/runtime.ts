@@ -21,7 +21,7 @@ import {
 import { getEmbeddingProvider } from "@/lib/embeddings/provider";
 import { embeddingCostCents } from "@/lib/embeddings/text";
 import { createModuleLogger } from "@/lib/logger";
-import { selectActiveThread } from "@/lib/thread-utils";
+import { selectActiveThread, withoutRefusedTurns } from "@/lib/thread-utils";
 import {
   type DocumentToolType,
   documentToolTypes,
@@ -209,7 +209,9 @@ function transcriptPartText(part: MessagePart): string | null {
  */
 export function toTranscript(messages: ChatMessage[]): TranscriptTurn[] {
   const turns: TranscriptTurn[] = [];
-  for (const m of messages) {
+  // A declined reply and the founder message it answered are read by no model
+  // (`withoutRefusedTurns`): not by the judge, the extractor or the persona.
+  for (const m of withoutRefusedTurns(messages)) {
     if (m.role !== "user" && m.role !== "assistant") {
       continue;
     }

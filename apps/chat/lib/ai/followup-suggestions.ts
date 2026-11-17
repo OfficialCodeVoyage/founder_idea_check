@@ -52,15 +52,21 @@ export function followupContext(
  * abort, so the route went on to ask for suggestions about a turn the founder
  * had stopped, and billed them (verified with a mock model on ai@6.0.219: a
  * stop during a tool, `response` resolved with the signal aborted).
+ *
+ * Not after a reply the model declined either: the next step is for the
+ * founder to rephrase, and suggestions would be paid for and built around the
+ * declined message.
  */
 export function shouldSuggestFollowups({
   enabled,
   turnAborted,
+  turnRefused,
 }: {
   enabled: boolean;
   turnAborted: boolean;
+  turnRefused: boolean;
 }): boolean {
-  return enabled && !turnAborted;
+  return enabled && !turnAborted && !turnRefused;
 }
 
 export async function generateFollowupSuggestions(

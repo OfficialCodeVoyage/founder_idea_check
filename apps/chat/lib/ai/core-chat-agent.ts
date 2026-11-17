@@ -18,6 +18,7 @@ import {
 import type { McpConnector } from "@/lib/db/schema";
 import { createModuleLogger } from "@/lib/logger";
 import { GATE_TRANSCRIPT_BUDGET_TOKENS } from "@/lib/phases/context";
+import { withoutRefusedTurns } from "@/lib/thread-utils";
 import { ANONYMOUS_LIMITS } from "@/lib/types/anonymous";
 import { replaceFilePartUrlByBinaryDataInMessages } from "@/lib/utils/download-assets";
 import { getMcpTools, getTools } from "@/tools/platform/tools";
@@ -110,8 +111,11 @@ export async function createCoreChatAgent({
   // own message is never a candidate for eviction — dropping the question the
   // turn is answering is never the right trade — and the request-size check in
   // the route has already capped it at MAX_INPUT_TOKENS.
+  // A declined reply and the founder message that led to it are left out
+  // before the budget is fitted: resent, they invite the same refusal
+  // (`withoutRefusedTurns`). They stay on screen.
   const history = selectContextWindow(
-    previousMessages,
+    withoutRefusedTurns(previousMessages),
     CHAT_CONTEXT_BUDGET_TOKENS,
     countTextTokens
   );

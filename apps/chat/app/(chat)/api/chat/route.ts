@@ -711,6 +711,13 @@ async function createChatStream({
                   ...initialMetadata,
                   usage: part.totalUsage,
                   activeStreamId: null,
+                  // A declined reply is marked here, from the same finish
+                  // reason `execute` reads below, so the mark reaches the
+                  // client and the stored row (`Message.refused`) and no model
+                  // reads this turn again (`withoutRefusedTurns`).
+                  ...(part.finishReason === "content-filter"
+                    ? { refused: true }
+                    : {}),
                 };
               }
             },
@@ -725,10 +732,12 @@ async function createChatStream({
         // reason arrives as `content-filter` with an empty (or cut-off) reply
         // and no error, so nothing else would tell the founder why there is
         // no answer. The notice is written as a text part of this reply, so it
-        // is saved with it, and the post-turn gate is skipped: it must not
-        // judge a turn whose interviewer reply is empty. What the turn is
-        // charged is unchanged. Read after `result.response`, which has
-        // already settled whatever a stop or a failure did.
+        // is saved with it; the post-turn gate and the follow-up suggestions
+        // are skipped. The reply is marked `refused` (the `finish` metadata
+        // above), so no model reads it or the founder message behind it
+        // again. What the turn is charged is unchanged. Read after
+        // `result.response`, which has already settled whatever a stop or a
+        // failure did.
         if ((await result.finishReason) === "content-filter") {
           turnRefused = true;
           log.warn(
@@ -751,6 +760,7 @@ async function createChatStream({
           shouldSuggestFollowups({
             enabled: config.ai.tools.followupSuggestions.enabled,
             turnAborted: abortController.signal.aborted,
+            turnRefused,
           })
         ) {
           const followupSuggestionsResult = generateFollowupSuggestions([

@@ -54,7 +54,7 @@ the map.
 | `UserCredit` | One balance per user, in cents | Default 50, which is $0.50. `canSpend` is `credits > 0`; a turn in flight may take it slightly negative. |
 | `UserModelPreference` | Which models a user turned on | |
 | `Project` | One idea a founder is validating | Owns facts, phases, tasks, personas and simulation data; all of those cascade on delete. |
-| `Chat`, `Message`, `Vote` | Conversations | `Chat.projectId` is `ON DELETE SET NULL`: deleting a project keeps its chats. `Message.targetCriterionId` is a user message's criterion target (the exit criterion the founder said it answers), or NULL; it is a claim about intent, not a foreign key, and is not tied to a phase. |
+| `Chat`, `Message`, `Vote` | Conversations | `Chat.projectId` is `ON DELETE SET NULL`: deleting a project keeps its chats. `Message.targetCriterionId` is a user message's criterion target (the exit criterion the founder said it answers), or NULL; it is a claim about intent, not a foreign key, and is not tied to a phase. `Message.refused` is true on an assistant reply the model declined; that reply and the founder message it answers stay on screen but no model reads them again (`lib/thread-utils.ts::withoutRefusedTurns`). |
 | `Part` | One row per message part | Typed, prefix-named columns (`text_*`, `tool_*`, `data_*`, ...) instead of a JSON blob. Seven CHECK constraints (below). |
 | `Document`, `Suggestion` | Artifacts the assistant writes, and edit suggestions | Versioned: the primary key is `(id, createdAt)`, so every save is a new row. Persona documents are `kind = 'persona'` with a `projectId`. |
 | `McpConnector`, `McpOAuthSession` | MCP connector settings | Inherited from ChatJS. Connectors are disabled in `chat.config.ts`; the tables remain. |
@@ -137,7 +137,7 @@ Rules that have each cost someone time:
 
 - **A migration that needs something drizzle-kit never emits is hand-written, and says so in its header.**
   `0046` creates the `vector` extension. `0048` backfills the ledger from existing phase rows. `0051` adds the seven
-  `Part` constraints. `0052`, `0053` and `0054` are written to be re-runnable (`ADD COLUMN IF NOT EXISTS`, guarded
+  `Part` constraints. `0052`, `0053`, `0054` and `0055` are written to be re-runnable (`ADD COLUMN IF NOT EXISTS`, guarded
   `ADD CONSTRAINT` in `DO` blocks) so they also run on a database that `push` already changed.
 - **Split a rename-looking change into two migrations.** One diff that drops one table and creates a similar one
   makes drizzle-kit ask whether it was a rename, which needs a terminal and, answered wrongly, carries the dead

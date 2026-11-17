@@ -297,3 +297,63 @@ export function findLeafDfsToRightFromMessageId<T extends MessageNode>(
   );
   return leaf || rightmostChild;
 }
+
+/**
+ * PURE. The messages a MODEL may read: every reply the model declined is left
+ * out, with the founder message it answered.
+ *
+ * Anthropic's rule for a `refusal` stop reason is not to continue the thread
+ * but to leave out or rephrase the turn that led to it. Kept in the history, a
+ * declined founder message was sent again on every later turn, to the chat
+ * model and to the gate judge, the fact extractor and the persona pass, and
+ * could be declined again each time. Both stay on screen, with the refusal
+ * notice; the founder rephrases, and the new message is what counts.
+ *
+ * A reply's founder message is its `parentMessageId`, or the nearest user
+ * message before it when a message carries no parent (an anonymous or older
+ * message). That founder message is left out only when every reply to it here
+ * was declined: a message that also got a reply the model did not decline
+ * stays, with that reply. The whole declined reply goes, tool calls and
+ * results included, so nothing is left half-paired.
+ *
+ * Applied once per reader: before the chat's context window is fitted
+ * (`lib/ai/core-chat-agent.ts::createCoreChatAgent`) and inside
+ * `lib/phases/runtime.ts::toTranscript`, which the judge, the extractor and
+ * the persona pass all read through.
+ */
+export function withoutRefusedTurns<
+  T extends {
+    id: string;
+    role: string;
+    metadata?: { parentMessageId?: string | null; refused?: boolean };
+  },
+>(messages: readonly T[]): T[] {
+  const declined = new Set<string>();
+  const answered = new Set<string>();
+  let lastUserId: string | null = null;
+  for (const message of messages) {
+    if (message.role === "user") {
+      lastUserId = message.id;
+      continue;
+    }
+    if (message.role !== "assistant") {
+      continue;
+    }
+    const founderMessageId = message.metadata?.parentMessageId ?? lastUserId;
+    if (!founderMessageId) {
+      continue;
+    }
+    (message.metadata?.refused === true ? declined : answered).add(
+      founderMessageId
+    );
+  }
+  return messages.filter((message) => {
+    if (message.role === "assistant") {
+      return message.metadata?.refused !== true;
+    }
+    if (message.role === "user") {
+      return !(declined.has(message.id) && !answered.has(message.id));
+    }
+    return true;
+  });
+}

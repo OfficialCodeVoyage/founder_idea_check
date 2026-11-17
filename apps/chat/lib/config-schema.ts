@@ -284,6 +284,11 @@ export const aiConfigSchema = z
     gateway: DEFAULT_GATEWAY,
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
     ...GATEWAY_MODEL_DEFAULTS[DEFAULT_GATEWAY],
+    workflows: {
+      ...GATEWAY_MODEL_DEFAULTS[DEFAULT_GATEWAY].workflows,
+      // The one rule, as in `applyDefaults`: an unset judge is the chat model.
+      judge: GATEWAY_MODEL_DEFAULTS[DEFAULT_GATEWAY].workflows.chat,
+    },
   });
 
 export const pricingConfigSchema = z.object({
@@ -699,13 +704,12 @@ export function applyDefaults(input: ConfigInput): Config {
     ...aiInput,
     workflows: {
       ...workflows,
-      // AN UNSET JUDGE FOLLOWS THE CONFIGURED CHAT MODEL, not the gateway's
-      // defaults table. The judge was `chat` until it got its own knob, so a
-      // config that names `chat` and no `judge` keeps its gate on the model it
-      // chose. Taking the table's `judge` instead would move every PASS/WARN/
-      // BLOCK verdict to a model nobody picked, with no error. The table's
-      // `judge` rows are read only by `aiConfigSchema`'s `.default()`, for a
-      // config with no `ai` block at all.
+      // AN UNSET JUDGE FOLLOWS THE CONFIGURED CHAT MODEL. The judge was
+      // `chat` until it got its own knob, so a config that names `chat` and no
+      // `judge` keeps its gate on the model it chose. The gateway defaults
+      // table has no `judge` row on purpose: one would move every PASS/WARN/
+      // BLOCK verdict to a model nobody picked, with no error. `aiConfigSchema`'s
+      // `.default()` applies the same rule.
       judge: workflowsInput?.judge ?? workflows.chat,
     },
     tools: mergeToolsConfig(

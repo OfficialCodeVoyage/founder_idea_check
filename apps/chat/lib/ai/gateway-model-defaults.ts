@@ -64,8 +64,8 @@ export interface ModelDefaultsFor<G extends GatewayType> {
   };
   workflows: {
     chat: GatewayModelIdMap[G];
-    /** The phase gate's judge. Separate from `chat` so it can be stronger. */
-    judge: GatewayModelIdMap[G];
+    // No `judge`: an unset `workflows.judge` follows the configured `chat`
+    // model (lib/config-schema.ts::applyDefaults), never a gateway default.
     title: GatewayModelIdMap[G];
     /**
      * The fact extractor. Split off `title` so that retuning what decides which
@@ -93,7 +93,6 @@ const vercelDefaults = {
   anonymousModels: ["google/gemini-2.5-flash-lite", "openai/gpt-5-nano"],
   workflows: {
     chat: "openai/gpt-5-mini",
-    judge: "openai/gpt-5-mini",
     title: "openai/gpt-5-nano",
     extract: "openai/gpt-5-nano",
     pdf: "openai/gpt-5-mini",
@@ -166,7 +165,6 @@ const openrouterDefaults = {
   anonymousModels: ["google/gemini-2.5-flash-lite", "openai/gpt-5-nano"],
   workflows: {
     chat: "openai/gpt-5-mini",
-    judge: "openai/gpt-5-mini",
     title: "openai/gpt-5-nano",
     extract: "openai/gpt-5-nano",
     pdf: "openai/gpt-5-mini",
@@ -243,7 +241,6 @@ const openaiDefaults = {
   anonymousModels: ["gpt-5-nano"],
   workflows: {
     chat: "gpt-5-mini",
-    judge: "gpt-5-mini",
     title: "gpt-5-nano",
     extract: "gpt-5-nano",
     pdf: "gpt-5-mini",
@@ -308,7 +305,6 @@ const openaiCompatibleDefaults = {
   anonymousModels: ["gpt-5-nano"],
   workflows: {
     chat: "gpt-5-mini",
-    judge: "gpt-5-mini",
     title: "gpt-5-nano",
     extract: "gpt-5-nano",
     pdf: "gpt-5-mini",
@@ -370,7 +366,6 @@ const litellmDefaults = {
   anonymousModels: ["openai/gpt-4o-mini"],
   workflows: {
     chat: "openai/gpt-4o-mini",
-    judge: "openai/gpt-4o-mini",
     title: "openai/gpt-4o-mini",
     extract: "openai/gpt-4o-mini",
     pdf: "openai/gpt-4o-mini",
@@ -427,7 +422,6 @@ const anthropicDefaults = {
   anonymousModels: ["claude-haiku-5-5"],
   workflows: {
     chat: "claude-sonnet-5-5",
-    judge: "claude-opus-5-5",
     title: "claude-haiku-5-5",
     extract: "claude-haiku-5-5",
     pdf: "claude-sonnet-5-5",

@@ -157,13 +157,6 @@
     "zod": "^4.3.6",
     "zustand": "^5.1.0"
   },
-  "overrides": {
-    "commander": "^14.0.0",
-    "evalite": {
-      "ai": "$ai",
-      "better-sqlite3": "$better-sqlite3"
-    }
-  },
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
     "@playwright/test": "^1.65.0",

@@ -44,6 +44,17 @@ const effort =
   (apiModelId: string): SharedV3ProviderOptions | undefined =>
     anthropicEffortOptions(apiModelId, CALL_EFFORT[path]);
 
+/**
+ * The least thinking a Claude 5.5 model takes, else low effort for any other
+ * Claude model that takes effort, else nothing: what every deep-research call
+ * whose output cap is a time budget gets.
+ */
+const leastThinkingOrLowEffort = (
+  apiModelId: string
+): SharedV3ProviderOptions | undefined =>
+  anthropicLeastThinkingOptions(apiModelId) ??
+  anthropicEffortOptions(apiModelId, CALL_EFFORT.research);
+
 const CALL_PATH_OPTIONS: Record<
   CallPath,
   (apiModelId: string) => SharedV3ProviderOptions | undefined
@@ -68,9 +79,7 @@ const CALL_PATH_OPTIONS: Record<
     configured researcher, takes `disabled`); any other model keeps what the
     other research calls get.
   */
-  researcherStep: (apiModelId) =>
-    anthropicLeastThinkingOptions(apiModelId) ??
-    anthropicEffortOptions(apiModelId, CALL_EFFORT.research),
+  researcherStep: leastThinkingOrLowEffort,
   /*
     COMPRESSION: the lowest reasoning effort the model takes, so its reasoning
     does not eat the output cap. Compression condenses text it is handed, and a
@@ -91,23 +100,26 @@ const CALL_PATH_OPTIONS: Record<
 
     The Claude 5.5 models get their own least thinking at low effort
     (`anthropic-thinking.ts::anthropicLeastThinkingOptions`): thinking is on by
-    default there and counts toward the same cap. Any other model gets no
-    option: whether it takes the key at all is unknown, and a rejected option
-    would fail the whole topic's compression, which is worse than reasoning
-    tokens.
+    default there and counts toward the same cap. Any other Claude model that
+    takes effort (4.6 and newer) gets low effort, as `researcherStep` does;
+    left at its default (`high`, adaptive thinking on) it would think into the
+    cap. Any other model gets no option: whether it takes the key at all is
+    unknown, and a rejected option would fail the whole topic's compression,
+    which is worse than reasoning tokens.
   */
   compression: (apiModelId) =>
     GPT_5_6_MODEL.test(apiModelId)
       ? { openai: { reasoningEffort: "none" } }
-      : anthropicLeastThinkingOptions(apiModelId),
+      : leastThinkingOrLowEffort(apiModelId),
   /*
     THE FINAL REPORT. Its 6,000-token cap is the report's time budget too, and
     the report is written as the input of one `createTextDocument` call: a cap
     spent on thinking cuts that input off and the run ends with no document. So
-    a Claude 5.5 model writes it with the least thinking it takes. Nothing for
-    any other model.
+    a Claude 5.5 model writes it with the least thinking it takes, and any
+    other Claude model that takes effort with low effort. Nothing for any
+    other model.
   */
-  report: anthropicLeastThinkingOptions,
+  report: leastThinkingOrLowEffort,
 };
 
 /** PURE. The provider options a call path sends to a model, or none. */

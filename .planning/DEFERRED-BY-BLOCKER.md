@@ -236,17 +236,23 @@ For an offline-only criterion target, `lib/phases/directive.ts::targetLines` and
 `packages/registry/items/retrieve-url.json` embeds a tool that default-imports the client and calls `scrapeUrl` and `extract`, and it declares `@mendable/firecrawl-js` without a version. The current release's default export is the v2 client, which has neither method, so a project scaffolded with that item breaks however this repo's own pin moves. The tool's source file is no longer in the repo, so the item cannot be rebuilt from it.
 **Clearing condition:** the item is rewritten against the v2 client (`scrape`) with a pinned major, or removed from the registry.
 
-### SWEEP-F32 — A criterion target sent before a verdict or after a PASS reaches the prompt without its rules
-**Raised:** 2026-11-17, `chore/guard-tests-261117`, `/code-review` (high) of the guard tests.
-**Status:** OPEN (low, pre-existing; one path reachable from the UI)
-`lib/phases/directive.ts::openingDirective` and `passedDirective` never call `targetLines`, so a target that `lib/phases/runtime.ts::resolveTarget` accepted adds neither the intent-not-evidence paragraph nor, for an offline-only criterion, the rule against a number produced on the spot. Before a verdict only a crafted request reaches this: the gate card (`components/phase/gate-verdict-card.tsx`) renders only with a stored verdict, and a chip left from an earlier phase is dropped by its `phaseKey`. A PASS on phases 1 to 7 moves the current phase on (`lib/phases/advance.ts::resolveCurrentPhase`), so `resolveTarget` drops the old id. The one UI path: after the last phase passes (workflow complete) the current phase stays the last one, and `CriterionRow` still renders `RowActions` on an open advisory criterion of that PASS card (met criteria collapse to one line with no actions), so "Answer" there reaches `passedDirective` without the rules.
-**Clearing condition:** both directives render `targetLines` (checked with one paid turn), or a PASS card offers no row actions.
-
 ### SWEEP-F33 — `next dev` logs an error for `/device-login` while the desktop app is off
 **Raised:** 2026-11-17, `chore/better-auth-1-7-261117`, browser check of the better-auth upgrade.
 **Status:** OPEN (low, pre-existing, dev only)
 With `desktopApp.enabled: false`, `app/(auth)/device-login/page.tsx::DeviceLoginRoute` calls `redirect("/login")` before any auth code runs, and `next dev` logs `Route "/device-login": Could not validate \`instant\` because an error prevented the target segment from rendering` with `NEXT_REDIRECT` as the cause. The page still answers and redirects; the log line is noise that hides real instant-validation errors.
 **Clearing condition:** the redirect moves where instant validation does not see it (for example the proxy, or a `notFound()` the route opts out of validating), or the desktop app is turned on.
+
+### SWEEP-F34 — The `overrides` block in `apps/chat/package.json` has no effect
+**Raised:** 2026-11-17, `chore/pin-node-types-261117`, while pinning `@types/node`.
+**Status:** OPEN (low, pre-existing)
+Bun reads `overrides` from the root manifest only, so `apps/chat/package.json`'s `commander ^14.0.0` and its `evalite` entries (meant to give the eval harness the app's own `ai` and `better-sqlite3`) never reach `bun.lock`. Today the lockfile happens to resolve `evalite` to the hoisted `ai` anyway (no nested `evalite/ai` copy), so the eval harness still runs the app's AI SDK; a future lockfile refresh could nest a second copy without anything noticing. `.planning/codebase/STACK.md` records the same.
+**Clearing condition:** the entries move to the root `overrides` (checked against `bun.lock` and `bun run test:unit`) or are deleted with the reason.
+
+### SWEEP-F35 — Stop on a reply resumed after a reload blanks its text on screen
+**Raised:** 2026-11-17, browser check of the Stop and reload path after the Next 16.4.6 update (#31).
+**Status:** OPEN (medium, pre-existing since #21; display only, the saved reply is intact)
+`app/(chat)/api/chat/route.ts::executeChatRequest` saves the assistant row with no parts until the reply finishes, so a reload mid-reply loads that empty placeholder and `components/chat-sync.tsx::ChatSync` keeps it to protect a stored reply from a shorter replayed copy. On Stop, `onFinish` (called with `isAbort`) puts the empty placeholder back over the replayed text, in the chat, the message tree and the `getChatMessages` cache, so the reply shows blank (action bar only) until the next page reload; the server row keeps the text up to the Stop. A plain Stop without a reload is not affected. Seen in the browser for Stop; read from code, not reproduced: an error or a dropped connection during a resumed reply takes the same branch. Not caused by #31: the path runs through `ai` and `@ai-sdk/react`, which #31 bumped, but their code on it (`AbstractChat`, the stream processing) is identical before and after. `hooks/chat-sync-hooks.ts::useSaveMessageMutation` writes only the client cache, so recording the replayed copy instead cannot shorten the saved reply.
+**Clearing condition:** after a Stop, an error or a dropped connection during a resumed reply, the text on screen is not shorter than what was shown just before, and the saved reply is unchanged (checked in the browser).
 
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
@@ -256,4 +262,5 @@ With `desktopApp.enabled: false`, `app/(auth)/device-login/page.tsx::DeviceLogin
 -->
 
 **Closed**
+- SWEEP-F32 — A criterion target sent before a verdict or after a PASS reaches the prompt without its rules. Raised 2026-11-17, `chore/guard-tests-261117`. Closed 2026-11-17, `chore/close-f32-261117`, as a wrong diagnosis, with no code change: `lib/phases/gate.ts::decideGate` turns any open advisory criterion into WARN, so a judged PASS has every criterion met and its card offers no row actions; a WARN after the last phase goes to `lib/phases/directive.ts::warnedDirective`, which already renders `targetLines`. In `openingDirective` and `passedDirective` the target is not rendered at all, so it never reaches the prompt without its rules. Not checked: a PASS from `gate.enabled === false`, which has no judged criteria.
 - SWEEP-F24 — No test guards the rule that a file read is never redirected to a provider link. Raised 2026-11-13, `fix/files-sdk-3-261112`. Closed 2026-11-17, `chore/guard-tests-261117`: every test in `lib/file-content-response.test.ts` reads from a store that declares signing, so a redirect in `createFileContentResponse` on the owner, shared-chat or Range path fails its status, and an `afterEach` fails any read that asked the adapter's `url` for a link. Not covered: a redirect added in the route or the proxy ahead of that function.

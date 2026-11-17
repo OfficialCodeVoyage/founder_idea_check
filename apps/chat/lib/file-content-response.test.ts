@@ -12,8 +12,11 @@ vi.mock("@/lib/config", () => ({
  * link works for whoever holds it until it expires, without the access check.
  * The plain memory store cannot sign, so with it a redirect re-added to
  * createFileContentResponse would pass this whole file. With this store a
- * redirect on any path (owner, shared chat, Range) fails the status the test
- * expects, and the `afterEach` below fails any read that asked for a link.
+ * redirect there on any path the tests reach (owner, shared chat, Range) fails
+ * the status the test expects, and the `afterEach` below fails any read that
+ * asked the adapter's `url` for a link. Not covered: a redirect added in the
+ * route or the proxy ahead of createFileContentResponse, or a link minted
+ * through the provider's own client instead of `url`.
  */
 const signing = vi.hoisted(() => ({
   url: vi.fn(
@@ -50,6 +53,7 @@ const queries = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db/queries", () => queries);
 
+import { FILE_STORAGE_PREFIX } from "@/lib/constants";
 import { createFileContentResponse } from "./file-content-response";
 import { uploadFile } from "./file-storage";
 import { fileUrlInChat } from "./file-url";
@@ -233,7 +237,14 @@ describe("file content response", () => {
 
 describe("the store these tests share", () => {
   it("can sign, so a redirect to a provider link fails the tests above", () => {
-    const files = new Files({ adapter: storageProvider.createAdapter() });
+    // Built the way lib/file-storage.ts::getFiles builds its store (adapter,
+    // prefix, retries). A plugin added there that changes the capabilities
+    // would need adding here too.
+    const files = new Files({
+      adapter: storageProvider.createAdapter(),
+      prefix: FILE_STORAGE_PREFIX,
+      retries: 2,
+    });
     assert.equal(files.capabilities.signedUrl.supported, true);
   });
 });

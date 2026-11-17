@@ -29,6 +29,12 @@ function message({
   } as ChatMessage;
 }
 
+const retryCatalog = {
+  isKnownModel: (modelId: string) =>
+    ["claude-sonnet-5-5", "claude-haiku-5-5"].includes(modelId),
+  fallbackModelId: "claude-sonnet-5-5",
+} as const;
+
 describe("getRetryMessageInput", () => {
   it("builds a retry message from an assistant response and trims before the parent user message", () => {
     const root = message({ id: "root", role: "user" });
@@ -42,6 +48,7 @@ describe("getRetryMessageInput", () => {
     const result = getRetryMessageInput({
       messageId: assistant.id,
       messages: [root, assistant],
+      ...retryCatalog,
     });
 
     expect(result).toMatchObject({
@@ -69,6 +76,7 @@ describe("getRetryMessageInput", () => {
     const result = getRetryMessageInput({
       messageId: assistant.id,
       messages: [root, assistant],
+      ...retryCatalog,
     });
 
     expect(result.ok).toBe(true);
@@ -83,7 +91,11 @@ describe("getRetryMessageInput", () => {
     });
 
     expect(
-      getRetryMessageInput({ messageId: assistant.id, messages: [assistant] })
+      getRetryMessageInput({
+        messageId: assistant.id,
+        messages: [assistant],
+        ...retryCatalog,
+      })
     ).toEqual({ ok: false, reason: "parent_not_found" });
   });
 });

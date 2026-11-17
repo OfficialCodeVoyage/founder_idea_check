@@ -1,3 +1,4 @@
+import type { AppModelId } from "@/lib/ai/app-models";
 import { type ChatMessage, getPrimarySelectedModelId } from "@/lib/ai/types";
 
 export type RetryMessageResult =
@@ -8,19 +9,21 @@ export type RetryMessageResult =
     }
   | {
       ok: false;
-      reason:
-        | "message_not_found"
-        | "model_not_found"
-        | "parent_not_found"
-        | "parent_not_user";
+      reason: "message_not_found" | "parent_not_found" | "parent_not_user";
     };
 
 export function getRetryMessageInput({
   messageId,
   messages,
+  isKnownModel,
+  fallbackModelId,
 }: {
   messageId: string;
   messages: ChatMessage[];
+  /** Whether the catalog still serves a model id, as the seed path asks. */
+  isKnownModel: (modelId: string) => boolean;
+  /** The current default chat model, for a stored model the catalog lost. */
+  fallbackModelId: AppModelId;
 }): RetryMessageResult {
   const currentMessage = messages.find((message) => message.id === messageId);
   if (!currentMessage) {
@@ -44,13 +47,18 @@ export function getRetryMessageInput({
     return { ok: false, reason: "parent_not_user" };
   }
 
-  const retryModelId =
-    getPrimarySelectedModelId(currentMessage.metadata?.selectedModel) ||
-    getPrimarySelectedModelId(parentMessage.metadata?.selectedModel);
-
-  if (!retryModelId) {
-    return { ok: false, reason: "model_not_found" };
-  }
+  // A STORED MODEL MAY BE ONE THE CATALOG NO LONGER HAS. Every message
+  // written before the gateway moved to Anthropic carries a `gpt-5.6-*` id;
+  // retried as stored, the route answered 404 "Model not found" and the reply
+  // could not be regenerated. Checked like the seed path
+  // (`lib/ai/chat-seed-model.ts::resolveChatSeedModel`), and an unknown or
+  // missing id falls back to the current default chat model. `""` is falsy
+  // here too: the queries write it for an unreadable stored value.
+  const storedModelId = [
+    getPrimarySelectedModelId(currentMessage.metadata?.selectedModel),
+    getPrimarySelectedModelId(parentMessage.metadata?.selectedModel),
+  ].find((modelId) => modelId && isKnownModel(modelId));
+  const retryModelId = storedModelId || fallbackModelId;
 
   return {
     ok: true,

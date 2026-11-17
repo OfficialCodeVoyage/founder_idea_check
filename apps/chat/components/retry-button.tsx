@@ -9,6 +9,8 @@ import {
   useChatStatus,
   useChatStoreApi,
 } from "@/lib/stores/base";
+import { useChatModels } from "@/providers/chat-models-provider";
+import { useDefaultModel } from "@/providers/default-model-provider";
 
 export function RetryButton({
   messageId,
@@ -20,6 +22,9 @@ export function RetryButton({
   const { setMessages, sendMessage } = useChatActions<ChatMessage>();
   const chatStore = useChatStoreApi<ChatMessage>();
   const status = useChatStatus();
+  const { getModelById } = useChatModels();
+  // Checked against the catalog and the anonymous list by the layout.
+  const defaultModel = useDefaultModel();
 
   const handleRetry = useCallback(() => {
     if (!sendMessage) {
@@ -30,6 +35,8 @@ export function RetryButton({
     const retryInput = getRetryMessageInput({
       messageId,
       messages: chatStore.getState().messages,
+      isKnownModel: (modelId) => Boolean(getModelById(modelId)),
+      fallbackModelId: defaultModel,
     });
 
     if (!retryInput.ok) {
@@ -37,10 +44,8 @@ export function RetryButton({
         toast.error("Cannot find the message to retry");
       } else if (retryInput.reason === "parent_not_found") {
         toast.error("Cannot find the user message to retry");
-      } else if (retryInput.reason === "parent_not_user") {
-        toast.error("Parent message is not from user");
       } else {
-        toast.error("Cannot determine which model to retry");
+        toast.error("Parent message is not from user");
       }
       return;
     }
@@ -51,7 +56,14 @@ export function RetryButton({
     sendMessage(retryInput.message, {});
 
     toast.success("Retrying message...");
-  }, [sendMessage, messageId, setMessages, chatStore]);
+  }, [
+    sendMessage,
+    messageId,
+    setMessages,
+    chatStore,
+    getModelById,
+    defaultModel,
+  ]);
 
   if (status === "streaming" || status === "submitted") {
     return null;

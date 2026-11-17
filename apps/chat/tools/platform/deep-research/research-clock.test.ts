@@ -58,8 +58,8 @@ describe("planResearchClock", () => {
   it("asks a report that starts late for fewer words", () => {
     const onTime = { ...clock, now: () => clock.findingsDueAt };
     const late = { ...clock, now: () => clock.findingsDueAt + 60_000 };
-    expect(reportWordBudget(late, 6000)).toBeLessThan(
-      reportWordBudget(onTime, 6000)
+    expect(reportWordBudget(late, 12_000)).toBeLessThan(
+      reportWordBudget(onTime, 12_000)
     );
     // Never more than the model's own output ceiling allows.
     expect(reportWordBudget(onTime, 1000)).toBeLessThanOrEqual(750);

@@ -455,7 +455,7 @@ function reportTimeInstructions(
   maxOutputTokens: number
 ): string {
   const words = reportWordBudget(clock, maxOutputTokens);
-  const limit = `<Length>\nKeep the whole report, sources list included, under ${words} words. It must be finished in the time left; a complete shorter report is worth more than a longer one that is cut off.\n</Length>`;
+  const limit = `<Length>\nKeep the report under ${words} words, not counting its Sources section. In the Sources section, give each source one short line, "[n] Title: URL", and list only sources the report cites. It must be finished in the time and space left; a complete shorter report is worth more than a longer one that is cut off.\n</Length>`;
   if (clock.cuts.length === 0) {
     return limit;
   }

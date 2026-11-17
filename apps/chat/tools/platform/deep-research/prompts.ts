@@ -241,9 +241,9 @@ You can use any of the tools provided to you to find resources that can help ans
  * The compression note's length target, in tokens: well inside the 4,000-token
  * output cap (`compression_model_max_tokens` in configuration.ts), which is the
  * step's time budget, so the note ends before it. Stated to the model in words,
- * at the same rate as the report's word limit (`WORDS_PER_TOKEN`): at the
- * 0.75 that suits OpenAI's tokenizer, 2,000 words came to about 3,640 Claude
- * tokens before any thinking, and notes were cut at the cap.
+ * at Claude's plain-text rate (`WORDS_PER_TOKEN`; the report, a tool argument,
+ * has its own): at the 0.75 that suits OpenAI's tokenizer, 2,000 words came to
+ * about 3,640 Claude tokens before any thinking, and notes were cut at the cap.
  */
 const COMPRESSION_NOTE_TOKENS = 2800;
 const COMPRESSION_NOTE_WORDS =

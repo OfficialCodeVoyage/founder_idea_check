@@ -112,7 +112,7 @@ const CALL_PATH_OPTIONS: Record<
       ? { openai: { reasoningEffort: "none" } }
       : leastThinkingOrLowEffort(apiModelId),
   /*
-    THE FINAL REPORT. Its 6,000-token cap is the report's time budget too, and
+    THE FINAL REPORT. Its 12,000-token cap is the report's time budget too, and
     the report is written as the input of one `createTextDocument` call: a cap
     spent on thinking cuts that input off and the run ends with no document. So
     a Claude 5.5 model writes it with the least thinking it takes, and any

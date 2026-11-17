@@ -43,13 +43,13 @@ const log = createModuleLogger("tools/deep-research/research-clock");
  * with less than 25 s (`MIN_RESEARCH_TOPIC_MS`: one researcher model step plus
  * one short search).
  *
- * THE 120 s REPORT ALLOWANCE IS AN ESTIMATE, not a measurement: the report
- * model's throughput has not been measured on this route. It assumes 15 s
- * before the first token and 40 output tokens per second after it, which
- * writes about 4,200 tokens (about 2,300 words at `WORDS_PER_TOKEN`) in 120 s —
- * below the 6,000-token ceiling in configuration.ts. `reportWordBudget` turns whatever time is
- * actually left into a word limit stated in the report prompt, so a report
- * that starts late is asked to be shorter rather than being cut off.
+ * THE 120 s REPORT ALLOWANCE, MEASURED (2026-11-17, Claude Sonnet 5.5): the
+ * report's 6,000 output tokens arrived in 30 to 45 s, at least about 111
+ * tokens per second. It is assumed here at 100 tokens per second after 15 s to
+ * the first token: 105 s of writing holds 10,500 tokens, more than the
+ * report's target (`reportWordBudget`, at most 80% of its 12,000-token cap in
+ * configuration.ts), so time does not cut a report that starts on time, and a
+ * report that starts late is asked to be shorter rather than being cut off.
  */
 
 export const WRAP_UP_ALLOWANCE_MS = 15_000;
@@ -61,21 +61,43 @@ export const SEARCH_STEP_TIMEOUT_MS = 30_000;
 export const MIN_SEARCH_STEP_MS = 10_000;
 export const MIN_RESEARCH_TOPIC_MS = 25_000;
 
-/** Assumed report-model latency and speed. See the arithmetic above. */
+/** Report-model latency and speed. See the arithmetic above. */
 const REPORT_FIRST_TOKEN_MS = 15_000;
-const REPORT_TOKENS_PER_SECOND = 40;
+const REPORT_TOKENS_PER_SECOND = 100;
 /**
- * 0.55, not the 0.75 that suits OpenAI's tokenizer. The report runs on Claude
- * Sonnet 5.5, whose tokenizer counts the same text as about 30% more tokens
- * than the Claude 4.x one, and the report is written as the JSON input of a
- * `createTextDocument` call, whose escaping adds more. A word limit worked out
- * at 0.75 could ask for more words than the 6,000-token cap holds, and a report
- * cut off at the cap never becomes a document. Too few words is the safe side.
- *
- * Also the rate the compression note's word limit is stated at
- * (`prompts.ts::COMPRESSION_NOTE_TOKENS`): the same model, the same cap rule.
+ * WORDS PER OUTPUT TOKEN IN PLAIN TEXT on Claude Sonnet 5.5: 0.55, not the
+ * 0.75 that suits OpenAI's tokenizer. The rate the compression note's word
+ * limit is stated at (`prompts.ts::COMPRESSION_NOTE_TOKENS`); live compression
+ * notes asked for at this rate ended at 2,019 to 2,885 of their 4,000 tokens.
+ * NOT the report's rate (`REPORT_WORDS_PER_TOKEN`).
  */
 export const WORDS_PER_TOKEN = 0.55;
+/**
+ * WORDS PER OUTPUT TOKEN IN THE REPORT, MEASURED: 0.35. The report is the JSON
+ * argument of a `createTextDocument` call, escaped markdown with a numbered
+ * source list of URLs, and costs far more tokens per word than plain text.
+ * Live (2026-11-17, Sonnet 5.5): about 2,100 words and 15,584 characters took
+ * the whole 6,000-token cap, all of it text (0 reasoning tokens), 2.6
+ * characters per token. At the 0.55 assumed before, the report was asked for
+ * up to 3,300 words, hit the cap in its source list, and never became a
+ * document.
+ */
+const REPORT_WORDS_PER_TOKEN = 0.35;
+/**
+ * THE SOURCE LIST, PAID FOR APART FROM THE WORD LIMIT. A source line ("[21]
+ * Title: URL") is few words and many tokens: the measured lines averaged 134
+ * characters, about 52 tokens at 2.6 characters per token. A list of 80
+ * sources is about 4,200 tokens, so the word limit is stated for the report
+ * WITHOUT its source list, and this many tokens are kept for the list.
+ */
+const SOURCE_LIST_TOKENS = 4200;
+/**
+ * The report is asked for at most this share of its output cap, list
+ * included. The rest is margin for a model that runs past its word limit, and
+ * for thinking: none on Sonnet 5.5 at the report's least thinking, but Opus 5.5
+ * cannot turn it off.
+ */
+const REPORT_TARGET_SHARE_OF_CAP = 0.8;
 /** Below this a report cannot say anything useful; asked for anyway. */
 const MIN_REPORT_WORDS = 400;
 
@@ -286,18 +308,26 @@ export function stopAt(
   };
 }
 
-/** The word limit stated in the report prompt, from the time actually left. */
+/**
+ * The word limit stated in the report prompt for the report WITHOUT its source
+ * list, from the time actually left and the output cap: the tokens either
+ * allows (the cap's at `REPORT_TARGET_SHARE_OF_CAP`), less the source list's
+ * (`SOURCE_LIST_TOKENS`), at the report's measured rate
+ * (`REPORT_WORDS_PER_TOKEN`). On time with the 12,000-token cap: 9,600 tokens,
+ * 5,400 of them for the text, 1,800 words.
+ */
 export function reportWordBudget(
   clock: ResearchClock,
   maxOutputTokens: number
 ): number {
   const writingMs = msUntil(clock, clock.reportDueAt) - REPORT_FIRST_TOKEN_MS;
   const tokens = Math.min(
-    maxOutputTokens,
+    Math.floor(maxOutputTokens * REPORT_TARGET_SHARE_OF_CAP),
     Math.floor((writingMs / 1000) * REPORT_TOKENS_PER_SECOND)
   );
   return Math.max(
     MIN_REPORT_WORDS,
-    Math.floor((tokens * WORDS_PER_TOKEN) / 100) * 100
+    Math.floor(((tokens - SOURCE_LIST_TOKENS) * REPORT_WORDS_PER_TOKEN) / 100) *
+      100
   );
 }

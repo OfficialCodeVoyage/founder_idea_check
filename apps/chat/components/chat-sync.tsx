@@ -123,8 +123,9 @@ export function ChatSync({ id }: { id: string }) {
       // real id. The reply the resume started from goes back into the chat
       // unless the replay certainly got further (`isFurtherAlong`); then the
       // replay's own copy is recorded below, as for a stream that was never
-      // resumed. A tie keeps the stored reply, as before this comparison
-      // existed. Either way a Stop below marks the reply as stopped.
+      // resumed. A tie keeps the stored reply: the counts cannot show a tool or
+      // data part that moved forward in place, so neither copy is known to be
+      // ahead. Either way a Stop below marks the reply as stopped.
       //
       // The two copies are built the same way, so comparing them is fair: the
       // database never holds a resumable row with parts.
@@ -133,9 +134,9 @@ export function ChatSync({ id }: { id: string }) {
       // writes the parts and clears `activeStreamId` in one `updateMessage`
       // transaction when it ends. So a reply resumed after a reload is an empty
       // placeholder, which loses to any replay that rebuilt a part (putting it
-      // back used to blank the text after a Stop until the next reload), and a
-      // reply that has parts is a
-      // copy this tab recorded from an earlier stream of the same generation.
+      // back would blank the text on screen until the next reload), and a reply
+      // that has parts is a copy this tab recorded from an earlier stream of the
+      // same generation.
       // The server's own save of the generation shows on the next load from the
       // database; nothing re-syncs a live chat from it (`saveChatMessage`
       // writes only the client cache).

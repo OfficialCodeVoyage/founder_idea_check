@@ -1,13 +1,15 @@
 "use client";
 import { type Dispatch, type SetStateAction, useCallback } from "react";
-import type { ModelId } from "@/lib/ai/app-models";
-import { type ChatMessage, getPrimarySelectedModelId } from "@/lib/ai/types";
+import { usableStoredModel } from "@/lib/ai/chat-seed-model";
+import type { ChatMessage } from "@/lib/ai/types";
 import { useChatStatus } from "@/lib/stores/base";
 import {
   getAttachmentsFromMessage,
   getTextContentFromMessage,
 } from "@/lib/utils";
 import { ChatInputProvider } from "@/providers/chat-input-provider";
+import { useChatModels } from "@/providers/chat-models-provider";
+import { useDefaultModel } from "@/providers/default-model-provider";
 import { MultimodalInput } from "./multimodal-input";
 
 export interface MessageEditorProps {
@@ -51,11 +53,16 @@ export function MessageEditor(
   const initialInput = getTextContentFromMessage(props.message);
   const initialAttachments = getAttachmentsFromMessage(props.message);
 
-  // Use selectedModel from the message metadata, or fall back to current selected model
-  const messageSelectedModel = props.message.metadata?.selectedModel;
-  const primaryModelId = getPrimarySelectedModelId(
-    messageSelectedModel
-  ) as ModelId | null;
+  // The message's own model choice, through the one stored-model check
+  // (`usableStoredModel`): a model the catalog no longer serves would make the
+  // edited message 404, so it falls back to the current default.
+  const { getModelById } = useChatModels();
+  const defaultModel = useDefaultModel();
+  const storedModel = usableStoredModel({
+    candidates: [props.message.metadata?.selectedModel],
+    isKnownModel: (modelId) => Boolean(getModelById(modelId)),
+    fallbackModelId: defaultModel,
+  });
   const { parentMessageId: _parentMessageId, ...rest } = props;
   return (
     <ChatInputProvider
@@ -64,8 +71,8 @@ export function MessageEditor(
       initialTool={props.message.metadata?.selectedTool}
       key={`edit-${props.message.id}`}
       localStorageEnabled={false}
-      overrideModelId={primaryModelId || undefined}
-      overrideModelSelection={messageSelectedModel || undefined}
+      overrideModelId={storedModel.modelId}
+      overrideModelSelection={storedModel.selection}
     >
       <MessageEditorContent
         {...rest}

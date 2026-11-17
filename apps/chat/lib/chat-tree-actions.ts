@@ -1,5 +1,6 @@
 import type { AppModelId } from "@/lib/ai/app-models";
-import { type ChatMessage, getPrimarySelectedModelId } from "@/lib/ai/types";
+import { usableStoredModel } from "@/lib/ai/chat-seed-model";
+import type { ChatMessage } from "@/lib/ai/types";
 
 export type RetryMessageResult =
   | {
@@ -47,18 +48,16 @@ export function getRetryMessageInput({
     return { ok: false, reason: "parent_not_user" };
   }
 
-  // A STORED MODEL MAY BE ONE THE CATALOG NO LONGER HAS. Every message
-  // written before the gateway moved to Anthropic carries a `gpt-5.6-*` id;
-  // retried as stored, the route answered 404 "Model not found" and the reply
-  // could not be regenerated. Checked like the seed path
-  // (`lib/ai/chat-seed-model.ts::resolveChatSeedModel`), and an unknown or
-  // missing id falls back to the current default chat model. `""` is falsy
-  // here too: the queries write it for an unreadable stored value.
-  const storedModelId = [
-    getPrimarySelectedModelId(currentMessage.metadata?.selectedModel),
-    getPrimarySelectedModelId(parentMessage.metadata?.selectedModel),
-  ].find((modelId) => modelId && isKnownModel(modelId));
-  const retryModelId = storedModelId || fallbackModelId;
+  // A stored model may be one the catalog no longer has: read through the one
+  // check every client path uses (`usableStoredModel`). A retry sends one model.
+  const retryModelId = usableStoredModel({
+    candidates: [
+      currentMessage.metadata?.selectedModel,
+      parentMessage.metadata?.selectedModel,
+    ],
+    isKnownModel,
+    fallbackModelId,
+  }).modelId;
 
   return {
     ok: true,

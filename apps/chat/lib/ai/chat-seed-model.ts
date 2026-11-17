@@ -77,6 +77,38 @@ function readSeed(
 }
 
 /**
+ * A STORED MODEL CHOICE, CHECKED BEFORE ANYTHING SENDS IT AGAIN.
+ *
+ * Every message written before the gateway moved to Anthropic carries a
+ * `gpt-5.6-*` id the catalog no longer has, and the chat route answers a turn
+ * sent with one with 404 "Model not found". So every client path that reuses a
+ * stored `selectedModel` (Retry, the message editor, a parallel response card,
+ * a chat's opening model) reads it through here: the first candidate with a
+ * model the catalog still serves (unknown ids dropped from a parallel
+ * selection), else the current default chat model. Same rule as the seed path
+ * (`readSeed`), said once.
+ */
+export function usableStoredModel({
+  candidates,
+  isKnownModel,
+  fallbackModelId,
+}: {
+  /** Stored values in order of preference; `""` and null count as none. */
+  candidates: readonly (SelectedModelValue | null | undefined)[];
+  isKnownModel: (id: string) => boolean;
+  /** The current default chat model (`useDefaultModel`). */
+  fallbackModelId: AppModelId;
+}): ChatSeedModel {
+  for (const candidate of candidates) {
+    const seed = readSeed(candidate, isKnownModel);
+    if (seed) {
+      return seed;
+    }
+  }
+  return { modelId: fallbackModelId, selection: fallbackModelId };
+}
+
+/**
  * The newest usable `metadata.selectedModel` in a thread, or null.
  *
  * USER MESSAGES FIRST, and only then any role. `buildDraftChatSubmission` writes

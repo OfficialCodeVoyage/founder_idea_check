@@ -5,6 +5,7 @@ import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useNavigateToMessage } from "@/hooks/use-navigate-to-message";
 import type { AppModelId } from "@/lib/ai/app-models";
+import { usableStoredModel } from "@/lib/ai/chat-seed-model";
 import {
   type ChatMessage,
   expandSelectedModelValue,
@@ -15,6 +16,7 @@ import { useParallelGroupInfo } from "@/lib/stores/hooks-threads";
 import { cn } from "@/lib/utils";
 import { useChatInput } from "@/providers/chat-input-provider";
 import { useChatModels } from "@/providers/chat-models-provider";
+import { useDefaultModel } from "@/providers/default-model-provider";
 
 function getEffectiveModelId(
   message: {
@@ -54,6 +56,7 @@ function PureParallelResponseCards({ messageId }: { messageId: string }) {
   const navigateToMessage = useNavigateToMessage();
   const { handleModelChange } = useChatInput();
   const { getModelById, models } = useChatModels();
+  const defaultModel = useDefaultModel();
 
   const cardSlots = useMemo(() => {
     if (
@@ -147,7 +150,15 @@ function PureParallelResponseCards({ messageId }: { messageId: string }) {
               if (slot.message) {
                 navigateToMessage(slot.message.id);
                 if (modelId) {
-                  handleModelChange(modelId);
+                  // A stored id the catalog no longer serves would become
+                  // the composer's model and 404 the next message.
+                  handleModelChange(
+                    usableStoredModel({
+                      candidates: [modelId],
+                      isKnownModel: (id) => Boolean(getModelById(id)),
+                      fallbackModelId: defaultModel,
+                    }).modelId
+                  );
                 }
               }
             }}

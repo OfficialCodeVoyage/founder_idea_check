@@ -25,6 +25,9 @@ import type { AiGatewayModel } from "../ai-gateway-models-schemas";
 /** Stable placeholder — the catalog is static, so `created` carries no meaning. */
 const CREATED = 1_755_815_280;
 
+/** Haiku 5.5's lower rate card covers a prompt of up to this many tokens. */
+const HAIKU_5_5_PROMPT_TIER_TOKENS = 100_000;
+
 type AnthropicTag = NonNullable<AiGatewayModel["tags"]>[number];
 
 /** Every catalog model reasons, calls tools, and accepts images and PDFs. */
@@ -145,12 +148,15 @@ export const ANTHROPIC_MODELS: readonly AnthropicCatalogModel[] = [
     type: "language",
     tags: [...ANTHROPIC_TAGS],
     /**
-     * THE LOWER OF TWO RATE CARDS. Haiku 5.5 bills $0.10/$0.50 per 1M tokens
-     * for a prompt of 100K tokens or fewer and $0.50/$2.50 above that. Credit
-     * accounting (`lib/credits/cost-accumulator.ts::priceFor`) reads one flat
-     * `input`/`output` pair, so a prompt over 100K is undercounted five-fold.
-     * That errs the way the meter is built to err (never overcount the
-     * founder), and no Haiku path here sends prompts that long today.
+     * TWO RATE CARDS, chosen by prompt length (the Pricing page, read
+     * 2026-11-17): $0.10/$0.50 per 1M tokens for a prompt of up to 100,000
+     * tokens, $0.50/$2.50 for a longer one, on input AND output. The prompt
+     * counts every input token, cache reads and writes included. The tiers are
+     * what credit accounting prices from
+     * (`lib/credits/cost-accumulator.ts::rateFor`); the flat pair is the lower
+     * card, kept for readers that know no tiers. No other model in this
+     * catalog has a prompt-length price: 4.6 and later bill the whole 1M
+     * window at their standard rate.
      */
     pricing: {
       input: "0.0000001",
@@ -158,6 +164,14 @@ export const ANTHROPIC_MODELS: readonly AnthropicCatalogModel[] = [
       input_cache_read: "0.00000001",
       input_cache_write: "0.000000125",
       web_search: "10",
+      input_tiers: [
+        { cost: "0.0000001", min: 0, max: HAIKU_5_5_PROMPT_TIER_TOKENS },
+        { cost: "0.0000005", min: HAIKU_5_5_PROMPT_TIER_TOKENS },
+      ],
+      output_tiers: [
+        { cost: "0.0000005", min: 0, max: HAIKU_5_5_PROMPT_TIER_TOKENS },
+        { cost: "0.0000025", min: HAIKU_5_5_PROMPT_TIER_TOKENS },
+      ],
     },
   },
   {

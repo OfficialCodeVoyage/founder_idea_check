@@ -1,21 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CutStepEstimate } from "./main-chat-usage";
 
-// Mock app-models to return test pricing
-vi.mock("../ai/app-models", () => ({
-  getAppModelDefinition: vi.fn().mockImplementation((modelId: string) => {
-    const models: Record<
-      string,
-      { pricing?: { input: string; output: string } }
-    > = {
-      "test-model": { pricing: { input: "0.00001", output: "0.00003" } },
-      "claude-sonnet": { pricing: { input: "0.000003", output: "0.000015" } },
-      "gpt-4o": { pricing: { input: "0.0000025", output: "0.00001" } },
-      "no-pricing": {},
-    };
-    return Promise.resolve(models[modelId] || {});
-  }),
-}));
+// Mock app-models to return test pricing. Haiku 5.5 is the shipped catalog
+// entry itself, so its prompt-length tiers are tested as they ship.
+vi.mock("../ai/app-models", async () => {
+  const { ANTHROPIC_MODELS } = await import("../ai/gateways/anthropic-models");
+  const haiku55 = ANTHROPIC_MODELS.find(
+    (model) => model.id === "claude-haiku-5-5"
+  );
+  return {
+    getAppModelDefinition: vi.fn().mockImplementation((modelId: string) => {
+      const models: Record<string, { pricing?: object }> = {
+        "test-model": { pricing: { input: "0.00001", output: "0.00003" } },
+        "claude-sonnet": {
+          pricing: { input: "0.000003", output: "0.000015" },
+        },
+        "gpt-4o": { pricing: { input: "0.0000025", output: "0.00001" } },
+        "claude-haiku-5-5": { pricing: haiku55?.pricing },
+        "no-pricing": {},
+      };
+      return Promise.resolve(models[modelId] || {});
+    }),
+  };
+});
 
 const { CostAccumulator } = await import("./cost-accumulator");
 
@@ -84,6 +91,25 @@ describe("CostAccumulator", () => {
       // 10000 * 0.00001 = 0.1 (output)
       // Total = 0.35 dollars = 35 cents
       expect(cost).toBe(35);
+    });
+
+    // GUARD: Haiku 5.5 bills a prompt over 100,000 tokens at five times the
+    // rate, on input and output. A flat price undercharged every such call.
+    it("prices Claude Haiku 5.5 by the prompt's rate card", async () => {
+      const settle = async (inputTokens: number) => {
+        const accumulator = new CostAccumulator();
+        accumulator.addLLMCost(
+          "claude-haiku-5-5" as never,
+          { inputTokens, outputTokens: 20_000 },
+          "test"
+        );
+        return (await accumulator.settle()).cents;
+      };
+
+      // Up to 100,000: 100000 * $0.10/M + 20000 * $0.50/M = $0.02 = 2 cents
+      expect(await settle(100_000)).toBe(2);
+      // Over: 200000 * $0.50/M + 20000 * $2.50/M = $0.15 = 15 cents
+      expect(await settle(200_000)).toBe(15);
     });
 
     it("should skip models without pricing", async () => {

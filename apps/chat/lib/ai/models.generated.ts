@@ -73,7 +73,29 @@ export const models = [
       "output": "0.0000005",
       "input_cache_read": "0.00000001",
       "input_cache_write": "0.000000125",
-      "web_search": "10"
+      "web_search": "10",
+      "input_tiers": [
+        {
+          "cost": "0.0000001",
+          "min": 0,
+          "max": 100000
+        },
+        {
+          "cost": "0.0000005",
+          "min": 100000
+        }
+      ],
+      "output_tiers": [
+        {
+          "cost": "0.0000005",
+          "min": 0,
+          "max": 100000
+        },
+        {
+          "cost": "0.0000025",
+          "min": 100000
+        }
+      ]
     }
   },
   {

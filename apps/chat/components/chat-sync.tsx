@@ -31,10 +31,11 @@ function textLength(message: ChatMessage) {
   return length;
 }
 
-// Whether copy `a` of a reply got further than copy `b` of the same
+// Whether copy `a` of a reply certainly got further than copy `b` of the same
 // generation. While a reply streams its parts are only appended or updated in
 // place, and its text parts only grow, so more parts, or as many parts and
-// more text, means further along.
+// more text, means further along. A tool or data part that moved forward in
+// place changes neither, so a tie says nothing about which copy is ahead.
 function isFurtherAlong(a: ChatMessage, b: ChatMessage) {
   if (a.parts.length !== b.parts.length) {
     return a.parts.length > b.parts.length;
@@ -119,10 +120,11 @@ export function ChatSync({ id }: { id: string }) {
       // The replay rebuilds the message from empty state (the SDK no longer
       // seeds it with the stored parts), so a Stop, an error or a dropped fetch
       // ends it with whatever the buffered chunks had rebuilt so far, under the
-      // real id. The reply the resume started from goes back into the chat only
-      // when it got further than that replay (`isFurtherAlong`); otherwise the
+      // real id. The reply the resume started from goes back into the chat
+      // unless the replay certainly got further (`isFurtherAlong`); then the
       // replay's own copy is recorded below, as for a stream that was never
-      // resumed. Either way a Stop below marks the reply as stopped.
+      // resumed. A tie keeps the stored reply, as before this comparison
+      // existed. Either way a Stop below marks the reply as stopped.
       //
       // The two copies are built the same way, so comparing them is fair: the
       // database never holds a resumable row with parts.
@@ -130,8 +132,9 @@ export function ChatSync({ id }: { id: string }) {
       // row empty when the turn begins, and `persistFinishedAssistantMessage`
       // writes the parts and clears `activeStreamId` in one `updateMessage`
       // transaction when it ends. So a reply resumed after a reload is an empty
-      // placeholder, which never wins (putting it back used to blank the text
-      // after a Stop until the next reload), and a reply that has parts is a
+      // placeholder, which loses to any replay that rebuilt a part (putting it
+      // back used to blank the text after a Stop until the next reload), and a
+      // reply that has parts is a
       // copy this tab recorded from an earlier stream of the same generation.
       // The server's own save of the generation shows on the next load from the
       // database; nothing re-syncs a live chat from it (`saveChatMessage`
@@ -140,7 +143,7 @@ export function ChatSync({ id }: { id: string }) {
       const stored =
         resumedFrom &&
         (isAbort || isDisconnect || isError) &&
-        isFurtherAlong(resumedFrom, finished)
+        !isFurtherAlong(finished, resumedFrom)
           ? resumedFrom
           : undefined;
       if (stored && !isAbort) {

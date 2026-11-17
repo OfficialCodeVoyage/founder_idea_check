@@ -352,11 +352,13 @@ export function useSaveMessageMutation() {
         if (!old) {
           return [message];
         }
-        return old.some((existing) => existing.id === message.id)
-          ? old.map((existing) =>
-              existing.id === message.id ? message : existing
-            )
-          : [...old, message];
+        const index = old.findIndex((existing) => existing.id === message.id);
+        if (index === -1) {
+          return [...old, message];
+        }
+        const next = [...old];
+        next[index] = message;
+        return next;
       });
       return { previousMessages, chatId };
     },

@@ -171,10 +171,32 @@ export async function runResearcher(
     // The closing reply hit the output cap. It is notes, and the findings are
     // condensed from the search results, so the cut-off text is dropped and
     // nothing else is lost: no retry, no error, and no "cut short" for time.
+    // A DECLINED STEP (Claude's `refusal`, `content-filter`, empty or partial
+    // and no error) ends the loop the same way, and its reply is dropped too:
+    // compression would only be handed a refusal to condense.
+    const declined = finishReason === "content-filter";
     researchMessages =
-      finishReason === "length"
+      finishReason === "length" || declined
         ? withoutTruncatedReply(response.messages)
         : response.messages;
+    // Unlike a cut-off reply, a declined one is a cut: the researcher meant to
+    // go on. The report is told, with the topic, whether any search ran before
+    // it; with none, the topic ends as NOT RESEARCHED below and the paid
+    // compression call is skipped.
+    if (declined) {
+      log.warn(
+        { stepsFinished, searched: researchMessages.length > 0 },
+        "a researcher's model declined to continue"
+      );
+      recordCut(
+        clock,
+        researchMessages.length > 0
+          ? "a researcher's model declined to continue, so its topic was researched only as far as it had got"
+          : "a researcher's model declined to research its topic, so that topic was not researched",
+        {},
+        topic
+      );
+    }
     // EXCEPT WHEN THERE WAS NO SEARCH BEHIND IT. A researcher whose very first
     // reply hit the cap (the model wrote prose, or reasoned, instead of
     // searching) has nothing left once that reply is dropped, and the topic ends
@@ -215,7 +237,7 @@ export async function runResearcher(
   // an empty transcript would be paid for nothing.
   const compressed =
     researchMessages.length === 0
-      ? `NOT RESEARCHED: no search for this topic finished (the search time ran out, or the researcher's first reply was cut off). Topic: ${topic}`
+      ? `NOT RESEARCHED: no search for this topic finished (the search time ran out, or the researcher's first reply was cut off or declined). Topic: ${topic}`
       : await compressResearch(researchMessages, options, topic);
 
   dataStream.write({

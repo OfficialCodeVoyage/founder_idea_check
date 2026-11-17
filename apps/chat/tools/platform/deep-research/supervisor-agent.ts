@@ -155,10 +155,20 @@ export async function runSupervisor(
 
   const stop = stopAt(clock, clock.findingsDueAt, abortSignal);
   try {
-    await supervisorAgent.generate({
+    const { finishReason } = await supervisorAgent.generate({
       prompt: researchBrief,
       abortSignal: stop.signal,
     });
+    // A DECLINED STEP (Claude's `refusal`, `content-filter`, with no error)
+    // ends the loop as if the lead researcher were done. The report is
+    // written from the topics finished so far, so it is told its coverage
+    // is partial, not handed a thin set of notes as the whole of the research.
+    if (finishReason === "content-filter") {
+      recordCut(
+        clock,
+        "the lead researcher's model declined to continue, so the research stopped early and its coverage is partial"
+      );
+    }
   } catch (error) {
     // The route's abort ends the request, and any other error is a real
     // failure: both rethrow. Only the planned `findingsDueAt` stop is

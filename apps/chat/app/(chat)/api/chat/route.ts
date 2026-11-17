@@ -809,8 +809,10 @@ async function createChatStream({
       //  - isPrimaryParallel === false: parallel responses fire onFinish more
       //    than once per user message; only the primary may write facts.
       //  - turnRefused: the model declined, so there is no interviewer reply
-      //    to judge. The founder's message is not lost to the fact store: the
-      //    extractor reads the whole chat on the next turn that runs the pass.
+      //    to judge. The founder message it declined is left out of every
+      //    later model read too, the extractor's included
+      //    (`withoutRefusedTurns`); the founder rephrases, and the rephrased
+      //    message is what the next pass learns from.
       // Runs inside `after()` so it never delays the flushed response.
       if (
         isAborted ||

@@ -178,13 +178,16 @@ function logIsDataReminder(tags: CompressionFrameTags): string {
  * PURE. The compression call's user message: the topic, the research log and
  * the closing instruction.
  *
- * THE FRAME'S TAGS ARE THIS CALL'S OWN. Replayed as messages, the search
- * results sat in `tool_result` blocks, a boundary the API draws. As text they
- * sit between this frame's tags, which are named with a random nonce per call
- * (`compressionFrameTags`), so no fetched text can close them. The system
- * prompt (`prompts.ts::compressResearchSystemPrompt`) names the same tags and
- * says what is inside them is untrusted data, never instructions, and the
- * message ends by saying so again after the closing instruction.
+ * THE FRAME'S TAGS ARE THIS CALL'S OWN, AND THEY ARE THE BOUNDARY. Replayed as
+ * messages, the search results sat in `tool_result` blocks, a boundary the API
+ * draws. As text they sit between this frame's tags, which are named with a
+ * random nonce per call (`compressionFrameTags`), so no fetched text can close
+ * them. The system prompt (`prompts.ts::compressResearchSystemPrompt`) names
+ * the same tags and says what is inside them is untrusted data, never
+ * instructions, and the message ends by saying so again after the closing
+ * instruction. Fetched text is NOT rewritten: a blocklist of tag-like
+ * characters was tried and missed lookalikes, while a tag the page cannot
+ * know needs none, so `</Research Log>` in a page reaches the model as data.
  *
  * OVER BUDGET, THE OLDEST RESULTS GO FIRST. The topic and the closing
  * instruction are always kept whole, and so is every call line, so the note's
@@ -260,6 +263,9 @@ export function buildCompressionPrompt({
     const cost = (body: string) =>
       countTokens(entryText({ ...entries[newest], body })) + separatorTokens;
     let body = RESULT_LEFT_OUT;
+    // Each pass trims what the last one kept, never the whole result again:
+    // `room` only shrinks, so the shorter cut is a prefix of the longer one.
+    let kept = entries[newest].body;
     let room =
       logBudget -
       others -
@@ -267,7 +273,8 @@ export function buildCompressionPrompt({
       countTokens(CUT_HERE) -
       separatorTokens * 2;
     while (room > 0) {
-      const cut = `${trimToTokens(entries[newest].body, room, countTokens)}${CUT_HERE}`;
+      kept = trimToTokens(kept, room, countTokens);
+      const cut = `${kept}${CUT_HERE}`;
       const over = others + cost(cut) - logBudget;
       if (over <= 0) {
         body = cut;

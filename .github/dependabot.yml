@@ -45,6 +45,11 @@ updates:
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "@better-auth/*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # The Node type definitions describe the Node major the app runs on (`engines` and
+      # CI: 22). A newer major types APIs Node 22 lacks, and CI would still pass on code
+      # that uses them. Raise this together with the Node floor.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Research sidecar. `mcp` stays below 2 because camel-ai, pulled in by the OASIS extra,
   # imports a name that mcp 2 removed; see apps/research/pyproject.toml.

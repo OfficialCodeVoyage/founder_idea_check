@@ -22,7 +22,7 @@ import { describeMissingReportDocument } from "./report-outcome";
 import {
   describeCuts,
   type ResearchClock,
-  reportWordBudget,
+  reportLength,
 } from "./research-clock";
 import { runSupervisor } from "./supervisor-agent";
 import {
@@ -444,30 +444,34 @@ To write the report, call the createTextDocument tool with:
  * Kept out of `finalReportGenerationPrompt` on purpose: that prompt is derived
  * from upstream and THIRD_PARTY-research.md measures how far it differs.
  *
- * Two parts. A word limit from the time actually left before `reportDueAt`
- * (`reportWordBudget`), so a report that starts late is shorter rather than
- * cut off by the route's timer mid-sentence. And, when the run stopped
- * searching early, what was cut, so the report says that the coverage is
- * partial instead of presenting missing evidence as an absence of evidence.
+ * Two parts. A length from the time actually left before `reportDueAt` and
+ * the output cap (`reportLength`): a word limit for the text and, when time is
+ * short, a count for the source list, so a report that starts late is shorter
+ * rather than cut off by the route's timer mid-sentence. And, when anything
+ * was cut (for time, at an output limit, or because a model declined), what
+ * was, so the report says that the coverage is partial instead of presenting
+ * missing evidence as an absence of evidence.
  */
 function reportTimeInstructions(
   clock: ResearchClock,
   maxOutputTokens: number
 ): string {
-  const words = reportWordBudget(clock, maxOutputTokens);
-  const limit = `<Length>\nKeep the report under ${words} words, not counting its Sources section. In the Sources section, give each source one short line, "[n] Title: URL", and list only sources the report cites. It must be finished in the time and space left; a complete shorter report is worth more than a longer one that is cut off.\n</Length>`;
+  const { words, maxSources } = reportLength(clock, maxOutputTokens);
+  const sourceCount =
+    maxSources === null ? "" : `, at most ${maxSources} of them`;
+  const limit = `<Length>\nKeep the report under ${words} words, not counting its Sources section. In the Sources section, give each source one short line, "[n] Title: URL", and list only sources the report cites${sourceCount}. It must be finished in the time and space left; a complete shorter report is worth more than a longer one that is cut off.\n</Length>`;
   if (clock.cuts.length === 0) {
     return limit;
   }
   return `${limit}
 
-<Search cut short for time>
-The research did not finish everything it planned, mostly to stop early and leave time for this report:
+<Research cut short>
+The research did not finish everything it planned. Each line says what was cut and why: to leave time for this report, at an output limit, or because a model declined to continue.
 ${describeCuts(clock.cuts)
   .map((line) => `- ${line}`)
   .join("\n")}
-Say so near the top of the report, in a short section titled "Research cut short", in plain words: name what was cut, in your own words, from the list above and nothing more. When a line names topics, name each of those topics (a few words each, in your own words), so the reader can see which part of the question rests on less evidence; when it names none, do not guess one. Say that a search or a topic did not run only if the list says so; a researcher stopped mid-step lost its last step, which is not the same as a search that never ran. Do not present a topic that was not searched as a topic with no evidence.
-</Search cut short for time>`;
+Say so near the top of the report, in a short section titled "Research cut short", in plain words: name what was cut, in your own words, from the list above and nothing more, and give each cut the reason its line gives (do not say time was the reason unless the line does). When a line names topics, name each of those topics (a few words each, in your own words), so the reader can see which part of the question rests on less evidence; when it names none, do not guess one. Say that a search or a topic did not run only if the list says so; a researcher stopped mid-step lost its last step, which is not the same as a search that never ran. Do not present a topic that was not searched as a topic with no evidence.
+</Research cut short>`;
 }
 
 function messagesToString(messages: ModelMessage[]): string {

@@ -369,7 +369,7 @@ N+1's system prompt.
 - Purpose: a plan of deadlines derived from one request budget so a long research run finishes its report before the
   route aborts.
 - Examples: `apps/chat/tools/platform/deep-research/research-clock.ts`, `apps/chat/lib/ai/request-budget.ts`.
-- Pattern: mutable `cuts` list; `stopAt` builds an abort signal for a deadline; `reportWordBudget` sizes the report.
+- Pattern: mutable `cuts` list; `stopAt` builds an abort signal for a deadline; `reportLength` sizes the report (text and source list).
 
 **StreamWriter data parts:**
 - Purpose: typed side channel on the UI message stream (`data-chatConfirmed`, `data-researchUpdate`,

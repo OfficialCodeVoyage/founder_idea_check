@@ -7,6 +7,7 @@ import {
 } from "ai";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
+import { isDeclined } from "@/lib/ai/refused-reply";
 import { countTextTokens } from "@/lib/ai/token-utils";
 import { createModuleLogger } from "@/lib/logger";
 import {
@@ -174,7 +175,7 @@ export async function runResearcher(
     // A DECLINED STEP (Claude's `refusal`, `content-filter`, empty or partial
     // and no error) ends the loop the same way, and its reply is dropped too:
     // compression would only be handed a refusal to condense.
-    const declined = finishReason === "content-filter";
+    const declined = isDeclined(finishReason);
     researchMessages =
       finishReason === "length" || declined
         ? withoutTruncatedReply(response.messages)
@@ -191,7 +192,7 @@ export async function runResearcher(
       recordCut(
         clock,
         researchMessages.length > 0
-          ? "a researcher's model declined to continue, so its topic was researched only as far as it had got"
+          ? DECLINED_TOPIC_REASON
           : "a researcher's model declined to research its topic, so that topic was not researched",
         {},
         topic
@@ -373,12 +374,12 @@ async function compressResearch(
   // it. So it is recorded as a cut for this topic, and the notes say what
   // happened, after whatever text did arrive. Checked before `length`: a
   // declined call is not a full one.
-  if (response.finishReason === "content-filter") {
+  if (isDeclined(response.finishReason)) {
     log.warn(
       { outputTokens: response.usage?.outputTokens },
       "the compression model declined to condense a researcher's findings"
     );
-    recordCut(options.clock, COMPRESSION_DECLINED_REASON, {}, topic);
+    recordCut(options.clock, DECLINED_TOPIC_REASON, {}, topic);
     const partial = response.text.trim();
     return partial.length > 0
       ? `${partial}\n\n${COMPRESSION_DECLINED_NOTE}`
@@ -422,11 +423,14 @@ const COMPRESSION_CUT_OFF_NOTE =
   "[These notes were cut off at the output limit and are incomplete: findings and sources from the end of this researcher's work are missing.]";
 
 /**
- * The cut the report is told about when the model declined to condense a
- * researcher's findings (`content-filter`). Not about time or length.
+ * The cut the report is told about when a model declined partway through a
+ * topic (`content-filter`): the researcher after some searches, or the
+ * compression of its findings. ONE reason for both, so a topic whose
+ * researcher and compression both declined is one line in the report's "Research
+ * cut short", not two (`recordCut` keeps one occurrence per topic).
  */
-const COMPRESSION_DECLINED_REASON =
-  "the model declined to condense a researcher's findings, so that researcher's findings are missing or incomplete";
+const DECLINED_TOPIC_REASON =
+  "a model declined to continue on a topic partway through, so that topic's findings are missing or incomplete";
 
 /** The notes of a topic whose compression the model declined. */
 const COMPRESSION_DECLINED_NOTE =

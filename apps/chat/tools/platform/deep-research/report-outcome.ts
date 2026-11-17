@@ -1,3 +1,5 @@
+import { isDeclined } from "@/lib/ai/refused-reply";
+
 /**
  * WHAT ACTUALLY HAPPENED WHEN NO DOCUMENT CAME BACK.
  *
@@ -27,6 +29,11 @@ export async function describeMissingReportDocument(result: {
   text: PromiseLike<string>;
 }): Promise<string> {
   const finishReason = await result.finishReason;
+  // Declined (Claude's `refusal`): said as such, like every other declined
+  // call, not as a model that chose to write prose.
+  if (isDeclined(finishReason)) {
+    return `The report model declined to write the report (finish reason: ${finishReason}), so nothing was saved and there is no document to open.`;
+  }
   const attempts = (await result.toolCalls).filter(
     (call) => call.toolName === "createTextDocument"
   );

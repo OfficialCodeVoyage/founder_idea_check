@@ -136,7 +136,7 @@ export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
       tokens in its source list, all of them text, and was saved only as a
       partial document: as the JSON argument of a `createTextDocument` call it
       took 2.6 characters per token. The prompt asks for at most 80% of this
-      cap, source list included (`research-clock.ts::reportWordBudget`): 9,600
+      cap, source list included (`research-clock.ts::reportLength`): 9,600
       tokens, about 86 s at the measured lower bound of 111 tokens per second,
       inside the report's 120 s. Raising it costs at most 6,000 output tokens
       more per run (6 cents at Sonnet 5.5's $10 per million).

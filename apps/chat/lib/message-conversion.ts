@@ -33,8 +33,10 @@ export function targetMetadata(
  * assistant reply the model declined, so that no model reads that reply or
  * the founder message behind it again (`lib/thread-utils.ts::withoutRefusedTurns`).
  * Only the server writes it: the chat route's end-of-turn save passes it
- * explicitly (`updateMessage`'s `refused`), and `chatMessageToDbMessage` never
- * derives it from a message's metadata, so a client cannot set it.
+ * explicitly (`updateMessage`'s `refused`, read from the reply the route's own
+ * stream built, `lib/ai/refused-reply.ts::finishedReplyRefused`), and
+ * `chatMessageToDbMessage`, which every insert goes through, never reads it,
+ * so a client cannot set it.
  */
 export const REFUSAL_ANNOTATION = { type: "refusal" } as const;
 

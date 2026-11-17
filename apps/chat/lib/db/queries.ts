@@ -484,9 +484,10 @@ export async function updateMessage({
   chatId: string;
   message: ChatMessage;
   /**
-   * Whether the model declined this reply, as the server saw it in the
-   * stream's finish reason. The ONLY way the refusal marker is written for a
-   * reply (`REFUSAL_ANNOTATION`): never derived from `message`'s metadata.
+   * Whether the model declined this reply, as the chat route read it from the
+   * finished reply its own stream built (`lib/ai/refused-reply.ts::finishedReplyRefused`).
+   * The ONLY way the refusal marker is written for a reply
+   * (`REFUSAL_ANNOTATION`): this function never reads it from `message`.
    */
   refused: boolean;
 }) {

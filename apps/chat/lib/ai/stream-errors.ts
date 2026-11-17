@@ -70,9 +70,10 @@ function mapKnownStreamErrorMessage(message: string): string {
  * Sonnet 5.5's safety classifiers decline in more categories than the models
  * before it, an idea about AI models among them, and a declined reply comes
  * back as HTTP 200 with no content: without this the reply was saved blank,
- * with nothing on screen to say why. Written into the reply itself by the chat
- * route, so it is still there after a reload. True whether or not some text
- * arrived before the refusal.
+ * with nothing on screen to say why. Written into the reply itself, right
+ * before its finish chunk (`lib/ai/refused-reply.ts::insertRefusalNotice`), so
+ * it is still there after a reload. True whether or not some text arrived
+ * before the refusal.
  */
 export const REFUSED_REPLY_NOTICE =
   "The model stopped and declined to continue this reply. This can happen when a message touches a topic its safety rules are cautious about. Rephrase the message and send it again.";

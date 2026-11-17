@@ -103,7 +103,7 @@ member: it has no `package.json`, and Python is driven by its own `pyproject.tom
 - `files-sdk` 3.1.2 with `@vercel/blob` 2.8.2 - file storage adapter (`apps/chat/lib/storage-provider.ts`).
 - `@vercel/sandbox` 1.9.3 - code execution tool, disabled in config (`apps/chat/tools/platform/code-execution.ts`).
 - `@modelcontextprotocol/sdk` 1.29.0 + `@ai-sdk/mcp` - MCP connectors, disabled in config (`apps/chat/lib/ai/mcp/`).
-- `@tavily/core` 0.3.7, `@mendable/firecrawl-js` 1.29.1 - optional web-search backends (`apps/chat/tools/platform/steps/web-search.ts`).
+- `@tavily/core` 0.3.7, `@mendable/firecrawl-js` 4.52.0 - optional web-search backends (`apps/chat/tools/platform/steps/web-search.ts`).
 - `@better-auth/electron` 1.6.34 - imported unconditionally by `apps/chat/lib/auth.ts`, registered only when `desktopApp.enabled`
   (false in `apps/chat/chat.config.ts`).
 - `@ai-sdk/devtools` 0.0.29 - dev middleware wired in `apps/chat/lib/ai/providers.ts`.

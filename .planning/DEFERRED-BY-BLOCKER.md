@@ -194,12 +194,6 @@ its parts, `finish`), so the SDK rebuilds it like any replay; then remove the gu
 This branch adds `BLOB_READ_WRITE_TOKEN` and `BLOB_STORE_ID` to `apps/chat/lib/env-schema.ts` and `BLOB_STORE_ID` to `turbo.json`, and check-env names both options, but the root `.env.example` has no Blob entry (`.claude/rules/env-config.md` wants one in the same change). Agents cannot edit that file; the owner adds the lines from the pull request description.
 **Clearing condition:** the root `.env.example` lists both options.
 
-### SWEEP-F24 — No test guards the rule that a file read is never redirected to a provider link
-**Raised:** 2026-11-13, `fix/files-sdk-3-261112`, `/code-review` (high) of the files-sdk 3 update.
-**Status:** OPEN (low)
-`lib/file-content-response.ts` now always streams an access-checked file and never answers 307 to a presigned URL; the existing tests use the memory store, which cannot sign, so re-adding a redirect would pass CI. Not added under the owner's no-new-tests rule.
-**Clearing condition:** the owner asks for the test, or a redirect is reintroduced.
-
 ### SWEEP-F25 — The "Answering:" label shows for a criterion the prompt did not use
 **Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
 **Status:** OPEN (low)
@@ -222,7 +216,7 @@ For an offline-only criterion target, `lib/phases/directive.ts::targetLines` and
 **Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
 **Status:** OPEN (low)
 `CONTEXT.md` says a criterion target is not a "mark" or a "claim", yet `lib/db/schema.ts`, migration `0054`, `docs/DATABASE.md` call it "a claim about intent" and the prompt in `lib/phases/directive.ts::targetLines` says the founder "marked" the message.
-**Clearing condition:** the wording is made consistent (the prompt sentence changes only with a paid check of the reply).
+**Clearing condition:** the wording is made consistent (the prompt sentence changes only with a paid check of the reply). `lib/phases/directive.test.ts` ("criterion target") pins the phrase "The founder marked their latest message", so the rewording also updates that test.
 
 ### SWEEP-F29 — The criterion-target id shape is written out by hand in several places
 **Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
@@ -242,6 +236,12 @@ For an offline-only criterion target, `lib/phases/directive.ts::targetLines` and
 `packages/registry/items/retrieve-url.json` embeds a tool that default-imports the client and calls `scrapeUrl` and `extract`, and it declares `@mendable/firecrawl-js` without a version. The current release's default export is the v2 client, which has neither method, so a project scaffolded with that item breaks however this repo's own pin moves. The tool's source file is no longer in the repo, so the item cannot be rebuilt from it.
 **Clearing condition:** the item is rewritten against the v2 client (`scrape`) with a pinned major, or removed from the registry.
 
+### SWEEP-F32 — A criterion target sent before a verdict or after a PASS reaches the prompt without its rules
+**Raised:** 2026-11-17, `chore/guard-tests-261117`, `/code-review` (high) of the guard tests.
+**Status:** OPEN (low, pre-existing; one path reachable from the UI)
+`lib/phases/directive.ts::openingDirective` and `passedDirective` never call `targetLines`, so a target that `lib/phases/runtime.ts::resolveTarget` accepted adds neither the intent-not-evidence paragraph nor, for an offline-only criterion, the rule against a number produced on the spot. Before a verdict only a crafted request reaches this: the gate card (`components/phase/gate-verdict-card.tsx`) renders only with a stored verdict, and a chip left from an earlier phase is dropped by its `phaseKey`. A PASS on phases 1 to 7 moves the current phase on (`lib/phases/advance.ts::resolveCurrentPhase`), so `resolveTarget` drops the old id. The one UI path: after the last phase passes (workflow complete) the current phase stays the last one, and `CriterionRow` still renders `RowActions` on an open advisory criterion of that PASS card (met criteria collapse to one line with no actions), so "Answer" there reaches `passedDirective` without the rules.
+**Clearing condition:** both directives render `targetLines` (checked with one paid turn), or a PASS card offers no row actions.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN
@@ -250,3 +250,4 @@ For an offline-only criterion target, `lib/phases/directive.ts::targetLines` and
 -->
 
 **Closed**
+- SWEEP-F24 — No test guards the rule that a file read is never redirected to a provider link. Raised 2026-11-13, `fix/files-sdk-3-261112`. Closed 2026-11-17, `chore/guard-tests-261117`: every test in `lib/file-content-response.test.ts` reads from a store that declares signing, so a redirect in `createFileContentResponse` on the owner, shared-chat or Range path fails its status, and an `afterEach` fails any read that asked the adapter's `url` for a link. Not covered: a redirect added in the route or the proxy ahead of that function.

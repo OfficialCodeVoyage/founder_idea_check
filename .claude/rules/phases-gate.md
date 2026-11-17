@@ -36,5 +36,5 @@ paths:
   persona pass). Turn N's verdict reaches turn N+1's system prompt, not turn N.
 - **Prompt files are read from disk at request time.** `next.config.ts` traces `./prompts/**/*`; a prompt outside
   that folder is missing in a deployed build.
-- **`bun run eval:gate` spends money** (about 24 judge calls on the chat model). Run it only when asked.
+- **`bun run eval:gate` spends money** (about 24 judge calls on `workflows.judge`). Run it only when asked.
 - Gate or phase change → update `apps/chat/lib/phases/REFERENCES.md` if a borrowed idea changes.

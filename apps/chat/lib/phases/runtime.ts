@@ -705,9 +705,11 @@ async function runPhasePass({
     origin: r.origin,
   }));
 
-  // Both ids come from config.ai.workflows. workflows.chat is the JUDGE (the
-  // gate is the product, so it gets the stronger model) and workflows.extract
-  // is the fact extractor.
+  // Both ids come from config.ai.workflows. workflows.judge is the JUDGE (the
+  // gate is the product, so it gets the strongest model, on its own knob so
+  // the interview can run on a cheaper one) and workflows.extract is the fact
+  // extractor. There is no fallback model for either: see below for what a
+  // failure to resolve one becomes.
   //
   // The extractor used to read workflows.title, on the reasoning that it is
   // schema-constrained so a cheap model would do. A schema constrains SHAPE,
@@ -720,7 +722,7 @@ async function runPhasePass({
   // throws, and the caller turns that into a written fail-closed BLOCK rather
   // than silence.
   const [gateModel, extractModel] = await Promise.all([
-    getLanguageModel(config.ai.workflows.chat),
+    getLanguageModel(config.ai.workflows.judge),
     getLanguageModel(config.ai.workflows.extract),
   ]);
 
@@ -812,7 +814,7 @@ async function runPhasePass({
     {
       judge: createModelGateJudge({
         model: gateModel,
-        onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.chat),
+        onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.judge),
       }),
     },
     {

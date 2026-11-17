@@ -24,10 +24,10 @@ export type GatewayType = keyof typeof gatewayRegistry;
  * AI_GATEWAY_API_KEY this project does not use — a self-hoster who deletes the
  * `gateway` line from chat.config.ts would get a config that cannot resolve a
  * single model, and the error surfaces as a failed chat turn rather than as a
- * config error. "openai" matches what chat.config.ts actually sets and what
+ * config error. "anthropic" matches what chat.config.ts actually sets and what
  * GETTING-STARTED.md documents.
  */
-export const DEFAULT_GATEWAY = "openai" as const satisfies GatewayType;
+export const DEFAULT_GATEWAY = "anthropic" as const satisfies GatewayType;
 export type DefaultGateway = typeof DEFAULT_GATEWAY;
 /** Infer model ID type from a gateway's `createLanguageModel` parameter */
 type InferLanguageModelId<T extends GatewayType> = Parameters<

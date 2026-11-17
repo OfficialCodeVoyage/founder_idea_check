@@ -25,7 +25,9 @@ const config = defineConfig({
   },
   services: {
     hosting: "Vercel",
-    aiProviders: ["OpenAI"],
+    // Anthropic runs every text model; OpenAI still serves the fact
+    // embeddings (lib/embeddings/provider.ts) and the research sidecar.
+    aiProviders: ["Anthropic", "OpenAI"],
     paymentProcessors: [],
   },
   features: {
@@ -63,10 +65,12 @@ const config = defineConfig({
     enabled: false, // Electron app removed from this fork
   },
   ai: {
-    // OpenAI directly: put OPENAI_API_KEY in .env.local. The model ids below are
-    // OpenAI model ids, and they are typed per gateway (lib/config-schema.ts),
-    // so changing `gateway` means changing them too.
-    gateway: "openai",
+    // Anthropic directly: put ANTHROPIC_API_KEY in .env.local. The model ids
+    // below are Anthropic model ids, and they are typed per gateway
+    // (lib/config-schema.ts), so changing `gateway` means changing them too.
+    // OPENAI_API_KEY is still needed, for the fact embeddings and the research
+    // sidecar, neither of which goes through this gateway.
+    gateway: "anthropic",
     providerOrder: ["anthropic"],
     disabledModels: [],
 
@@ -88,24 +92,27 @@ const config = defineConfig({
      * was lost had ~26,300 characters of content, roughly 7,000 tokens, so
      * this leaves better than 4x headroom for the longest document this
      * product actually asks for. It is clamped at the call site to the
-     * selected model's own `max_tokens` (terra allows 128,000), so it can only
+     * selected model's own `max_tokens` (Sonnet 5.5 allows 128,000), so it can only
      * ever lower a limit, never claim one the model will not honour.
      */
     maxOutputTokens: 32_000,
-    anonymousModels: ["gpt-5.6-luna"],
+    anonymousModels: ["claude-haiku-5-5"],
     workflows: {
-      // THE GATE JUDGE, and it stays on terra by decision. +4.6pp TAU-Bench and
-      // +2pp GPQA over luna for roughly $0.80 across an 8-phase project. The
-      // gate IS the product and a wrong verdict is user-visible and
-      // irreversible, so the quality is bought deliberately.
-      chat: "gpt-5.6-terra",
-      title: "gpt-5.6-luna",
+      // The interviewer, and the persona generator (lib/personas/runtime.ts).
+      chat: "claude-sonnet-5-5",
+      // THE GATE JUDGE, on the strongest model by decision. The gate IS the
+      // product and a wrong verdict is user-visible and irreversible, so the
+      // quality is bought deliberately; it runs at effort "high"
+      // (lib/ai/anthropic-thinking.ts::CALL_EFFORT). `bun run eval:gate`
+      // measures this model, and only this one.
+      judge: "claude-opus-5-5",
+      title: "claude-haiku-5-5",
       // Same model as `title` today, different knob on purpose — see the note
       // on `extract` in lib/config-schema.ts. Moving the fact extractor must
       // never be a side effect of changing how chats are named.
-      extract: "gpt-5.6-luna",
-      pdf: "gpt-5.6-terra",
-      chatImageCompatible: "gpt-5.6-luna",
+      extract: "claude-haiku-5-5",
+      pdf: "claude-sonnet-5-5",
+      chatImageCompatible: "claude-haiku-5-5",
     },
     tools: {
       webSearch: {
@@ -124,14 +131,14 @@ const config = defineConfig({
         enabled: true,
       },
       text: {
-        polish: "gpt-5.6-luna",
+        polish: "claude-haiku-5-5",
       },
       sheet: {
-        format: "gpt-5.6-luna",
-        analyze: "gpt-5.6-luna",
+        format: "claude-haiku-5-5",
+        analyze: "claude-haiku-5-5",
       },
       code: {
-        edits: "gpt-5.6-luna",
+        edits: "claude-haiku-5-5",
       },
       image: {
         // Anthropic ships no image models, so `default` is not a valid key here.
@@ -148,10 +155,10 @@ const config = defineConfig({
         /**
          * Five roles, assigned rather than defaulted.
          *
-         * luna runs the tool loop: 70.7% TAU-Bench and a 1.05M context is
-         * exactly the shape of a research loop, at $0.20/$1.20.
+         * Haiku 5.5 runs the tool loop: a 1M context and strong sub-agent
+         * behaviour is exactly the shape of a research loop, at $0.10/$0.50.
          *
-         * terra runs summarization and compression because BOTH ARE LOSSY.
+         * Sonnet 5.5 runs summarization and compression because BOTH ARE LOSSY.
          * They decide what survives into the final report, and nothing
          * downstream can recover what they discard — the report model would
          * simply write confidently over a thinner evidence base. Paying
@@ -159,13 +166,17 @@ const config = defineConfig({
          * whole point; paying it at the stage that only rephrases what
          * survived would be the wrong place.
          *
-         * Status updates are cosmetic progress lines, so luna is plenty.
+         * Status updates are cosmetic progress lines, so Haiku is plenty.
+         *
+         * Every one of these calls runs at low effort, and compression and the
+         * report with the least thinking the model takes: their output caps
+         * are time budgets (tools/platform/deep-research/configuration.ts).
          */
-        researchModel: "gpt-5.6-luna",
-        summarizationModel: "gpt-5.6-terra",
-        compressionModel: "gpt-5.6-terra",
-        finalReportModel: "gpt-5.6-terra",
-        statusUpdateModel: "gpt-5.6-luna",
+        researchModel: "claude-haiku-5-5",
+        summarizationModel: "claude-sonnet-5-5",
+        compressionModel: "claude-sonnet-5-5",
+        finalReportModel: "claude-sonnet-5-5",
+        statusUpdateModel: "claude-haiku-5-5",
         allowClarification: true,
         maxResearcherIterations: 1,
         maxConcurrentResearchUnits: 2,

@@ -12,7 +12,11 @@ import { generateUUID, getTextContentFromModelMessage } from "@/lib/utils";
 import { createTextDocumentTool } from "../documents/create-text-document";
 import type { DocumentToolResult } from "../documents/types";
 import type { ToolSession } from "../types";
-import type { DeepResearchRuntimeConfig } from "./configuration";
+import {
+  type DeepResearchRuntimeConfig,
+  getFinalReportProviderOptions,
+  getResearchProviderOptions,
+} from "./configuration";
 import {
   clarifyWithUserInstructions,
   finalReportGenerationPrompt,
@@ -189,6 +193,7 @@ async function clarifyWithUser(
           output: Output.object({ schema: ClarifyWithUserSchema }),
           messages: truncatedMessages,
           maxOutputTokens: config.research_model_max_tokens,
+          providerOptions: getResearchProviderOptions(config.research_model),
           experimental_telemetry: createTelemetry("clarifyWithUser", ctx),
           abortSignal,
         })
@@ -254,6 +259,7 @@ async function writeResearchBrief(
           output: Output.object({ schema: ResearchQuestionSchema }),
           messages: truncatedMessages,
           maxOutputTokens: config.research_model_max_tokens,
+          providerOptions: getResearchProviderOptions(config.research_model),
           experimental_telemetry: createTelemetry("writeResearchBrief", ctx),
           abortSignal,
         })
@@ -371,6 +377,7 @@ To write the report, call the createTextDocument tool with:
 - content: the full markdown content of your report`,
     tools: { createTextDocument: reportTool },
     maxOutputTokens: config.final_report_model_max_tokens,
+    providerOptions: getFinalReportProviderOptions(config.final_report_model),
     experimental_telemetry: createTelemetry("finalReportGeneration", input),
     abortSignal,
   });

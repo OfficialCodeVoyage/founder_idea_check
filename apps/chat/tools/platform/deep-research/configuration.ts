@@ -1,3 +1,9 @@
+import {
+  type AnthropicLeastThinkingOptions,
+  anthropicEffortOptions,
+  anthropicLeastThinkingOptions,
+  CALL_EFFORT,
+} from "@/lib/ai/anthropic-thinking";
 import { config } from "@/lib/config";
 import { env } from "@/lib/env";
 
@@ -90,16 +96,45 @@ const GPT_5_6_MODEL = /^(?:openai\/)?gpt-5\.6-/;
  * the Responses API this call uses, for `gpt-5.6-terra`, the model compression
  * runs on: live QA (re-check 6) sent `reasoningEffort: "none"` on four terra
  * compression calls through the app's own path, and none raised an API error;
- * the four reported 0, 0, 0 and 0 reasoning tokens. Any other model gets no
+ * the four reported 0, 0, 0 and 0 reasoning tokens.
+ *
+ * The Claude 5.5 models get their own least thinking at low effort
+ * (`lib/ai/anthropic-thinking.ts::anthropicLeastThinkingOptions`): thinking is
+ * on by default there and counts toward the same cap. Any other model gets no
  * option: whether it takes the key at all is unknown, and a rejected option would
  * fail the whole topic's compression, which is worse than reasoning tokens.
  */
 export function getCompressionProviderOptions(
   modelId: string
-): { openai: { reasoningEffort: "none" } } | undefined {
+):
+  | { openai: { reasoningEffort: "none" } }
+  | AnthropicLeastThinkingOptions
+  | undefined {
   return GPT_5_6_MODEL.test(modelId)
     ? { openai: { reasoningEffort: "none" } }
-    : undefined;
+    : anthropicLeastThinkingOptions(modelId);
+}
+
+/**
+ * Provider options for the FINAL REPORT call. Its 6,000-token cap is the
+ * report's time budget too, and the report is written as the input of one
+ * `createTextDocument` call: a cap spent on thinking cuts that input off and
+ * the run ends with no document. So a Claude 5.5 model writes it with the least
+ * thinking it takes. Nothing for any other model, as before.
+ */
+export function getFinalReportProviderOptions(
+  modelId: string
+): AnthropicLeastThinkingOptions | undefined {
+  return anthropicLeastThinkingOptions(modelId);
+}
+
+/**
+ * Provider options for every other deep-research call (clarify, brief, the
+ * supervisor and the researchers): low effort, because each one runs against
+ * the research clock under a small output cap (see `getDeepResearchConfig`).
+ */
+export function getResearchProviderOptions(modelId: string) {
+  return anthropicEffortOptions(modelId, CALL_EFFORT.research);
 }
 
 export function getDeepResearchConfig(): DeepResearchRuntimeConfig {

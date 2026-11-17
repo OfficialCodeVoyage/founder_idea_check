@@ -6,6 +6,10 @@
 // title.
 import "server-only";
 import { generateText, type LanguageModelUsage } from "ai";
+import {
+  anthropicEffortOptions,
+  CALL_EFFORT,
+} from "@/lib/ai/anthropic-thinking";
 import { getLanguageModel } from "@/lib/ai/providers";
 import type { ChatMessage } from "@/lib/ai/types";
 import { config } from "@/lib/config";
@@ -43,6 +47,10 @@ Rules (strictly follow all):
 - Use title case
 - Return ONLY the title, nothing else`,
     prompt: JSON.stringify(message),
+    providerOptions: anthropicEffortOptions(
+      config.ai.workflows.title,
+      CALL_EFFORT.title
+    ),
     experimental_telemetry: { isEnabled: true },
   });
 

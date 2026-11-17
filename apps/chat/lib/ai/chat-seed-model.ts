@@ -19,8 +19,8 @@ import {
  * moved its interviewer to whatever model was picked last, anywhere.
  *
  * WHAT THIS IS NOT. It is NOT the gate's judge. `runPostTurnPhasePass` resolves
- * the adjudicator as `getLanguageModel(config.ai.workflows.chat)` and the
- * extractor as `config.ai.workflows.title`, neither of which is threaded from
+ * the adjudicator as `getLanguageModel(config.ai.workflows.judge)` and the
+ * extractor as `config.ai.workflows.extract`, neither of which is threaded from
  * the composer. `getLanguageModel(selectedModelId)` has exactly one caller
  * outside the config-driven ones: `createCoreChatAgent`. So the leak changes the
  * INTERVIEWER that produces the transcript and the per-turn cost — a real

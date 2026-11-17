@@ -9,7 +9,7 @@ function message({
   id,
   parentMessageId = null,
   role,
-  selectedModel = "gpt-5.6-terra",
+  selectedModel = "claude-sonnet-5-5",
 }: {
   id: string;
   parentMessageId?: string | null;
@@ -36,7 +36,7 @@ describe("getRetryMessageInput", () => {
       id: "assistant",
       parentMessageId: root.id,
       role: "assistant",
-      selectedModel: "gpt-5.6-luna",
+      selectedModel: "claude-haiku-5-5",
     });
 
     const result = getRetryMessageInput({
@@ -56,7 +56,7 @@ describe("getRetryMessageInput", () => {
           parallelGroupId: null,
           parallelIndex: null,
           parentMessageId: null,
-          selectedModel: "gpt-5.6-luna",
+          selectedModel: "claude-haiku-5-5",
         },
       },
     });

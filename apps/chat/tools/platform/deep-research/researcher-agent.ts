@@ -8,7 +8,10 @@ import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { truncateMessages } from "@/lib/ai/token-utils";
 import { createModuleLogger } from "@/lib/logger";
-import { getCompressionProviderOptions } from "./configuration";
+import {
+  getCompressionProviderOptions,
+  getResearchProviderOptions,
+} from "./configuration";
 import {
   compressResearchSimpleHumanMessage,
   compressResearchSystemPrompt,
@@ -97,6 +100,8 @@ export async function runResearcher(
     // PER STEP, reasoning included, and deliberately far below the 4,000 the
     // other roles get: see `researcher_step_max_tokens` in configuration.ts.
     maxOutputTokens: config.researcher_step_max_tokens,
+    // Low effort, so a step's thinking leaves that cap to the tool call.
+    providerOptions: getResearchProviderOptions(config.research_model),
     experimental_telemetry: createTelemetry("researcher", options),
     onStepFinish: ({ usage, response, toolCalls, finishReason }) => {
       // Cumulative: each step's response carries every message so far, with
@@ -235,6 +240,35 @@ function withoutTruncatedReply(messages: ModelMessage[]): ModelMessage[] {
     : messages;
 }
 
+/**
+ * PURE. The researcher's messages without its thinking, for the compression
+ * call.
+ *
+ * A Claude 5.5 thinking block is bound to everything sent before it: the
+ * system prompt, the tool set and the earlier messages. Compression replays the
+ * researcher's steps under a different system prompt, with no tools and maybe
+ * truncated, so every replayed block fails that check, and on an account created
+ * on or after 2026-08-31 the API answers it with HTTP 400 rather than dropping
+ * the block. The thinking is not what compression condenses anyway: the tool
+ * calls, their results and the researcher's text all stay. An assistant step
+ * that held nothing but thinking is dropped whole, since an empty message is
+ * rejected too.
+ */
+function withoutReasoning(messages: ModelMessage[]): ModelMessage[] {
+  const kept: ModelMessage[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant" || typeof message.content === "string") {
+      kept.push(message);
+      continue;
+    }
+    const content = message.content.filter((part) => part.type !== "reasoning");
+    if (content.length > 0) {
+      kept.push({ ...message, content });
+    }
+  }
+  return kept;
+}
+
 async function compressResearch(
   researchMessages: ModelMessage[],
   options: AgentOptions,
@@ -248,7 +282,11 @@ async function compressResearch(
       role: "system" as const,
       content: compressResearchSystemPrompt({ date: getTodayStr() }),
     },
-    ...researchMessages,
+    // The topic the researcher was given, as the opening user turn. Its own
+    // messages start with an assistant step, and Anthropic's Messages API
+    // expects a conversation to open with a user turn.
+    { role: "user" as const, content: topic },
+    ...withoutReasoning(researchMessages),
     {
       role: "user" as const,
       content: compressResearchSimpleHumanMessage,

@@ -4,6 +4,11 @@ import {
   NoObjectGeneratedError,
   Output,
 } from "ai";
+import {
+  type AnthropicEffort,
+  anthropicEffortOptions,
+  CALL_EFFORT,
+} from "@/lib/ai/anthropic-thinking";
 import type { AppModelId } from "@/lib/ai/app-models";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
 import type { FactExtractor } from "./extract";
@@ -26,12 +31,37 @@ import { ExtractionOutputSchema, JudgeOutputSchema } from "./types";
  * gate.ts re-validates: normalizeEvaluation() downgrades any malformed
  * evaluation to `not-evaluable`, and decideGate() fails closed on it.
  *
- * Ignored by providers that do not understand it, so this stays correct if the
- * gateway is switched back to Anthropic.
+ * Ignored by providers that do not understand it, so it stays correct on the
+ * Anthropic gateway.
  */
 const LENIENT_SCHEMA_OPTIONS = {
   openai: { strictJsonSchema: false },
 } as const;
+
+/** The provider's id for a model handed in as an object or a gateway string. */
+function languageModelId(model: LanguageModel): string {
+  return typeof model === "string" ? model : model.modelId;
+}
+
+/**
+ * The provider options of one structured-output call: OpenAI's strict mode
+ * relaxed (above) and, on a Claude model that takes it, the call path's
+ * effort (`lib/ai/anthropic-thinking.ts::CALL_EFFORT`).
+ *
+ * DERIVED FROM THE MODEL, not passed by the caller, so the gate eval
+ * (`evals/gate-calibration.eval.ts`) and the live gate (`runtime.ts`) cannot
+ * send different requests: both hand the same model to `createModelGateJudge`,
+ * and the effort follows it.
+ */
+export function structuredOutputOptions(
+  model: LanguageModel,
+  effort: AnthropicEffort
+) {
+  return {
+    ...LENIENT_SCHEMA_OPTIONS,
+    ...anthropicEffortOptions(languageModelId(model), effort),
+  };
+}
 
 /**
  * What a call actually cost, in tokens. Reported rather than logged so the
@@ -147,7 +177,7 @@ export function createModelGateJudge({
         system,
         prompt,
         output: Output.object({ schema: JudgeOutputSchema }),
-        providerOptions: LENIENT_SCHEMA_OPTIONS,
+        providerOptions: structuredOutputOptions(model, CALL_EFFORT.judge),
         experimental_telemetry: { isEnabled: true, functionId: "phase-gate" },
       })
     );
@@ -167,7 +197,7 @@ export function createModelFactExtractor({
         system,
         prompt,
         output: Output.object({ schema: ExtractionOutputSchema }),
-        providerOptions: LENIENT_SCHEMA_OPTIONS,
+        providerOptions: structuredOutputOptions(model, CALL_EFFORT.extract),
         experimental_telemetry: {
           isEnabled: true,
           functionId: "phase-extract",

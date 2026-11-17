@@ -103,7 +103,7 @@ describe("resolveChatSeedModel", () => {
 
 describe("resolveOpeningModelId — which model a chat opens in", () => {
   const known = (id: string) =>
-    ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5-nano"].includes(id);
+    ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"].includes(id);
 
   it("opens a NEW project chat in the configured interviewer", () => {
     // The point of T10e: the same eight-phase interview should not be conducted
@@ -111,9 +111,9 @@ describe("resolveOpeningModelId — which model a chat opens in", () => {
     expect(
       resolveOpeningModelId({
         isKnownModel: known,
-        projectInterviewerModelId: "gpt-5.6-terra",
+        projectInterviewerModelId: "claude-sonnet-5-5",
       })
-    ).toBe("gpt-5.6-terra");
+    ).toBe("claude-sonnet-5-5");
   });
 
   it("leaves a plain chat alone so the global default still applies", () => {
@@ -126,21 +126,21 @@ describe("resolveOpeningModelId — which model a chat opens in", () => {
     expect(
       resolveOpeningModelId({
         isKnownModel: known,
-        projectInterviewerModelId: "gpt-5.6-terra",
-        seedModelId: "gpt-5.6-luna",
+        projectInterviewerModelId: "claude-sonnet-5-5",
+        seedModelId: "claude-haiku-5-5",
       })
-    ).toBe("gpt-5.6-luna");
+    ).toBe("claude-haiku-5-5");
   });
 
   it("lets an explicit deep link outrank everything", () => {
     expect(
       resolveOpeningModelId({
-        deepLinkModelId: "gpt-5-nano",
+        deepLinkModelId: "claude-opus-5-5",
         isKnownModel: known,
-        projectInterviewerModelId: "gpt-5.6-terra",
-        seedModelId: "gpt-5.6-luna",
+        projectInterviewerModelId: "claude-sonnet-5-5",
+        seedModelId: "claude-haiku-5-5",
       })
-    ).toBe("gpt-5-nano");
+    ).toBe("claude-opus-5-5");
   });
 
   it("falls through when the configured interviewer is not a servable model", () => {

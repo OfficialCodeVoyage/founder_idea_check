@@ -13,8 +13,8 @@
  *
  * providers.ts sent `adaptive` to EVERY model tagged `reasoning`, so any
  * pre-4.6 Anthropic model — all of which are in the catalog and selectable —
- * failed outright. It has been harmless only because the configured gateway is
- * openai; it becomes a hard outage the moment the gateway is Anthropic.
+ * failed outright. That was harmless only while the configured gateway was
+ * openai; with the gateway on Anthropic it would be a hard outage.
  *
  * DIRECTION OF THE UNKNOWN CASE: an id this cannot parse gets ADAPTIVE. That is
  * the current behaviour, so nothing regresses, and it is also the right bet —
@@ -94,4 +94,99 @@ export function anthropicThinkingOptions(
   return supportsAdaptiveThinking(apiModelId)
     ? { type: "adaptive", display: "summarized" }
     : { type: "enabled", budgetTokens: LEGACY_THINKING_BUDGET_TOKENS };
+}
+
+export type AnthropicEffort = "low" | "medium" | "high";
+
+/**
+ * HOW HARD EACH CALL PATH THINKS, CHOSEN RATHER THAN DEFAULTED.
+ *
+ * Thinking is on by default on Opus 5.5, Sonnet 5.5 and Haiku 5.5, and effort
+ * is the one control over it. The defaults differ by model (`medium` on Opus
+ * 5.5 and Haiku 5.5, `high` on Sonnet 5.5), so leaving it unset would make the
+ * cost and depth of a path a side effect of which model it happens to run on.
+ *
+ *  - judge: `high`. The gate is the product and a wrong verdict is
+ *    user-visible; one call per assessed turn, so the depth is bought.
+ *  - chat, extract, persona: `medium`. The interview, the fact ledger the gate
+ *    reads, and the phase-3 persona all carry judgement, but none is a
+ *    one-shot verdict.
+ *  - title, followups: `low`. Short, cheap, cosmetic.
+ *  - research: `low`. Every deep-research call runs against the research
+ *    clock and an output cap that is a time budget (see
+ *    tools/platform/deep-research/configuration.ts), so thinking must not eat it.
+ */
+export const CALL_EFFORT = {
+  chat: "medium",
+  judge: "high",
+  extract: "medium",
+  persona: "medium",
+  title: "low",
+  followups: "low",
+  research: "low",
+} as const satisfies Record<string, AnthropicEffort>;
+
+/**
+ * PURE. True when the model takes `output_config.effort`: a recognisable
+ * Claude id at 4.6 or newer. Sonnet 4.5 and Haiku 4.5 reject the parameter and
+ * both are in the catalog and selectable, so this is a function of the id, like
+ * the thinking shape. Unlike `supportsAdaptiveThinking`, an unparseable id gets
+ * NO effort: it may not be a Claude model at all.
+ */
+export function supportsEffort(apiModelId: string): boolean {
+  return (
+    parseClaudeVersion(apiModelId) !== null &&
+    supportsAdaptiveThinking(apiModelId)
+  );
+}
+
+/** PURE. `{ anthropic: { effort } }` for a model that takes it, else nothing. */
+export function anthropicEffortOptions(
+  apiModelId: string,
+  effort: AnthropicEffort
+): { anthropic: { effort: AnthropicEffort } } | undefined {
+  return supportsEffort(apiModelId) ? { anthropic: { effort } } : undefined;
+}
+
+export type AnthropicLeastThinkingOptions = {
+  anthropic: {
+    effort: "low";
+    thinking?: { type: "between_tools" } | { type: "disabled" };
+  };
+};
+
+/** The 5.5 generation, with or without a provider prefix or `-reasoning`. */
+const CLAUDE_5_5 = /claude-(opus|sonnet|haiku)-5-5(?!\d)/;
+
+/**
+ * PURE. The least thinking a model accepts, for a call whose output cap is a
+ * TIME BUDGET rather than a length target (deep research's compression and
+ * final report). Thinking counts toward `max_tokens`, so on these models a
+ * call left at its default effort can spend the cap thinking and stop before
+ * the visible output is finished.
+ *
+ *  - Sonnet 5.5 rejects `disabled` (HTTP 400); `between_tools` is its lowest
+ *    setting, and it is accepted only at effort `high` or below.
+ *  - Haiku 5.5 accepts `disabled` at effort `high` or below.
+ *  - Opus 5.5 cannot turn thinking off at all; low effort is all there is.
+ *
+ * Only the 5.5 models are mapped: any other id gets nothing, because a
+ * rejected option fails the whole call, which is worse than thinking tokens.
+ */
+export function anthropicLeastThinkingOptions(
+  apiModelId: string
+): AnthropicLeastThinkingOptions | undefined {
+  const family = CLAUDE_5_5.exec(apiModelId.toLowerCase())?.[1];
+  if (family === "sonnet") {
+    return {
+      anthropic: { effort: "low", thinking: { type: "between_tools" } },
+    };
+  }
+  if (family === "haiku") {
+    return { anthropic: { effort: "low", thinking: { type: "disabled" } } };
+  }
+  if (family === "opus") {
+    return { anthropic: { effort: "low" } };
+  }
+  return;
 }

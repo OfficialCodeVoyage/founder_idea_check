@@ -19,8 +19,9 @@ paths:
   (`apps/research/app/config.py`) go in the root `.env.example` too, but not in the schema or in `globalEnv`.
 - **The repo-root `.env.local` is the only env file the app, drizzle and evals load.** There is no
   `apps/chat/.env.local` and no `apps/chat/.env.example`. `.env.local` is gitignored; never open it.
-- **Model ids live in `chat.config.ts`** (typed per gateway). The gate judge uses the chat workflow model; a change
-  there changes every verdict. Guard: `lib/config-schema.test.ts`.
+- **Model ids live in `chat.config.ts`** (typed per gateway). The gate judge has its own knob, `workflows.judge`; a
+  change there changes every verdict. Guard: `lib/config-schema.test.ts`. Effort per call path is
+  `lib/ai/anthropic-thinking.ts::CALL_EFFORT`. Embeddings stay on OpenAI whatever the gateway.
 - **`maxOutputTokens` has one reader**, `lib/ai/core-chat-agent.ts` (Incident 6). Guard: `chat.config.test.ts`.
 - **A model with no stated window, output ceiling or price is unknown, never zero** (Incident 1). The gateways write
   `0` and `{}` for a model the capability table does not cover; read them through `lib/ai/model-capabilities.ts`, and

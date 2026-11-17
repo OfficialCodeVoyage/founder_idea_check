@@ -46,7 +46,7 @@ function createMessage({
     metadata: {
       createdAt: new Date("2024-01-01T00:00:00.000Z"),
       parentMessageId,
-      selectedModel: "gpt-5.6-luna",
+      selectedModel: "claude-haiku-5-5",
       activeStreamId: null,
     },
     chatId,

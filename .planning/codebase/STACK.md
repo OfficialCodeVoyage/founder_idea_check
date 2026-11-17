@@ -158,11 +158,13 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
 - App behaviour (models, features, tool switches, the sidecar URL) is in `apps/chat/chat.config.ts`, validated by
   `apps/chat/lib/config-schema.ts`. It has no public URL on purpose: `apps/chat/lib/url.ts::getBaseUrl` reads `APP_URL`, then the
   Vercel URLs, then localhost.
-- Models (`apps/chat/chat.config.ts`): gateway `openai`; `gpt-5.6-terra` for chat, the gate judge, PDF and the deep-research summarize,
-  compress and final-report roles; `gpt-5.6-luna` for titles, extraction, anonymous users, the text, sheet and code document tools,
-  and the researcher loop and status lines. Follow-up suggestions are enabled there but name no model, so they run on the OpenAI
-  gateway default `gpt-5-nano` (`apps/chat/lib/ai/gateway-model-defaults.ts`, `openaiDefaults`).
-  Embeddings use `text-embedding-3-small` at 1536 dimensions (`apps/chat/lib/embeddings/text.ts`).
+- Models (`apps/chat/chat.config.ts`): gateway `anthropic`; `claude-sonnet-5-5` for chat, PDF, the persona generator and the
+  deep-research summarize, compress and final-report roles; `claude-opus-5-5` for the gate judge (`workflows.judge`);
+  `claude-haiku-5-5` for titles, extraction, anonymous users, the text, sheet and code document tools, and the researcher loop and
+  status lines. Follow-up suggestions are enabled there but name no model, so they run on the Anthropic gateway default
+  `claude-haiku-5-5` (`apps/chat/lib/ai/gateway-model-defaults.ts`, `anthropicDefaults`). Effort per call path:
+  `apps/chat/lib/ai/anthropic-thinking.ts::CALL_EFFORT`. Embeddings stay on OpenAI, `text-embedding-3-small` at 1536 dimensions
+  (`apps/chat/lib/embeddings/text.ts`).
 
 **Build:**
 - `apps/chat/package.json` scripts: `build` = `tsx lib/db/migrate && next build`; `prebuild` runs `scripts/check-env.ts`.

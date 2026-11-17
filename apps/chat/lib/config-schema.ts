@@ -16,10 +16,10 @@ import type { ToolName } from "./ai/types";
  * AI_GATEWAY_API_KEY this project does not use — a self-hoster who deletes the
  * `gateway` line from chat.config.ts would get a config that cannot resolve a
  * single model, and the error surfaces as a failed chat turn rather than as a
- * config error. "openai" matches what chat.config.ts actually sets and what
+ * config error. "anthropic" matches what chat.config.ts actually sets and what
  * GETTING-STARTED.md documents.
  */
-const DEFAULT_GATEWAY = "openai" as const satisfies GatewayType;
+const DEFAULT_GATEWAY = "anthropic" as const satisfies GatewayType;
 
 // Helper to create typed model ID schemas
 const toolName = () => z.custom<ToolName>();
@@ -157,6 +157,13 @@ function createAiSchema<G extends GatewayType>(g: G) {
     workflows: z
       .object({
         chat: gatewayModelId<G>(),
+        /**
+         * THE PHASE GATE'S JUDGE, split off `chat` so the verdict can run on a
+         * stronger model than the interview. It decides every PASS/WARN/BLOCK
+         * (`lib/phases/runtime.ts::runPostTurnPhasePass`), so a change here
+         * changes every verdict; `bun run eval:gate` measures it.
+         */
+        judge: gatewayModelId<G>(),
         title: gatewayModelId<G>(),
         /**
          * The FACT EXTRACTOR, split off `title` deliberately.

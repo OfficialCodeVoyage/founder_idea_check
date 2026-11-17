@@ -74,8 +74,8 @@ const PROJECT_ID = "project-1";
 const CHAT_ID = "chat-1";
 const OWNER_ID = "owner-1";
 
-/** config.ai.workflows.chat is the judge. */
-const JUDGE_MODEL_ID = "gpt-5.6-terra";
+/** config.ai.workflows.judge is the judge. */
+const JUDGE_MODEL_ID = "claude-opus-5-5";
 
 const FAILED_CLOSED_RE = /failed closed/i;
 const NO_API_KEY_RE = /no api key configured/;

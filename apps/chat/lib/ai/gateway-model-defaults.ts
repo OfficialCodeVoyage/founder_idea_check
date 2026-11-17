@@ -64,6 +64,8 @@ export interface ModelDefaultsFor<G extends GatewayType> {
   };
   workflows: {
     chat: GatewayModelIdMap[G];
+    /** The phase gate's judge. Separate from `chat` so it can be stronger. */
+    judge: GatewayModelIdMap[G];
     title: GatewayModelIdMap[G];
     /**
      * The fact extractor. Split off `title` so that retuning what decides which
@@ -91,6 +93,7 @@ const vercelDefaults = {
   anonymousModels: ["google/gemini-2.5-flash-lite", "openai/gpt-5-nano"],
   workflows: {
     chat: "openai/gpt-5-mini",
+    judge: "openai/gpt-5-mini",
     title: "openai/gpt-5-nano",
     extract: "openai/gpt-5-nano",
     pdf: "openai/gpt-5-mini",
@@ -163,6 +166,7 @@ const openrouterDefaults = {
   anonymousModels: ["google/gemini-2.5-flash-lite", "openai/gpt-5-nano"],
   workflows: {
     chat: "openai/gpt-5-mini",
+    judge: "openai/gpt-5-mini",
     title: "openai/gpt-5-nano",
     extract: "openai/gpt-5-nano",
     pdf: "openai/gpt-5-mini",
@@ -239,6 +243,7 @@ const openaiDefaults = {
   anonymousModels: ["gpt-5-nano"],
   workflows: {
     chat: "gpt-5-mini",
+    judge: "gpt-5-mini",
     title: "gpt-5-nano",
     extract: "gpt-5-nano",
     pdf: "gpt-5-mini",
@@ -303,6 +308,7 @@ const openaiCompatibleDefaults = {
   anonymousModels: ["gpt-5-nano"],
   workflows: {
     chat: "gpt-5-mini",
+    judge: "gpt-5-mini",
     title: "gpt-5-nano",
     extract: "gpt-5-nano",
     pdf: "gpt-5-mini",
@@ -364,6 +370,7 @@ const litellmDefaults = {
   anonymousModels: ["openai/gpt-4o-mini"],
   workflows: {
     chat: "openai/gpt-4o-mini",
+    judge: "openai/gpt-4o-mini",
     title: "openai/gpt-4o-mini",
     extract: "openai/gpt-4o-mini",
     pdf: "openai/gpt-4o-mini",
@@ -416,19 +423,15 @@ const litellmDefaults = {
 const anthropicDefaults = {
   providerOrder: ["anthropic"],
   disabledModels: [],
-  curatedDefaults: [
-    "claude-opus-5",
-    "claude-sonnet-5",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5",
-  ],
-  anonymousModels: ["claude-haiku-4-5"],
+  curatedDefaults: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+  anonymousModels: ["claude-haiku-5-5"],
   workflows: {
-    chat: "claude-sonnet-5",
-    title: "claude-haiku-4-5",
-    extract: "claude-haiku-4-5",
-    pdf: "claude-sonnet-5",
-    chatImageCompatible: "claude-haiku-4-5",
+    chat: "claude-sonnet-5-5",
+    judge: "claude-opus-5-5",
+    title: "claude-haiku-5-5",
+    extract: "claude-haiku-5-5",
+    pdf: "claude-sonnet-5-5",
+    chatImageCompatible: "claude-haiku-5-5",
   },
   tools: {
     webSearch: { enabled: false },
@@ -439,20 +442,20 @@ const anthropicDefaults = {
       enabled: true,
       types: { text: true, code: true, sheet: true },
     },
-    followupSuggestions: { enabled: false, default: "claude-haiku-4-5" },
-    text: { polish: "claude-haiku-4-5" },
-    sheet: { format: "claude-haiku-4-5", analyze: "claude-haiku-4-5" },
-    code: { edits: "claude-sonnet-4-6" },
+    followupSuggestions: { enabled: false, default: "claude-haiku-5-5" },
+    text: { polish: "claude-haiku-5-5" },
+    sheet: { format: "claude-haiku-5-5", analyze: "claude-haiku-5-5" },
+    code: { edits: "claude-sonnet-5-5" },
     // Anthropic ships no image or video models, so no `default` key is allowed.
     image: { enabled: false },
     video: { enabled: false },
     deepResearch: {
       enabled: false,
-      researchModel: "claude-haiku-4-5",
-      summarizationModel: "claude-haiku-4-5",
-      compressionModel: "claude-haiku-4-5",
-      finalReportModel: "claude-sonnet-5",
-      statusUpdateModel: "claude-haiku-4-5",
+      researchModel: "claude-haiku-5-5",
+      summarizationModel: "claude-haiku-5-5",
+      compressionModel: "claude-haiku-5-5",
+      finalReportModel: "claude-sonnet-5-5",
+      statusUpdateModel: "claude-haiku-5-5",
       allowClarification: true,
       maxResearcherIterations: 1,
       maxResearcherSteps: 6,

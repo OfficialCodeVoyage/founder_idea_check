@@ -187,11 +187,11 @@ function pairTurns(turns: Turn[]): Turn[][] {
 async function runScenario(name: keyof typeof SCENARIOS) {
   const scenario = SCENARIOS[name];
   const gateway = getActiveGateway();
-  const chatModel = gateway.createLanguageModel(
-    config.ai.workflows.chat as never
+  const judgeModel = gateway.createLanguageModel(
+    config.ai.workflows.judge as never
   );
   const cheapModel = gateway.createLanguageModel(
-    config.ai.workflows.title as never
+    config.ai.workflows.extract as never
   );
 
   process.stdout.write(
@@ -234,7 +234,7 @@ async function runScenario(name: keyof typeof SCENARIOS) {
 
   // 2. The gate.
   const verdict = await evaluateGate(
-    { judge: createModelGateJudge({ model: chatModel, onUsage: meter }) },
+    { judge: createModelGateJudge({ model: judgeModel, onUsage: meter }) },
     {
       phase: PHASE_ONE,
       personaPrompt,

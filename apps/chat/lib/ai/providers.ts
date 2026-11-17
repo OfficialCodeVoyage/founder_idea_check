@@ -9,7 +9,11 @@ import {
   wrapLanguageModel,
 } from "ai";
 import { getActiveGateway } from "./active-gateway";
-import { anthropicThinkingOptions } from "./anthropic-thinking";
+import {
+  anthropicEffortOptions,
+  anthropicThinkingOptions,
+  CALL_EFFORT,
+} from "./anthropic-thinking";
 import type { AppModelId } from "./app-models";
 import { getAppModelDefinition } from "./app-models";
 
@@ -105,9 +109,17 @@ export const getModelProviderOptions = async (
     return { openai: {} };
   }
   if (model.owned_by === "anthropic") {
+    // Both arms: on Opus 5.5, Sonnet 5.5 and Haiku 5.5 the "non-reasoning"
+    // variant thinks too (adaptive thinking is their default), so effort is
+    // what bounds a chat turn either way. Absent for a model that rejects it.
+    const effort = anthropicEffortOptions(
+      model.apiModelId,
+      CALL_EFFORT.chat
+    )?.anthropic;
     if (model.reasoning) {
       return {
         anthropic: {
+          ...effort,
           // PER MODEL, not one shape for all of them. `budgetTokens` is removed
           // on Opus 5 / 4.8 / 4.7, Sonnet 5 and Fable 5 (HTTP 400) and
           // deprecated on 4.6, where adaptive thinking replaces it — but every
@@ -120,7 +132,7 @@ export const getModelProviderOptions = async (
         } satisfies AnthropicProviderOptions,
       };
     }
-    return { anthropic: {} };
+    return { anthropic: { ...effort } satisfies AnthropicProviderOptions };
   }
   if (model.owned_by === "xai") {
     return {

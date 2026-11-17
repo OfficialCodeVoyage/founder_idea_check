@@ -249,9 +249,12 @@ bun run lint
 
 ## What costs money
 
-- Chat turns, the phase gate's judge, fact extraction, fact embeddings and research all call OpenAI with your key.
-- `cd apps/chat && bun run eval:gate` runs the gate calibration against the real judge: about 24 calls on the chat
-  model, `gpt-5.6-terra`. Run it deliberately, never as a habit.
+- Chat turns, the phase gate's judge, fact extraction, titles and research call Anthropic with `ANTHROPIC_API_KEY`
+  (`chat.config.ts` sets `gateway: "anthropic"`). The fact embeddings (`lib/embeddings/provider.ts`) and the sidecar's
+  persona simulation call OpenAI with `OPENAI_API_KEY`, whichever gateway is set; without that key retrieval falls back
+  to keywords and the simulation cannot run.
+- `cd apps/chat && bun run eval:gate` runs the gate calibration against the real judge: about 24 calls on the judge
+  model, `claude-opus-5-5` at effort `high`. Run it deliberately, never as a habit.
 - The app also keeps a local spending cap, `UserCredit.credits`, in cents. A new user starts with 50 and nothing tops it
   up. Raise it with
   `docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 2000;'`.

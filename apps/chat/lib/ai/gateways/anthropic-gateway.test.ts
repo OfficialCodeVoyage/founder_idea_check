@@ -72,6 +72,10 @@ describe("ANTHROPIC_MODELS catalog", () => {
 
   it("includes the Claude 5 family and the pinned Haiku 4.5 snapshot", () => {
     const ids = new Set(ANTHROPIC_MODELS.map((model) => model.id));
+    // The three models chat.config.ts runs on.
+    expect(ids.has("claude-opus-5-5")).toBe(true);
+    expect(ids.has("claude-sonnet-5-5")).toBe(true);
+    expect(ids.has("claude-haiku-5-5")).toBe(true);
     expect(ids.has("claude-opus-5")).toBe(true);
     expect(ids.has("claude-sonnet-5")).toBe(true);
     expect(ids.has("claude-fable-5")).toBe(true);

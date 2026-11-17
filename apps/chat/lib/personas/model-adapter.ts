@@ -1,10 +1,13 @@
-import { generateText, type LanguageModel, Output } from "ai";
+import { generateText, jsonSchema, type LanguageModel, Output } from "ai";
+import { z } from "zod";
+import { CALL_EFFORT } from "@/lib/ai/anthropic-thinking";
 import {
   generateReportingUsage,
+  structuredOutputOptions,
   type UsageSink,
 } from "../phases/model-adapters";
 import type { PersonaGenerator } from "./generate";
-import { PersonaDraftSchema } from "./types";
+import { type PersonaDraft, PersonaDraftSchema } from "./types";
 
 /**
  * OpenAI's structured-output STRICT mode requires every property of an object to
@@ -18,21 +21,48 @@ import { PersonaDraftSchema } from "./types";
  *
  * This is the same trap lib/phases/model-adapters.ts documents hitting live on
  * 2026-08-19, where strict mode made every gate call fail. Relaxing strict mode
- * keeps the lenient schema (which is the deliberate design — see types.ts) and
- * is safe because generate.ts re-validates: normalizePersona() discards every
- * claim that arrives without evidence, and an unreadable response falls to
- * failClosedPersonaArtifact().
+ * (`structuredOutputOptions`) keeps the lenient schema (which is the deliberate
+ * design — see types.ts) and is safe because generate.ts re-validates:
+ * normalizePersona() discards every claim that arrives without evidence, and an
+ * unreadable response falls to failClosedPersonaArtifact().
  *
  * Do NOT "fix" this by removing the `.default()`s. Their leniency is the reason
  * a malformed response degrades to "not established" instead of to a persona
  * that looks finished.
- *
- * Ignored by providers that do not understand it, so this stays correct if the
- * gateway is switched back to Anthropic.
  */
-const LENIENT_SCHEMA_OPTIONS = {
-  openai: { strictJsonSchema: false },
-} as const;
+
+/**
+ * WHAT IS SENT is the schema's OUTPUT shape: every field required. WHAT PARSES
+ * the reply is still the lenient `PersonaDraftSchema`, defaults and all.
+ *
+ * The AI SDK sends a Zod schema's INPUT shape, where every `.default()` field is
+ * optional, and this schema has more than thirty of them counted the way
+ * Anthropic counts them (each nested use separately). Anthropic's native
+ * structured output (`output_config.format`) refuses a schema with that many
+ * optional properties, so `@ai-sdk/anthropic` falls back to a `json` tool it
+ * must FORCE the model to call. Sonnet 5.5 and Opus 5.5 reject a forced tool
+ * choice, the provider downgrades it to `auto`, and the model may then answer
+ * in prose: every such reply would fail the parse and the persona would come
+ * back as a refusal. The output shape has no optional property at all, so it
+ * goes out as native structured output on every Claude model, and OpenAI (with
+ * strict mode relaxed) accepts it just the same.
+ */
+const PERSONA_DRAFT_OUTPUT = jsonSchema<PersonaDraft>(
+  () =>
+    z.toJSONSchema(PersonaDraftSchema, {
+      target: "draft-7",
+      io: "output",
+      reused: "inline",
+    }),
+  {
+    validate: async (value) => {
+      const result = await PersonaDraftSchema.safeParseAsync(value);
+      return result.success
+        ? { success: true, value: result.data }
+        : { success: false, error: result.error };
+    },
+  }
+);
 
 /**
  * THE ONLY IMPURE PART OF PERSONA GENERATION. Everything upstream of this
@@ -55,8 +85,8 @@ export function createModelPersonaGenerator({
         model,
         system,
         prompt,
-        output: Output.object({ schema: PersonaDraftSchema }),
-        providerOptions: LENIENT_SCHEMA_OPTIONS,
+        output: Output.object({ schema: PERSONA_DRAFT_OUTPUT }),
+        providerOptions: structuredOutputOptions(model, CALL_EFFORT.persona),
         experimental_telemetry: {
           isEnabled: true,
           functionId: "persona-generate",

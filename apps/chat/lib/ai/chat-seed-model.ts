@@ -76,36 +76,83 @@ function readSeed(
   return modelId === null ? null : { modelId, selection };
 }
 
+/** A stored model choice, as a client path may send it again. */
+export type UsableStoredModel = ChatSeedModel & {
+  /**
+   * `stored`: the message's own choice, which the catalog still serves.
+   * `composer`: the message named only models the catalog no longer serves,
+   * so the composer's current choice stands in for it.
+   */
+  source: "stored" | "composer";
+};
+
 /**
  * A STORED MODEL CHOICE, CHECKED BEFORE ANYTHING SENDS IT AGAIN.
  *
  * Every message written before the gateway moved to Anthropic carries a
  * `gpt-5.6-*` id the catalog no longer has, and the chat route answers a turn
  * sent with one with 404 "Model not found". So every client path that reuses a
- * stored `selectedModel` (Retry, the message editor, a parallel response card,
- * a chat's opening model) reads it through here: the first candidate with a
- * model the catalog still serves (unknown ids dropped from a parallel
- * selection), else the current default chat model. Same rule as the seed path
- * (`readSeed`), said once.
+ * stored `selectedModel` (Retry, the message editor, a parallel response card)
+ * reads it through here, by way of `providers/use-usable-stored-model.ts`:
+ *
+ *  - the first candidate with a model the catalog still serves (unknown ids
+ *    dropped from a parallel selection), same rule as the seed path
+ *    (`readSeed`): `source: "stored"`;
+ *  - else, when a candidate NAMED a model, the composer's current choice: the
+ *    founder's own pick, never a default they did not make (`source:
+ *    "composer"`);
+ *  - else null: the message named no model at all, and each caller does what
+ *    it did before this check existed. "Named" is what those callers tested:
+ *    `getPrimarySelectedModelId` returns an id.
  */
 export function usableStoredModel({
   candidates,
   isKnownModel,
-  fallbackModelId,
+  composer,
 }: {
   /** Stored values in order of preference; `""` and null count as none. */
   candidates: readonly (SelectedModelValue | null | undefined)[];
   isKnownModel: (id: string) => boolean;
-  /** The current default chat model (`useDefaultModel`). */
-  fallbackModelId: AppModelId;
-}): ChatSeedModel {
+  /** The composer's current choice (`useStableChatInput`). */
+  composer: ChatSeedModel;
+}): UsableStoredModel | null {
+  let named = false;
   for (const candidate of candidates) {
     const seed = readSeed(candidate, isKnownModel);
     if (seed) {
-      return seed;
+      return { ...seed, source: "stored" };
     }
+    named ||= getPrimarySelectedModelId(candidate) !== null;
   }
-  return { modelId: fallbackModelId, selection: fallbackModelId };
+  return named ? { ...composer, source: "composer" } : null;
+}
+
+/**
+ * PURE. What the message editor opens with: the message's usable choice, or
+ * no override at all when the message named none (the editor's provider then
+ * seeds itself, as it always did).
+ */
+export function editorModelOverrides(stored: UsableStoredModel | null): {
+  overrideModelId?: AppModelId;
+  overrideModelSelection?: SelectedModelValue;
+} {
+  return stored
+    ? {
+        overrideModelId: stored.modelId,
+        overrideModelSelection: stored.selection,
+      }
+    : {};
+}
+
+/**
+ * PURE. The model a parallel response card switches the composer to: the
+ * card's own model when the catalog serves it, otherwise none. A card whose
+ * model is gone leaves the composer's choice alone.
+ */
+export function cardModelChange(
+  stored: UsableStoredModel | null
+): AppModelId | null {
+  return stored?.source === "stored" ? stored.modelId : null;
 }
 
 /**

@@ -1,6 +1,11 @@
 "use client";
-import { type Dispatch, type SetStateAction, useCallback } from "react";
-import { usableStoredModel } from "@/lib/ai/chat-seed-model";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useMemo,
+} from "react";
+import { editorModelOverrides } from "@/lib/ai/chat-seed-model";
 import type { ChatMessage } from "@/lib/ai/types";
 import { useChatStatus } from "@/lib/stores/base";
 import {
@@ -8,8 +13,7 @@ import {
   getTextContentFromMessage,
 } from "@/lib/utils";
 import { ChatInputProvider } from "@/providers/chat-input-provider";
-import { useChatModels } from "@/providers/chat-models-provider";
-import { useDefaultModel } from "@/providers/default-model-provider";
+import { useUsableStoredModel } from "@/providers/use-usable-stored-model";
 import { MultimodalInput } from "./multimodal-input";
 
 export interface MessageEditorProps {
@@ -53,16 +57,16 @@ export function MessageEditor(
   const initialInput = getTextContentFromMessage(props.message);
   const initialAttachments = getAttachmentsFromMessage(props.message);
 
-  // The message's own model choice, through the one stored-model check
-  // (`usableStoredModel`): a model the catalog no longer serves would make the
-  // edited message 404, so it falls back to the current default.
-  const { getModelById } = useChatModels();
-  const defaultModel = useDefaultModel();
-  const storedModel = usableStoredModel({
-    candidates: [props.message.metadata?.selectedModel],
-    isKnownModel: (modelId) => Boolean(getModelById(modelId)),
-    fallbackModelId: defaultModel,
-  });
+  // The message's own model choice, through the one stored-model check: a
+  // model the catalog no longer serves would make the edited message 404, so
+  // the composer's current choice stands in. A message that named no model
+  // gets no override, as before.
+  const usableModel = useUsableStoredModel();
+  const selectedModel = props.message.metadata?.selectedModel;
+  const modelOverrides = useMemo(
+    () => editorModelOverrides(usableModel([selectedModel])),
+    [usableModel, selectedModel]
+  );
   const { parentMessageId: _parentMessageId, ...rest } = props;
   return (
     <ChatInputProvider
@@ -71,8 +75,8 @@ export function MessageEditor(
       initialTool={props.message.metadata?.selectedTool}
       key={`edit-${props.message.id}`}
       localStorageEnabled={false}
-      overrideModelId={storedModel.modelId}
-      overrideModelSelection={storedModel.selection}
+      overrideModelId={modelOverrides.overrideModelId}
+      overrideModelSelection={modelOverrides.overrideModelSelection}
     >
       <MessageEditorContent
         {...rest}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage } from "@/lib/ai/types";
+import { usableStoredModel } from "@/lib/ai/chat-seed-model";
+import type { ChatMessage, SelectedModelValue } from "@/lib/ai/types";
 import {
   getRetryMessageInput,
   removeTrailingAssistantMessage,
@@ -30,10 +31,19 @@ function message({
 }
 
 const retryCatalog = {
-  isKnownModel: (modelId: string) =>
-    ["claude-sonnet-5-5", "claude-haiku-5-5"].includes(modelId),
-  fallbackModelId: "claude-sonnet-5-5",
-} as const;
+  usableModel: (
+    candidates: readonly (SelectedModelValue | null | undefined)[]
+  ) =>
+    usableStoredModel({
+      candidates,
+      isKnownModel: (modelId: string) =>
+        ["claude-sonnet-5-5", "claude-haiku-5-5"].includes(modelId),
+      composer: {
+        modelId: "claude-sonnet-5-5",
+        selection: "claude-sonnet-5-5",
+      },
+    }),
+};
 
 describe("getRetryMessageInput", () => {
   it("builds a retry message from an assistant response and trims before the parent user message", () => {

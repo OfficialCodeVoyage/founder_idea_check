@@ -5,7 +5,7 @@ import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useNavigateToMessage } from "@/hooks/use-navigate-to-message";
 import type { AppModelId } from "@/lib/ai/app-models";
-import { usableStoredModel } from "@/lib/ai/chat-seed-model";
+import { cardModelChange } from "@/lib/ai/chat-seed-model";
 import {
   type ChatMessage,
   expandSelectedModelValue,
@@ -16,7 +16,7 @@ import { useParallelGroupInfo } from "@/lib/stores/hooks-threads";
 import { cn } from "@/lib/utils";
 import { useChatInput } from "@/providers/chat-input-provider";
 import { useChatModels } from "@/providers/chat-models-provider";
-import { useDefaultModel } from "@/providers/default-model-provider";
+import { useUsableStoredModel } from "@/providers/use-usable-stored-model";
 
 function getEffectiveModelId(
   message: {
@@ -56,7 +56,7 @@ function PureParallelResponseCards({ messageId }: { messageId: string }) {
   const navigateToMessage = useNavigateToMessage();
   const { handleModelChange } = useChatInput();
   const { getModelById, models } = useChatModels();
-  const defaultModel = useDefaultModel();
+  const usableModel = useUsableStoredModel();
 
   const cardSlots = useMemo(() => {
     if (
@@ -149,16 +149,12 @@ function PureParallelResponseCards({ messageId }: { messageId: string }) {
             onClick={() => {
               if (slot.message) {
                 navigateToMessage(slot.message.id);
-                if (modelId) {
-                  // A stored id the catalog no longer serves would become
-                  // the composer's model and 404 the next message.
-                  handleModelChange(
-                    usableStoredModel({
-                      candidates: [modelId],
-                      isKnownModel: (id) => Boolean(getModelById(id)),
-                      fallbackModelId: defaultModel,
-                    }).modelId
-                  );
+                // A card whose model the catalog no longer serves leaves
+                // the composer's choice alone, rather than making it a
+                // model the next message would 404 on.
+                const nextModelId = cardModelChange(usableModel([modelId]));
+                if (nextModelId) {
+                  handleModelChange(nextModelId);
                 }
               }
             }}

@@ -1,6 +1,5 @@
-import type { AppModelId } from "@/lib/ai/app-models";
-import { usableStoredModel } from "@/lib/ai/chat-seed-model";
-import type { ChatMessage } from "@/lib/ai/types";
+import type { UsableStoredModel } from "@/lib/ai/chat-seed-model";
+import type { ChatMessage, SelectedModelValue } from "@/lib/ai/types";
 
 export type RetryMessageResult =
   | {
@@ -10,21 +9,24 @@ export type RetryMessageResult =
     }
   | {
       ok: false;
-      reason: "message_not_found" | "parent_not_found" | "parent_not_user";
+      reason:
+        | "message_not_found"
+        | "model_not_found"
+        | "parent_not_found"
+        | "parent_not_user";
     };
 
 export function getRetryMessageInput({
   messageId,
   messages,
-  isKnownModel,
-  fallbackModelId,
+  usableModel,
 }: {
   messageId: string;
   messages: ChatMessage[];
-  /** Whether the catalog still serves a model id, as the seed path asks. */
-  isKnownModel: (modelId: string) => boolean;
-  /** The current default chat model, for a stored model the catalog lost. */
-  fallbackModelId: AppModelId;
+  /** The stored-model check every client path uses (`useUsableStoredModel`). */
+  usableModel: (
+    candidates: readonly (SelectedModelValue | null | undefined)[]
+  ) => UsableStoredModel | null;
 }): RetryMessageResult {
   const currentMessage = messages.find((message) => message.id === messageId);
   if (!currentMessage) {
@@ -49,15 +51,17 @@ export function getRetryMessageInput({
   }
 
   // A stored model may be one the catalog no longer has: read through the one
-  // check every client path uses (`usableStoredModel`). A retry sends one model.
-  const retryModelId = usableStoredModel({
-    candidates: [
-      currentMessage.metadata?.selectedModel,
-      parentMessage.metadata?.selectedModel,
-    ],
-    isKnownModel,
-    fallbackModelId,
-  }).modelId;
+  // check every client path uses, which puts the composer's choice in its
+  // place. A retry sends one model.
+  const retryModel = usableModel([
+    currentMessage.metadata?.selectedModel,
+    parentMessage.metadata?.selectedModel,
+  ]);
+
+  if (!retryModel) {
+    return { ok: false, reason: "model_not_found" };
+  }
+  const retryModelId = retryModel.modelId;
 
   return {
     ok: true,

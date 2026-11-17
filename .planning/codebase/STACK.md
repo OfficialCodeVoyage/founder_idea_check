@@ -126,6 +126,12 @@ ruff per-file ignores in `apps/research/pyproject.toml` keep them diffable. Ledg
   must stay equal (`better-auth` requires its own core exactly, so a caret there could let a lockfile refresh nest a second
   core, and the electron plugin peers on core `^1.7.25`). A root `overrides` entry that once forced 1.5.6
   is gone: on 1.6.34 it made `import "better-auth"` fail. Do not add an override back; treat any change here as a dependency task.
+- **Root `overrides` entry `@types/node` `^22.20.5`** (`package.json`): keeps every `@types/node` copy on the Node 22 line the app
+  runs on (`engines`, CI), matching the direct range in `apps/chat/package.json`. Without it `bun-types` and `@types/papaparse`
+  (both depend on `@types/node: "*"`) nested 26.6.6 with `undici-types` 8.9.0, so Node 26 typings reached type-checking. Dependabot
+  already holds direct major bumps (`.github/dependabot.yml`) but cannot reach these nested copies. Bun reads `overrides` from the
+  root manifest only. This is not the better-auth override warned about above (that one forced an older `@better-auth/core` and broke
+  `import "better-auth"`); do not remove this one for that reason. Raise it together with the Node floor and the Dependabot ignore.
 - **`apps/chat` overrides** (`apps/chat/package.json`): `commander ^14.0.0`, and `evalite` is pointed at the app's own `ai` and
   `better-sqlite3` so the eval harness runs the same AI SDK.
 - **`igraph` is GPL-2.0-or-later** and enters only through the `simulation` extra (`apps/research/pyproject.toml`); the default image

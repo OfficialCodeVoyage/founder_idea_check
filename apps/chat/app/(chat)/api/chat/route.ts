@@ -30,6 +30,7 @@ import { systemPrompt } from "@/lib/ai/prompts";
 import {
   finishedReplyRefused,
   insertRefusalNotice,
+  isDeclined,
   refusedFinishMetadata,
 } from "@/lib/ai/refused-reply";
 import { CHAT_REQUEST_BUDGET_MS } from "@/lib/ai/request-budget";
@@ -610,10 +611,11 @@ async function createChatStream({
   // model on ai@6.0.219: an AbortError out of `execute`, then `Error(<the text>)`),
   // and that echo is part of the same stop.
   let stopEchoMessage: string | null = null;
-  // Set when the reply's finish chunk says the model declined
-  // (`insertRefusalNotice`), and read in `execute` to skip the follow-ups. The
-  // stored marker and the post-turn skip read the finished reply itself
-  // (`finishedReplyRefused`), not this flag.
+  // The model call's own last finish reason said it declined, read in
+  // `execute` to skip the follow-ups. Set from the step callback inside the
+  // model stream, so it is settled before `result.response` is, and nothing
+  // waits on the UI stream for it. The stored marker and the post-turn skip
+  // read the finished reply itself (`finishedReplyRefused`), not this flag.
   let turnRefused = false;
 
   // WHEN THE TURN'S SPENDING IS ALL RECORDED. The model's "main-chat" usage is
@@ -671,6 +673,9 @@ async function createChatStream({
             log.error(errorLogFields(error), "streamText error");
           },
           onChunk,
+          onStepFinishReason: (finishReason) => {
+            turnRefused = isDeclined(finishReason);
+          },
           onContextTrimmed: (omittedMessages) => {
             // Never silent: this is the one place the assistant is knowingly
             // shown less than the whole conversation, and the phase gate judges
@@ -694,16 +699,6 @@ async function createChatStream({
           activeStreamId: isAnonymous ? null : streamId,
         };
 
-        const refusal = insertRefusalNotice({
-          noticeId: generateUUID(),
-          onRefused: () => {
-            turnRefused = true;
-            log.warn(
-              { chatId, messageId, selectedModelId },
-              "the model declined to answer: the reply carries the refusal notice and the gate is skipped"
-            );
-          },
-        });
         dataStream.merge(
           result
             .toUIMessageStream({
@@ -736,15 +731,18 @@ async function createChatStream({
                 }
               },
             })
-            .pipeThrough(refusal.stream)
+            .pipeThrough(insertRefusalNotice(generateUUID()))
         );
         await result.consumeStream();
 
         const response = await result.response;
         const responseMessages = response.messages;
-        // The reply's finish chunk has been through the refusal check, so
-        // `turnRefused` is settled for the follow-ups below.
-        await refusal.checked;
+        if (turnRefused) {
+          log.warn(
+            { chatId, messageId, selectedModelId },
+            "the model declined to answer: the reply carries the refusal notice and the gate is skipped"
+          );
+        }
 
         // Generate and stream follow-up suggestions, except after an aborted
         // turn (`shouldSuggestFollowups`).

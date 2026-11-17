@@ -28,51 +28,42 @@ type ChatChunk = InferUIMessageChunk<ChatMessage>;
 export function refusedFinishMetadata(
   finishReason: FinishReason
 ): { refused: true } | Record<string, never> {
-  return finishReason === "content-filter" ? { refused: true } : {};
+  return isDeclined(finishReason) ? { refused: true } : {};
+}
+
+/**
+ * PURE. Whether a call's finish reason means the model declined to go on
+ * (Claude's `refusal` stop reason, `content-filter` in the AI SDK): no error,
+ * and an empty or partial result. Every call path that reads a refusal asks
+ * here.
+ */
+export function isDeclined(finishReason: string | undefined): boolean {
+  return finishReason === "content-filter";
 }
 
 /**
  * The transform the chat model's UI stream goes through: on a `finish` chunk
- * whose metadata says `refused`, it calls `onRefused` and writes the notice
- * right before that chunk. `checked` resolves once the finish chunk has gone
- * past (or the stream ended without one), so a caller can read what
- * `onRefused` set without racing the stream.
+ * whose metadata says `refused`, it writes the notice right before that chunk.
+ * Nothing waits on it: what else a declined turn skips is read from the model
+ * call itself.
  */
-export function insertRefusalNotice({
-  noticeId,
-  onRefused,
-}: {
-  noticeId: string;
-  onRefused: () => void;
-}): { stream: TransformStream<ChatChunk, ChatChunk>; checked: Promise<void> } {
-  let markChecked: () => void = () => undefined;
-  const checked = new Promise<void>((resolve) => {
-    markChecked = resolve;
-  });
-  const stream = new TransformStream<ChatChunk, ChatChunk>({
+export function insertRefusalNotice(
+  noticeId: string
+): TransformStream<ChatChunk, ChatChunk> {
+  return new TransformStream<ChatChunk, ChatChunk>({
     transform(chunk, controller) {
-      if (chunk.type === "finish") {
-        if (chunk.messageMetadata?.refused === true) {
-          onRefused();
-          controller.enqueue({ type: "text-start", id: noticeId });
-          controller.enqueue({
-            type: "text-delta",
-            id: noticeId,
-            delta: REFUSED_REPLY_NOTICE,
-          });
-          controller.enqueue({ type: "text-end", id: noticeId });
-        }
-        controller.enqueue(chunk);
-        markChecked();
-        return;
+      if (chunk.type === "finish" && chunk.messageMetadata?.refused === true) {
+        controller.enqueue({ type: "text-start", id: noticeId });
+        controller.enqueue({
+          type: "text-delta",
+          id: noticeId,
+          delta: REFUSED_REPLY_NOTICE,
+        });
+        controller.enqueue({ type: "text-end", id: noticeId });
       }
       controller.enqueue(chunk);
     },
-    flush() {
-      markChecked();
-    },
   });
-  return { stream, checked };
 }
 
 /**

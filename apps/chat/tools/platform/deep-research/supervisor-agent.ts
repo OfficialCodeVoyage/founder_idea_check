@@ -2,6 +2,7 @@ import { hasToolCall, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
+import { isDeclined } from "@/lib/ai/refused-reply";
 import { createSemaphore } from "@/lib/research/supervisor";
 import { leadResearcherPrompt } from "./prompts";
 import { canStartResearchTopic, recordCut, stopAt } from "./research-clock";
@@ -163,7 +164,7 @@ export async function runSupervisor(
     // ends the loop as if the lead researcher were done. The report is
     // written from the topics finished so far, so it is told its coverage
     // is partial, not handed a thin set of notes as the whole of the research.
-    if (finishReason === "content-filter") {
+    if (isDeclined(finishReason)) {
       recordCut(
         clock,
         "the lead researcher's model declined to continue, so the research stopped early and its coverage is partial"

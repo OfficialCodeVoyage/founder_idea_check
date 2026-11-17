@@ -1,5 +1,10 @@
 import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
-import { convertToModelMessages, stepCountIs, streamText } from "ai";
+import {
+  convertToModelMessages,
+  type FinishReason,
+  stepCountIs,
+  streamText,
+} from "ai";
 import { addExplicitToolRequestToMessages } from "@/app/(chat)/api/chat/add-explicit-tool-request-to-messages";
 import { filterPartsForLLM } from "@/app/(chat)/api/chat/filter-reasoning-parts";
 import { getRecentGeneratedImage } from "@/app/(chat)/api/chat/get-recent-generated-image";
@@ -62,6 +67,7 @@ export async function createCoreChatAgent({
   dataStream,
   onError,
   onChunk,
+  onStepFinishReason,
   onContextTrimmed,
   mcpConnectors = [],
   costAccumulator,
@@ -90,6 +96,11 @@ export async function createCoreChatAgent({
   dataStream: StreamWriter;
   onError?: (error: unknown) => void;
   onChunk?: () => void;
+  /**
+   * Each model step's finish reason, as the step ends: the last call is the
+   * turn's. Runs inside the model stream, before `result.response` settles.
+   */
+  onStepFinishReason?: (finishReason: FinishReason) => void;
   /**
    * Called when history had to be cut to fit the budget. A silent truncation
    * is the failure mode this whole change exists to remove: the caller logs it
@@ -299,6 +310,9 @@ export async function createCoreChatAgent({
       onError?.(error);
     },
     onChunk,
+    onStepFinish: ({ finishReason }) => {
+      onStepFinishReason?.(finishReason);
+    },
     abortSignal,
     providerOptions: providerOptions as SharedV3ProviderOptions,
     onFinish: async () => {

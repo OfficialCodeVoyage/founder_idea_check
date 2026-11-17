@@ -7,6 +7,7 @@
 import "server-only";
 import { generateText, type LanguageModelUsage } from "ai";
 import { getLanguageModel } from "@/lib/ai/providers";
+import { isDeclined } from "@/lib/ai/refused-reply";
 import type { ChatMessage } from "@/lib/ai/types";
 import { config } from "@/lib/config";
 import { CostAccumulator } from "@/lib/credits/cost-accumulator";
@@ -65,14 +66,14 @@ Rules (strictly follow all):
   // sidebar. A declined or empty title becomes the placeholder instead; the
   // founder can rename the chat. The call is still charged, as before.
   const title = text.trim();
-  if (finishReason === "content-filter" || title.length === 0) {
+  if (isDeclined(finishReason) || title.length === 0) {
     log.warn(
       { finishReason, titleLength: title.length },
       "the title model returned no usable title; the chat gets the placeholder"
     );
     return PLACEHOLDER_CHAT_TITLE;
   }
-  return text;
+  return title;
 }
 
 /**

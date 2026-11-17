@@ -283,8 +283,10 @@ async function compressResearch(
       content: compressResearchSystemPrompt({ date: getTodayStr() }),
     },
     // The topic the researcher was given, as the opening user turn. Its own
-    // messages start with an assistant step, and Anthropic's Messages API
-    // expects a conversation to open with a user turn.
+    // messages start with an assistant step. A precaution: the claude-api
+    // skill's rules say the first message must be a user turn, which the
+    // Messages API reference does not state; the topic is useful context
+    // to the compressor either way.
     { role: "user" as const, content: topic },
     ...withoutReasoning(researchMessages),
     {

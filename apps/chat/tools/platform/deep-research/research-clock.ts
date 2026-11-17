@@ -46,8 +46,8 @@ const log = createModuleLogger("tools/deep-research/research-clock");
  * THE 120 s REPORT ALLOWANCE IS AN ESTIMATE, not a measurement: the report
  * model's throughput has not been measured on this route. It assumes 15 s
  * before the first token and 40 output tokens per second after it, which
- * writes about 4,200 tokens (about 3,100 words) in 120 s — below the 6,000-token
- * ceiling in configuration.ts. `reportWordBudget` turns whatever time is
+ * writes about 4,200 tokens (about 2,300 words at `WORDS_PER_TOKEN`) in 120 s —
+ * below the 6,000-token ceiling in configuration.ts. `reportWordBudget` turns whatever time is
  * actually left into a word limit stated in the report prompt, so a report
  * that starts late is asked to be shorter rather than being cut off.
  */
@@ -64,7 +64,15 @@ export const MIN_RESEARCH_TOPIC_MS = 25_000;
 /** Assumed report-model latency and speed. See the arithmetic above. */
 const REPORT_FIRST_TOKEN_MS = 15_000;
 const REPORT_TOKENS_PER_SECOND = 40;
-const WORDS_PER_TOKEN = 0.75;
+/**
+ * 0.55, not the 0.75 that suits OpenAI's tokenizer. The report runs on Claude
+ * Sonnet 5.5, whose tokenizer counts the same text as about 30% more tokens
+ * than the Claude 4.x one, and the report is written as the JSON input of a
+ * `createTextDocument` call, whose escaping adds more. A word limit worked out
+ * at 0.75 could ask for more words than the 6,000-token cap holds, and a report
+ * cut off at the cap never becomes a document. Too few words is the safe side.
+ */
+const WORDS_PER_TOKEN = 0.55;
 /** Below this a report cannot say anything useful; asked for anyway. */
 const MIN_REPORT_WORDS = 400;
 

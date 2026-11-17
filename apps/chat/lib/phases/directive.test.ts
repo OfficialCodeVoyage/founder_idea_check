@@ -567,3 +567,75 @@ describe("toPhaseGateState — the per-criterion state reaches the caller", () =
     expect(s?.verdictReadable).toBe(false);
   });
 });
+
+describe("buildPhaseDirective — criterion target", () => {
+  it.each([
+    "BLOCK",
+    "WARN",
+  ] as const)("on a %s turn, adds the target paragraph only for a target, before the question, and the fieldwork rule only for an offline-only one", (decision) => {
+    // The founder's chip names a criterion for the latest message. On a
+    // blocked or a warned turn the prompt must carry the criterion's title and
+    // description and the rule that the mark is intent, not evidence, ahead of
+    // the line that asks the gate's question, which it is written to shape; an
+    // offline-only criterion must also carry the rule that an estimate, a
+    // score or an opinion cannot count; a criterion the last verdict already
+    // met must not be reopened. Without a target none of it may appear. These
+    // are phrases the model reads, so rewording one is a reviewed change to
+    // the interviewer's behaviour (SWEEP-F28 plans one). This pins the
+    // renderer only: whether `lib/phases/runtime.ts::buildPhaseSystemBlock`
+    // passes the target in is not covered here.
+    const ASK =
+      "Unless the founder's latest message already answers it, ask exactly this";
+    const MARKED =
+      'The founder marked their latest message as addressing the exit criterion "Existing workarounds"';
+    const DESCRIBED = "(Names what the buyer does about the problem today)";
+    const INTENT = "intent, not evidence";
+    const FIELDWORK_RULE = "This criterion needs field data";
+    const ALREADY_MET = "do not reopen it, and do not invent a gap for it";
+    const base = {
+      title: "Existing workarounds",
+      description: "Names what the buyer does about the problem today.",
+      alreadyMet: false,
+    };
+
+    const verdict = state({ decision });
+
+    const inConversation = directive(verdict, {
+      target: { ...base, closure: "in-conversation" },
+    });
+    expect(inConversation).toContain(MARKED);
+    expect(inConversation).toContain(DESCRIBED);
+    expect(inConversation).toContain(INTENT);
+    expect(inConversation).not.toContain(FIELDWORK_RULE);
+    expect(inConversation.indexOf(ASK)).toBeGreaterThan(
+      inConversation.indexOf(MARKED)
+    );
+
+    const offlineOnly = directive(verdict, {
+      target: { ...base, closure: "offline-only" },
+    });
+    expect(offlineOnly).toContain(MARKED);
+    expect(offlineOnly).toContain(INTENT);
+    expect(offlineOnly).toContain(FIELDWORK_RULE);
+    expect(offlineOnly).toContain("an estimate, a score or an opinion");
+    expect(offlineOnly.indexOf(ASK)).toBeGreaterThan(
+      offlineOnly.indexOf(FIELDWORK_RULE)
+    );
+
+    const met = directive(verdict, {
+      target: { ...base, closure: "offline-only", alreadyMet: true },
+    });
+    expect(met).toContain(MARKED);
+    expect(met).toContain(ALREADY_MET);
+    expect(met).not.toContain(INTENT);
+    expect(met).not.toContain(FIELDWORK_RULE);
+
+    for (const none of [undefined, null]) {
+      const untargeted = directive(verdict, { target: none });
+      expect(untargeted).not.toContain(MARKED);
+      expect(untargeted).not.toContain(INTENT);
+      expect(untargeted).not.toContain(FIELDWORK_RULE);
+      expect(untargeted).not.toContain(ALREADY_MET);
+    }
+  });
+});

@@ -1,17 +1,46 @@
 import assert from "node:assert/strict";
-import { beforeEach, describe, it, vi } from "vitest";
+import { type Adapter, Files } from "files-sdk";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 
 vi.mock("@/lib/config", () => ({
   config: { appPrefix: "file-response-test" },
+}));
+
+/**
+ * Every test here reads from a store that can sign. files-sdk signs presigned
+ * GET links for a private Vercel Blob, S3, GCS, Azure, R2 and more, and such a
+ * link works for whoever holds it until it expires, without the access check.
+ * The plain memory store cannot sign, so with it a redirect re-added to
+ * createFileContentResponse would pass this whole file. With this store a
+ * redirect there on any path the tests reach (owner, shared chat, Range) fails
+ * the status the test expects, and the `afterEach` below fails any read that
+ * asked the adapter's `url` for a link. Not covered: a redirect added in the
+ * route or the proxy ahead of createFileContentResponse, or a link minted
+ * through the provider's own client instead of `url`.
+ */
+const signing = vi.hoisted(() => ({
+  url: vi.fn(
+    async (key: string) => `https://provider.example/${key}?X-Signature=abc`
+  ),
 }));
 
 vi.mock("./storage-provider", async () => {
   const { memory } = await import("files-sdk/memory");
   return {
     storageProvider: {
-      createAdapter: () => memory(),
+      createAdapter: () => {
+        const store = memory();
+        return {
+          ...store,
+          capabilities: {
+            ...store.capabilities,
+            signedUrl: { supported: true, expiry: "exact", disposition: true },
+          },
+          url: signing.url,
+        } satisfies Adapter;
+      },
       options: {},
-      slug: "memory",
+      slug: "memory-that-signs",
     },
   };
 });
@@ -24,9 +53,22 @@ const queries = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/db/queries", () => queries);
 
+import { FILE_STORAGE_PREFIX } from "@/lib/constants";
 import { createFileContentResponse } from "./file-content-response";
 import { uploadFile } from "./file-storage";
 import { fileUrlInChat } from "./file-url";
+import { storageProvider } from "./storage-provider";
+
+afterEach(() => {
+  const linkRequests = signing.url.mock.calls.length;
+  // Cleared before asserting, so one failure is not blamed on later tests.
+  signing.url.mockClear();
+  assert.equal(
+    linkRequests,
+    0,
+    "a file read asked the store for a provider link"
+  );
+});
 
 const OWNER = "user-1";
 const VIEWER = "user-2";
@@ -190,5 +232,19 @@ describe("file content response", () => {
 
     assert.equal(response.status, 416);
     assert.equal(response.headers.get("content-range"), "bytes */2");
+  });
+});
+
+describe("the store these tests share", () => {
+  it("can sign, so a redirect to a provider link fails the tests above", () => {
+    // Built the way lib/file-storage.ts::getFiles builds its store (adapter,
+    // prefix, retries). A plugin added there that changes the capabilities
+    // would need adding here too.
+    const files = new Files({
+      adapter: storageProvider.createAdapter(),
+      prefix: FILE_STORAGE_PREFIX,
+      retries: 2,
+    });
+    assert.equal(files.capabilities.signedUrl.supported, true);
   });
 });

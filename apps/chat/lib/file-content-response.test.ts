@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { type Adapter, Files } from "files-sdk";
+import { memory } from "files-sdk/memory";
 import { beforeEach, describe, it, vi } from "vitest";
 
 vi.mock("@/lib/config", () => ({
@@ -190,5 +192,58 @@ describe("file content response", () => {
 
     assert.equal(response.status, 416);
     assert.equal(response.headers.get("content-range"), "bytes */2");
+  });
+});
+
+describe("file content response on a store that can sign", () => {
+  it("streams an allowed file and never answers with a provider link", async () => {
+    // The memory store above cannot sign, so a redirect re-added to
+    // createFileContentResponse would pass every test in this file. files-sdk
+    // signs presigned GET links for a private Vercel Blob, S3, GCS, Azure, R2
+    // and more, and such a link works for whoever holds it until it expires,
+    // without the access check. This store declares signing and hands out such
+    // a link, so a redirect shows up as a 3xx with a Location header.
+    const memoryStore = memory();
+    const signedUrl = vi.fn(
+      async (key: string) => `https://provider.example/${key}?X-Signature=abc`
+    );
+    const adapter = {
+      ...memoryStore,
+      capabilities: {
+        ...memoryStore.capabilities,
+        signedUrl: { supported: true, expiry: "exact", disposition: true },
+      },
+      url: signedUrl,
+    } satisfies Adapter;
+    assert.equal(new Files({ adapter }).capabilities.signedUrl.supported, true);
+
+    // file-storage keeps the adapter in a module-level singleton, so a fresh
+    // module graph is what makes it pick up this store.
+    vi.resetModules();
+    vi.doMock("./storage-provider", () => ({
+      storageProvider: {
+        createAdapter: () => adapter,
+        options: {},
+        slug: "signing-stub",
+      },
+    }));
+    try {
+      const { createFileContentResponse: serve } = await import(
+        "./file-content-response"
+      );
+      const { uploadFile: upload } = await import("./file-storage");
+      const bytes = new TextEncoder().encode("stored bytes");
+      const uploaded = await upload("a.txt", bytes, "text/plain", OWNER);
+
+      const response = await serve(get(uploaded.url), OWNER);
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("location"), null);
+      assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes);
+      assert.equal(signedUrl.mock.calls.length, 0);
+    } finally {
+      vi.doUnmock("./storage-provider");
+      vi.resetModules();
+    }
   });
 });

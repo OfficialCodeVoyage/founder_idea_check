@@ -567,3 +567,45 @@ describe("toPhaseGateState — the per-criterion state reaches the caller", () =
     expect(s?.verdictReadable).toBe(false);
   });
 });
+
+describe("buildPhaseDirective — criterion target", () => {
+  it("adds the target paragraph only for a target, and the fieldwork rule only for an offline-only one", () => {
+    // The founder's chip names a criterion for the latest message. The prompt
+    // must carry the criterion's title and the rule that the mark is intent,
+    // not evidence; an offline-only criterion must also carry the rule that an
+    // estimate, a score or an opinion cannot count. Without a target neither
+    // paragraph may appear. These are phrases the model reads, so rewording
+    // one is a reviewed change to the interviewer's behaviour.
+    const MARKED =
+      'The founder marked their latest message as addressing the exit criterion "Existing workarounds"';
+    const INTENT = "intent, not evidence";
+    const FIELDWORK_RULE = "This criterion needs field data";
+    const base = {
+      title: "Existing workarounds",
+      description: "Names what the buyer does about the problem today.",
+      alreadyMet: false,
+    };
+
+    const inConversation = directive(state(), {
+      target: { ...base, closure: "in-conversation" },
+    });
+    expect(inConversation).toContain(MARKED);
+    expect(inConversation).toContain(INTENT);
+    expect(inConversation).not.toContain(FIELDWORK_RULE);
+
+    const offlineOnly = directive(state(), {
+      target: { ...base, closure: "offline-only" },
+    });
+    expect(offlineOnly).toContain(MARKED);
+    expect(offlineOnly).toContain(INTENT);
+    expect(offlineOnly).toContain(FIELDWORK_RULE);
+    expect(offlineOnly).toContain("an estimate, a score or an opinion");
+
+    for (const none of [undefined, null]) {
+      const untargeted = directive(state(), { target: none });
+      expect(untargeted).not.toContain(MARKED);
+      expect(untargeted).not.toContain(INTENT);
+      expect(untargeted).not.toContain(FIELDWORK_RULE);
+    }
+  });
+});

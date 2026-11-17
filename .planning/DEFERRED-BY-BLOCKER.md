@@ -194,12 +194,6 @@ its parts, `finish`), so the SDK rebuilds it like any replay; then remove the gu
 This branch adds `BLOB_READ_WRITE_TOKEN` and `BLOB_STORE_ID` to `apps/chat/lib/env-schema.ts` and `BLOB_STORE_ID` to `turbo.json`, and check-env names both options, but the root `.env.example` has no Blob entry (`.claude/rules/env-config.md` wants one in the same change). Agents cannot edit that file; the owner adds the lines from the pull request description.
 **Clearing condition:** the root `.env.example` lists both options.
 
-### SWEEP-F24 — No test guards the rule that a file read is never redirected to a provider link
-**Raised:** 2026-11-13, `fix/files-sdk-3-261112`, `/code-review` (high) of the files-sdk 3 update.
-**Status:** OPEN (low)
-`lib/file-content-response.ts` now always streams an access-checked file and never answers 307 to a presigned URL; the existing tests use the memory store, which cannot sign, so re-adding a redirect would pass CI. Not added under the owner's no-new-tests rule.
-**Clearing condition:** the owner asks for the test, or a redirect is reintroduced.
-
 ### SWEEP-F25 — The "Answering:" label shows for a criterion the prompt did not use
 **Raised:** 2026-11-13, `feat/gate-criterion-target-prompt-261113`, `/code-review` (high), final round (the round cap applied).
 **Status:** OPEN (low)
@@ -244,3 +238,4 @@ For an offline-only criterion target, `lib/phases/directive.ts::targetLines` and
 -->
 
 **Closed**
+- SWEEP-F24 — No test guards the rule that a file read is never redirected to a provider link. Raised 2026-11-13, `fix/files-sdk-3-261112`. Closed 2026-11-17, `chore/guard-tests-261117`: `lib/file-content-response.test.ts` serves a file from a store that declares signing and asserts a 200 stream, no `Location` header and no signing call.

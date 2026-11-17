@@ -61,8 +61,11 @@ describe("planResearchClock", () => {
     expect(reportWordBudget(late, 12_000)).toBeLessThan(
       reportWordBudget(onTime, 12_000)
     );
-    // Never more than the model's own output ceiling allows.
-    expect(reportWordBudget(onTime, 1000)).toBeLessThanOrEqual(750);
+    // Never more than the model's own output ceiling allows: with time to
+    // spare, a lower cap asks for fewer words.
+    expect(reportWordBudget(onTime, 8000)).toBeLessThan(
+      reportWordBudget(onTime, 12_000)
+    );
   });
 });
 

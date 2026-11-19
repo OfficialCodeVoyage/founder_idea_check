@@ -143,7 +143,7 @@
     "redis": "^6.3.1",
     "resumable-stream": "2.2.13",
     "server-only": "^0.0.1",
-    "shiki": "^3.19.0",
+    "shiki": "^4.6.0",
     "sonner": "^2.0.8",
     "streamdown": "^2.7.1",
     "superjson": "^2.2.2",

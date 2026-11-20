@@ -99,4 +99,12 @@ export type DeepResearchResult =
   | {
       type: "report";
       data: DocumentToolResult;
+    }
+  | {
+      /**
+       * The model declined the clarify or brief step, so there is no run to
+       * report on. `data` is the sentence the founder is shown.
+       */
+      type: "declined";
+      data: string;
     };

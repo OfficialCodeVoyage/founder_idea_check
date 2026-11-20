@@ -101,10 +101,10 @@ export async function runDeepResearchPipeline(
 
   // Step 1: Clarify with user
   //
-  // A DECLINED clarify or brief call (`isDeclinedCall`) ends the run with the
-  // same kind of result as a declined report: a report that is an error, in
-  // the shared wording (`describeDeclinedStep`), not "Deep research failed
-  // with error: ...". Any other error, an abort included, propagates as before.
+  // A DECLINED clarify or brief call (`isDeclinedCall`) ends the run in the
+  // wording a declined report uses (`describeDeclinedStep`), not "Deep
+  // research failed with error: ...". Any other error, an abort included,
+  // propagates as before.
   let clarification: ClarificationResult;
   try {
     clarification = await clarifyWithUser(input.messages, ctx);
@@ -184,10 +184,7 @@ export async function runDeepResearchPipeline(
 
 /** The result of a run whose clarify or brief step the model declined. */
 function declinedRun(task: string): DeepResearchResult {
-  return {
-    type: "report",
-    data: { status: "error", error: describeDeclinedStep(task) },
-  };
+  return { type: "declined", data: describeDeclinedStep(task) };
 }
 
 // Step 1: Clarification

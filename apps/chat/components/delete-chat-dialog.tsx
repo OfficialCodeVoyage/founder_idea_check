@@ -74,8 +74,8 @@ export function DeleteChatDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
           <AlertDialogDescription>
-            This action cannot be undone. This will permanently delete your chat
-            and remove it from our servers.
+            This action cannot be undone. This permanently deletes the chat from
+            the database.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

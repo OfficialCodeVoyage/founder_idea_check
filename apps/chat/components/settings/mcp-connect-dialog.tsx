@@ -100,9 +100,9 @@ export function McpConnectDialog({
                 How {config.appName} uses data
               </p>
               <p className="mt-1 text-muted-foreground text-sm">
-                By default, we do not train on your data. Data from{" "}
-                {connector?.name ?? "this connector"} may be used to provide you
-                relevant and useful information.
+                Data from {connector?.name ?? "this connector"} is added to your
+                conversation, so it is sent to the AI provider that runs your
+                chats.
               </p>
             </div>
           </div>

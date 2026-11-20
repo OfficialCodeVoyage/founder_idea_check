@@ -283,6 +283,31 @@ When the report model reaches its output cap while streaming the `createTextDocu
 `lib/credits/cost-accumulator.ts::rateFor` picks the 5x rate for a Haiku 5.5 entry whose `inputTokens` is over 100,000. That is right for one request per entry; a caller that records a summed multi-step `totalUsage` against that model would price every step at the high tier and overcharge about five times. Every current Haiku caller records per step.
 **Clearing condition:** per-request usage is carried into `addLLMCost` (or a guard test fails when a caller passes a multi-step total for a model with tiers).
 
+### SWEEP-F43 — A declined persona-generator call is still reported as "the persona generator call failed"
+**Raised:** 2026-11-20, `feat/claude-gateway-261117`, code review of the declined-call fix. **Status:** OPEN (low)
+`lib/personas/generate.ts::generatePersona` has one generic catch, so a `DeclinedCallError` from `lib/phases/model-adapters.ts::generateReportingUsage` is logged under `generator-call-failed` and the fail-closed artifact says the call failed. It stays fail-closed and is charged.
+**Clearing condition:** a branch on `isDeclinedCall` with its own log stage and "the model declined" wording.
+
+### SWEEP-F44 — A declined fact extraction is only a log line, so a later BLOCK for "nothing established" points at the wrong cause
+**Raised:** 2026-11-20, `feat/claude-gateway-261117`, code review of the declined-call fix. **Status:** OPEN (low)
+`lib/phases/runtime.ts` logs a declined extraction as a warning under `extract-declined` and stores nothing. The founder sees no sign of it, and the gate may then block on a missing criterion the founder did supply.
+**Clearing condition:** the next gate question or the verdict card says the extraction step declined.
+
+### SWEEP-F45 — A declined gate judge declines again on every later turn, and the founder-facing text promises a re-check that cannot succeed
+**Raised:** 2026-11-20, `feat/claude-gateway-261117`, code review of the declined-call fix. **Status:** OPEN (medium, new on Claude)
+The judge reads the whole project transcript, so a decline caused by one early message repeats on every later turn, each call charged. `lib/phases/gate.ts` stores it as an ordinary `judge-incomplete` BLOCK whose next question says to edit the message that set it off, which only helps when the founder can tell which message that was. The fix agent did not mark the turn as declined because the judge's decline cannot be tied to one turn, and marking would also drop an answered reply from the chat model's history.
+**Clearing condition:** a decline is recorded distinctly from `judge-incomplete`, the verdict says the whole conversation is re-read each turn, and a repeated decline is not retried silently.
+
+### SWEEP-F46 — A structured reply with finish reason `content-filter` is discarded even when it parsed
+**Raised:** 2026-11-20, `feat/claude-gateway-261117`, code review of the declined-call fix. **Status:** OPEN (low, only when a non-Claude model is configured)
+`lib/phases/model-adapters.ts::generateReportingUsage` throws `DeclinedCallError` for any call that ends with `content-filter`, also when the object parsed. For a configured non-Claude research or gate model whose filter flags an otherwise complete answer, a usable reply is thrown away and a research run ends as declined.
+**Clearing condition:** the decline is keyed on the provider's own refusal signal, or only Claude is documented as supported for these calls.
+
+### SWEEP-F47 — The declined-step message says "no document to open" for a clarify step that never makes one
+**Raised:** 2026-11-20, `feat/claude-gateway-261117`, code review of the declined-call fix. **Status:** OPEN (nit)
+`tools/platform/deep-research/report-outcome.ts::describeDeclinedStep` always ends "so nothing was saved and there is no document to open", and its finish-reason text is fixed instead of read from the call.
+**Clearing condition:** the "no document" clause is built only for the report step, and the real finish reason is printed.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

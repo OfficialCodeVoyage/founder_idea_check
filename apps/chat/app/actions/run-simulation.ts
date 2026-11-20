@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import config from "@/chat.config";
 import { auth } from "@/lib/auth";
-import { addCredits, reserveCredits } from "@/lib/db/credits";
+import { addCredits, deductCredits } from "@/lib/db/credits";
 import { getProjectFacts } from "@/lib/db/phase-queries";
 import { getProjectById } from "@/lib/db/queries";
 import {
@@ -78,8 +78,6 @@ export type RunSimulationResult =
   | { status: "profile-incomplete"; gaps: SimulationSeedGap[] }
   /** The request itself is out of bounds (pitch length, seat count). */
   | { status: "invalid"; detail: string }
-  /** The same refusal the chat route answers with HTTP 402. */
-  | { status: "insufficient-credits" }
   | { status: "ran"; outcome: SimulationOutcome };
 
 /** PURE. The pitch's refusal, or null when it may be sent. */
@@ -160,11 +158,10 @@ export async function runProjectSimulation({
 
   // CHARGED UP FRONT, REFUNDED ONLY WHEN `simulationReachedModel` IS FALSE.
   //
-  // The same gate as a chat turn (a positive balance), but taken atomically
-  // with the charge: `reserveCredits` deducts only while the balance is
-  // positive, in one statement, so concurrent runs cannot all start on the
-  // same last cent. It sits after every local refusal above, so a request
-  // refused here is never charged at all.
+  // No balance gate, as in a chat turn: `UserCredit.credits` records what the
+  // operator's own keys spent and never refuses a run, so it may go below
+  // zero. The charge sits after every local refusal above, so a request
+  // refused there is never charged at all.
   //
   // The charge was once deducted after the run's row was written, so a run
   // whose insert failed (a database error, the project deleted mid-run) had
@@ -180,9 +177,7 @@ export async function runProjectSimulation({
   // counts.
   const size = { seats: seeded.personas.length, rounds: DEFAULT_ROUNDS };
   const cost = estimateSimulationCostCents(size);
-  if (!(await reserveCredits(userId, cost))) {
-    return { status: "insufficient-credits" };
-  }
+  await deductCredits(userId, cost);
 
   const outcome = await runSimulation(
     {

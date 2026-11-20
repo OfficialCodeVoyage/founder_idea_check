@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="apps/chat/app/icon.svg" alt="Founder Idea Check" width="64" height="64">
+<img src="apps/chat/app/icon.svg" alt="IdeaGate" width="64" height="64">
 
-# Founder Idea Check
+# IdeaGate
 
 Test a startup idea before you build it.
 
@@ -10,7 +10,7 @@ Test a startup idea before you build it.
 
 <br />
 
-Founder Idea Check is a chat app for founders. You describe an idea and it walks you through eight validation
+IdeaGate (formerly Founder Idea Check) is a chat app for founders. You describe an idea and it walks you through eight validation
 phases. After every answer it checks what you have actually established, and it will not move you to the next phase
 on enthusiasm alone: each phase has exit criteria, and a gate written as plain code refuses to pass them without
 evidence. When you are done, the project exports as a folder of documents that a coding agent can start from.
@@ -105,9 +105,13 @@ signing out and other authenticated form posts fail with a 403.
   embeddings and the persona simulation call OpenAI with yours, so you pay both directly. The chat uses
   `claude-sonnet-5-5`, the gate's judge `claude-opus-5-5`, titles and fact extraction `claude-haiku-5-5`, and research
   uses Haiku and Sonnet.
-- The app keeps its own spending cap as a credit balance in your local database. A new account starts with about
-  $0.50 and there is no top-up screen, so you will want to raise it; [`GETTING-STARTED.md`](GETTING-STARTED.md) shows
-  how.
+- The app records an estimate of what each account has spent, in cents, in your local database (`UserCredit.credits`,
+  which starts at 50). It is a meter, never a limit: nothing stops when it reaches zero, and the app shows no balance.
+  Your Anthropic and OpenAI accounts are the real bill.
+- **A copy has no spend cap of its own for signed-in users.** The monthly spend limit you set on your API keys, at
+  Anthropic and at OpenAI, is the only cap. Do not expose a copy to the public internet with sign-in open (Google,
+  GitHub or Vercel OAuth credentials set) without setting that limit. Visitors who are not signed in still have their
+  own message and rate limits.
 - Your projects, chats and facts live in the Postgres container on your machine. What leaves it: your messages and
   facts go to Anthropic to produce answers, facts go to OpenAI to be embedded (and to simulate personas when you run a
   simulation), and research queries go from your machine to the public sources you have enabled. The app sends no
@@ -126,7 +130,7 @@ signing out and other authenticated form posts fail with a 403.
 
 ## Built on ChatJS
 
-Founder Idea Check is a fork of [ChatJS](https://github.com/FranciscoMoretti/chat-js) by Francisco Moretti, an
+IdeaGate is a fork of [ChatJS](https://github.com/FranciscoMoretti/chat-js) by Francisco Moretti, an
 Apache-2.0 chat application framework. The chat interface, authentication and much of the plumbing come from it.
 What was changed and added is listed in [`NOTICE`](NOTICE); code taken from other projects, with its licence, is
 recorded in [`THIRD_PARTY.md`](THIRD_PARTY.md) and [`THIRD_PARTY-research.md`](THIRD_PARTY-research.md).

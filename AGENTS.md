@@ -1,4 +1,4 @@
-# Founder Idea Check — agent instructions
+# IdeaGate — agent instructions
 
 ## Repository
 

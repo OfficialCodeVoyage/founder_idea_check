@@ -2,7 +2,6 @@
 
 import {
   ChevronsUpDown,
-  DollarSign,
   LogIn,
   LogOut,
   Moon,
@@ -28,16 +27,13 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { useGetCredits } from "@/hooks/chat-sync-hooks";
 import authClient from "@/lib/auth-client";
-import { formatCreditBalance } from "@/lib/credits/format-credit-balance";
 import { isElectronRenderer } from "@/lib/electron-auth";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/providers/session-provider";
 
 export function SidebarUserNav() {
   const { data: session, isPending } = useSession();
-  const { credits } = useGetCredits();
   const { setTheme, resolvedTheme } = useTheme();
   const router = useRouter();
   const { isMobile, state } = useSidebar();
@@ -54,8 +50,7 @@ export function SidebarUserNav() {
             className="flex h-12 items-center gap-2 rounded-md p-2"
           >
             <div className="size-8 animate-pulse rounded-lg bg-sidebar-accent" />
-            <div className="grid flex-1 gap-1 group-data-[collapsible=icon]:hidden">
-              <div className="h-3 w-20 animate-pulse rounded bg-sidebar-accent" />
+            <div className="grid flex-1 group-data-[collapsible=icon]:hidden">
               <div className="h-3 w-28 animate-pulse rounded bg-sidebar-accent" />
             </div>
           </div>
@@ -116,14 +111,6 @@ export function SidebarUserNav() {
               >
                 <span className="truncate font-medium">
                   {user.name || user.email}
-                </span>
-                <span
-                  className="flex items-center gap-1 truncate text-xs"
-                  title="Credit balance (USD)"
-                >
-                  <DollarSign className="size-3" />
-                  <span className="sr-only">Credit balance in US dollars:</span>
-                  {formatCreditBalance(credits)}
                 </span>
               </div>
               <ChevronsUpDown

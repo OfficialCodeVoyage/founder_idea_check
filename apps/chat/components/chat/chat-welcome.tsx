@@ -1,24 +1,29 @@
 "use client";
 
 import type { UseChatHelpers } from "@ai-sdk/react";
-import { memo } from "react";
+import { memo, useState } from "react";
 import { MultimodalInput } from "@/components/multimodal-input";
-import { SuggestedActions } from "@/components/suggested-actions";
+import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@/lib/ai/types";
+import { useCurrentChatRoute } from "@/lib/chat-route";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
 import { cn } from "@/lib/utils";
-import { useChatInput } from "@/providers/chat-input-provider";
+import { IdeaStart } from "./idea-start";
 
-function WelcomeMessage() {
-  return (
-    <div className="pointer-events-none text-center">
-      <h1 className="font-normal text-2xl text-foreground sm:text-3xl">
-        How can I help you today?
-      </h1>
-    </div>
-  );
-}
-
+/**
+ * THE WELCOME SCREEN of a chat that is not in a project. On the home route
+ * (`/`) it opens on the idea test, because a home-screen chat has no project,
+ * so no phases and no gate: sending an idea from here creates a project and
+ * opens its first chat (`./use-start-idea-test.ts`). A plain chat stays one
+ * click away for a question that is not an idea, with the composer it always
+ * had.
+ *
+ * `ChatContent` also mounts this, hidden, under every plain `/chat/<id>`, and
+ * shows it when such a chat has no messages. There it stays the plain
+ * composer: that URL already names a chat outside any project, so an idea sent
+ * from it would move a project-less chat under a project URL. A project with
+ * no messages yet renders `ProjectHome` instead, untouched.
+ */
 function PureChatWelcome({
   chatId,
   status,
@@ -32,31 +37,49 @@ function PureChatWelcome({
   isActive: boolean;
 }) {
   const parentMessageId = useLastMessageId();
-  const { selectedModelId } = useChatInput();
+  const isHomeRoute = useCurrentChatRoute().type === "home";
+  const [mode, setMode] = useState<"idea" | "chat">("idea");
 
   return (
+    // Scrolls, and centres with auto margins rather than `justify-*`: a stack
+    // taller than a phone screen would otherwise overflow upward, out of reach.
     <div
-      className={cn(
-        "flex min-h-0 flex-1 flex-col justify-end md:justify-center",
-        className
-      )}
+      className={cn("flex min-h-0 flex-1 flex-col overflow-y-auto", className)}
     >
-      <div className="mx-auto w-full p-2 @[500px]:px-4 @[500px]:pb-6 pb-4 md:max-w-3xl">
-        <div className="mb-4 md:mb-6">
-          <WelcomeMessage />
-        </div>
-        <MultimodalInput
-          autoFocus
-          chatId={chatId}
-          isActive={isActive}
-          parentMessageId={parentMessageId}
-          status={status}
-        />
-        <SuggestedActions
-          chatId={chatId}
-          className="mt-4"
-          selectedModelId={selectedModelId}
-        />
+      <div className="mx-auto mt-auto w-full p-2 @[500px]:px-4 @[500px]:pb-6 pb-4 md:my-auto md:max-w-3xl">
+        {isHomeRoute && mode === "idea" ? (
+          <IdeaStart chatId={chatId} onOpenPlainChat={() => setMode("chat")} />
+        ) : (
+          <>
+            <div className="mb-4 text-center md:mb-6">
+              <h1 className="font-normal text-2xl text-foreground sm:text-3xl">
+                Ask a quick question
+              </h1>
+              <p className="mt-2 text-muted-foreground text-sm">
+                A plain chat has no phases and no gates.
+              </p>
+            </div>
+            <MultimodalInput
+              autoFocus
+              chatId={chatId}
+              isActive={isActive}
+              parentMessageId={parentMessageId}
+              status={status}
+            />
+            {isHomeRoute ? (
+              <div className="mt-4 text-center">
+                <Button
+                  className="h-auto p-0"
+                  onClick={() => setMode("idea")}
+                  type="button"
+                  variant="link"
+                >
+                  Test an idea instead
+                </Button>
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

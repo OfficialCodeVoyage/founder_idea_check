@@ -77,9 +77,10 @@ export function LoginForm({
         </CardContent>
       </Card>
       <div className="text-balance text-center text-muted-foreground text-xs [&_a]:underline [&_a]:underline-offset-4 [&_a]:hover:text-primary">
-        By clicking continue, you agree to our{" "}
-        <InternalLink href="/terms">Terms of Service</InternalLink> and{" "}
-        <InternalLink href="/privacy">Privacy Policy</InternalLink>.
+        The <InternalLink href="/terms">Terms of Service</InternalLink> say who
+        runs this copy. The{" "}
+        <InternalLink href="/privacy">Privacy Policy</InternalLink> says where
+        your data is stored and sent.
       </div>
     </div>
   );

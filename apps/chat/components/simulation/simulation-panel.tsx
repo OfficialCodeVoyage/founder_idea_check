@@ -39,11 +39,11 @@ const RAN_BUT_EMPTY = new Set(["no-reactions", "too-few-reactions"]);
 
 /**
  * What the panel says about a failed run, in the three cases the action
- * distinguishes. Which kinds are always free is
+ * distinguishes. Which kinds never reached a model is
  * `SIMULATION_NEVER_STARTED_KINDS`, the same set `simulationReachedModel`
- * waives by, so the sentence about credits cannot drift from the charge. A
- * run that came back empty is refunded only when every agent call failed, so
- * its sentence says nothing about credits.
+ * reads, so the sentence about model calls cannot drift from what happened.
+ * Nothing here mentions money: the app sells nothing, and what a run spent is
+ * on the operator's own provider bill.
  */
 function describeFailure(kind: string): {
   headline: string;
@@ -64,14 +64,14 @@ function describeFailure(kind: string): {
       headline: "The simulation did not run.",
       ran: false,
       record:
-        "nothing was recorded or charged, because it stopped before any persona was called.",
+        "nothing was recorded, because it stopped before any persona was called.",
     };
   }
   return {
     headline: "The simulation failed before it could report a result.",
     ran: false,
     record:
-      "nothing was recorded, but personas may already have been called before it stopped, so the run was charged.",
+      "nothing was recorded, but personas may already have been called before it stopped.",
   };
 }
 
@@ -137,13 +137,6 @@ function OutcomePanel({ result }: { result: RunSimulationResult }) {
   }
   if (result.status === "not-found") {
     return <p className="text-destructive text-sm">Project not found.</p>;
-  }
-  if (result.status === "insufficient-credits") {
-    return (
-      <p className="text-destructive text-sm">
-        You are out of credits, so the simulation did not run.
-      </p>
-    );
   }
   if (result.status === "no-personas" || result.status === "invalid") {
     return (

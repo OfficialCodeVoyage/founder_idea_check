@@ -51,7 +51,7 @@ the map.
 | Table | Holds | Worth knowing |
 |---|---|---|
 | `user`, `session`, `account`, `verification` | better-auth's tables | Lowercase names, owned by the auth library. |
-| `UserCredit` | One balance per user, in cents | Default 50, which is $0.50. `canSpend` is `credits > 0`; a turn in flight may take it slightly negative. |
+| `UserCredit` | One spend meter per user, in cents | Starts at 50. Every charge subtracts its estimated cost (`lib/db/credits.ts::deductCredits`). It records spend and never limits it: nothing reads it to refuse a request, it may go below zero, and the UI does not show it. |
 | `UserModelPreference` | Which models a user turned on | |
 | `Project` | One idea a founder is validating | Owns facts, phases, tasks, personas and simulation data; all of those cascade on delete. |
 | `Chat`, `Message`, `Vote` | Conversations | `Chat.projectId` is `ON DELETE SET NULL`: deleting a project keeps its chats. `Message.targetCriterionId` is a user message's criterion target (the exit criterion the founder said it answers), or NULL; it is a claim about intent, not a foreign key, and is not tied to a phase. `Message.annotations` (JSON) is `[]` or NULL, except on an assistant reply the model declined, where the server writes `[{"type":"refusal"}]` (`lib/message-conversion.ts::REFUSAL_ANNOTATION`; never from a client); that reply and the founder message it answers stay on screen but no model reads them again (`lib/thread-utils.ts::withoutRefusedTurns`). |

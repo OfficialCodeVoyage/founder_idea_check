@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for taking the time. Founder Idea Check helps a founder test an idea before building it,
+Thanks for taking the time. IdeaGate helps a founder test an idea before building it,
 and it is a fork of [ChatJS](https://github.com/FranciscoMoretti/chat-js) (see `NOTICE`). Bug
 reports, fixes and focused improvements are welcome.
 

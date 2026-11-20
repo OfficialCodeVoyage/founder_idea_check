@@ -51,7 +51,11 @@ test("only one composer claims each testid on the welcome screen", async ({
   // resolved to 2 nodes and `getByTestId` was ambiguous. Role-based locators
   // were never affected (display:none is excluded from the a11y tree), which is
   // why the count, not the role, is what this asserts.
+  //
+  // The welcome screen opens on the idea box, which has no composer; the plain
+  // chat's composer is one click away.
   await page.goto("/");
+  await page.getByRole("button", { name: "Open a plain chat" }).click();
   await expect(page.getByTestId("multimodal-input")).toHaveCount(1);
   await expect(page.getByTestId("model-selector")).toHaveCount(1);
 });

@@ -17,7 +17,7 @@ in the last section.
 | # | Concern | Blast radius | Where |
 |---|---|---|---|
 | 1 | Authorization is checked at each call site, not in shared queries; two cross-user holes found this way (project id, document id) are fixed, more could exist | cross-tenant integrity | Security |
-| 2 | Spend control is "balance above zero" plus a price table of 8 ids against ~126 listed models; any gateway model is selectable | operator's model bill | Security |
+| 2 | No app-side spend cap for signed-in users (the provider key limit is the only one), open sign-up, and a price table of 8 ids against ~126 listed models; any gateway model is selectable | operator's model bill | Security |
 | 3 | Anonymous access: cookie-held credits, IP limit only with Redis, fails open, trusts the first `X-Forwarded-For` | operator's model bill | Security |
 | 4 | Test-mode env vars switch page auth off, skip env validation and supply a published `AUTH_SECRET` fallback | whole app, needs operator error | Security |
 | 5 | After-response work (extraction, gate, personas) and the stream rescue depend on the invocation surviving; no `maxDuration`; no serialisation of concurrent passes | the product's core loop | Fragile |
@@ -27,10 +27,10 @@ in the last section.
 | 9 | Redis connects at module load with no `error` listener | `/api/chat` availability | Fragile |
 | 10 | Auth library version skew (`better-auth` on an older `@better-auth/core`) - resolved: the override is gone and core matches (1.6.34) | auth correctness | Dependencies |
 | 11 | Research quality without SearXNG; default lanes lean on Hacker News, whose relevance test is lexical | answer quality | Scaling |
-| 12 | Default balance of 50 cents has no top-up path | product stops for a real user | Missing |
+| 12 | The per-user spend meter has no screen; reading it takes a database query | operator cannot see spend per user | Missing |
 | 13 | Gate calibrated on phase 1 only; missing prompts degrade to empty text; one extraction pass per turn | verdict quality | Fragile |
 | 14 | Migrations skip outside Vercel; no from-zero replay in CI | schema drift | Fragile |
-| 15 | Inherited privacy text; inherited dead surfaces (MCP, images, Electron, CLI templates) | public legal text, maintenance | Tech debt |
+| 15 | Inherited dead surfaces (MCP, images, Electron, CLI templates) | maintenance | Tech debt |
 | 16 | Test gaps on every route-level authorization check | regressions in 1 to 4 | Test gaps |
 | 17 | Push-guard hook gaps (`SWEEP-F1` to `SWEEP-F4`) | contributor tooling | Tech debt |
 
@@ -87,15 +87,8 @@ in the last section.
 - Fix approach: delete each feature with its config flag, or move it behind a documented opt-in; extend `verify.sh` or drop
   the packages from the public repository.
 
-**Privacy and terms pages are the ChatJS template (rank 15):**
-- Files: `apps/chat/app/privacy/page.tsx`, `apps/chat/chat.config.ts` (`policies.*.lastUpdated`, `services`).
-- Issue: the privacy page prints an empty list where payment processors go (`config.services.paymentProcessors` is `[]`),
-  lists subscription and billing data this app never holds, and says nothing about stored project facts, demand signals or the
-  model providers' handling of founder text. The "last updated" date predates this fork.
-- Fix approach: write text that matches what the product stores and sends before anyone else signs in.
-
-**Dead code:** `apps/chat/lib/db/credits.ts::_addCredits` has no caller; the `TODO` markers in `apps/chat/components/` and
-`apps/chat/tools/platform/documents/create-text-document.ts` are UI polish.
+**Dead code:** `apps/chat/lib/credits/format-credit-balance.ts` has no caller (kept with its test); the `TODO` markers
+in `apps/chat/components/` and `apps/chat/tools/platform/documents/create-text-document.ts` are UI polish.
 
 **Authorization lives at call sites, not in the queries (rank 1's cause):**
 - Files: `apps/chat/lib/db/queries.ts` (`getChatById`, `getProjectById`, `updateProject`, `deleteProject`, `deleteChatById`,
@@ -136,11 +129,13 @@ in the last section.
 - Residual: the rule is still applied query by query; a new route that reads by bare id can repeat the mistake (rank 16).
 
 **2. Spend control and open sign-up (rank 2):**
-- Risk: the pre-turn gate is `canSpend` = balance above zero (`apps/chat/lib/db/credits.ts`); the turn then runs up to five
+- Risk: there is no spend cap for a signed-in user. `UserCredit.credits` (`apps/chat/lib/db/credits.ts`) is a spend meter
+  that starts at 50 cents and only records cost: nothing reads it to refuse a turn, a title or a simulation, it may go
+  below zero, and the UI does not show it (the app sells nothing and runs on the operator's keys). A turn runs up to five
   steps (`stepCountIs(5)` in `apps/chat/lib/ai/core-chat-agent.ts`), a 32,000-token output cap and a 50,000-token input cap
-  (`apps/chat/lib/limits/tokens.ts`), and is charged afterwards. Concurrent requests all pass the check; a research turn is
-  bounded only by its knobs and the 290 s clock (`apps/chat/lib/ai/request-budget.ts`). Post-turn passes are charged but
-  never pre-checked (the comment in the route says so on purpose).
+  (`apps/chat/lib/limits/tokens.ts`), and is recorded afterwards; a research turn is bounded only by its knobs and the
+  290 s clock (`apps/chat/lib/ai/request-budget.ts`). The only cap is the monthly spend limit on the provider keys
+  (`README.md`, "What it costs and what leaves your machine").
 - Risk: `getAppModelDefinition` accepts any language model the gateway lists; only `ai.disabledModels` (empty in
   `apps/chat/chat.config.ts`) removes one, and the per-user enabled set is a UI preference. The price table
   `apps/chat/lib/ai/model-capabilities.ts::MODEL_CAPABILITIES` has 8 entries (one is an embedding model), so a signed-in caller who posts another
@@ -148,18 +143,19 @@ in the last section.
   deducted as zero.
 - Risk: the title call is charged (`generateTitleFromUserMessage`, `apps/chat/app/(chat)/actions.ts`: on the turn's
   accumulator from `/api/chat`, on its own from `/api/chat/prepare`) but sends `JSON.stringify(message)` with no size
-  cap. `apps/chat/app/(chat)/api/chat/prepare/route.ts` requires a 2¢ balance before the title but has no
-  `MAX_INPUT_TOKENS` check, no rate limit and stores the unvalidated message body. Simulation is charged by a flat estimate
+  cap. `apps/chat/app/(chat)/api/chat/prepare/route.ts` has no balance check, no
+  `MAX_INPUT_TOKENS` check and no rate limit, and stores the unvalidated message body. Simulation is charged by a flat estimate
   (`apps/chat/lib/research/simulation.ts::estimateSimulationCostCents`, 0.1 cent per seat-round) because the sidecar reports no
-  usage; it is reserved before the run (`reserveCredits`) and refunded only when
+  usage; it is deducted before the run (`deductCredits`, never refused) and refunded only when
   `apps/chat/lib/research/simulation.ts::simulationReachedModel` is false (`apps/chat/app/actions/run-simulation.ts`):
   a kind in `SIMULATION_NEVER_STARTED_KINDS`, or a `no-reactions` run whose sidecar counted at least `seats × rounds`
   failed agent actions, i.e. every provider call failed. That run is still recorded.
 - Risk: registration is open to any account of an enabled provider and there is no email or domain allow-list in
-  `apps/chat/lib/auth.ts`; each account starts with `UserCredit.credits` = 50 cents (`apps/chat/lib/db/schema.ts`).
+  `apps/chat/lib/auth.ts`, so on a copy exposed with OAuth credentials set, anyone who signs in spends on the
+  operator's keys with no app-side limit.
 - Recommendations: restrict `selectedModelId` to `config.ai` allow-listed ids on the server; treat an unpriced model as a
-  refusal for chat turns; put one atomic "reserve" on the balance before streaming; give `prepare` the same input cap and
-  `canSpend` as `/api/chat`; add sign-up control (allow-list, invite or verified email).
+  refusal for chat turns; give `prepare` the same input cap as `/api/chat`; set a monthly spend limit on the provider
+  keys before exposing a copy; add sign-up control (allow-list, invite or verified email).
 
 **3. Anonymous access (rank 3, upstream behaviour kept):**
 - Risk: credits live in a signed cookie (`apps/chat/lib/anonymous-session-server.ts`) with a server-side record of nothing: clearing
@@ -359,9 +355,9 @@ no `next build`, no end-to-end tests (needs Postgres), no migration replay, no d
 
 ## Missing Critical Features
 
-**No way to add credits (rank 12):** `UserCredit.credits` defaults to 50 cents; the only writers are `deductCredits` and the unused
-`_addCredits` in `apps/chat/lib/db/credits.ts`; `apps/chat/trpc/routers/credits.router.ts` only reads. A real user who passes the
-balance is refused with a 402 and only a database edit helps. There is no billing, admin tool or reset.
+**No per-user spend view (rank 12):** `UserCredit.credits` records each account's estimated spend (it starts at 50 cents;
+`deductCredits` and the simulation refund `addCredits` in `apps/chat/lib/db/credits.ts` are its only writers), but no screen
+shows it; reading it takes a database query (`GETTING-STARTED.md`, step 8). It never refuses a request.
 
 **No account deletion or data export:** nothing in `apps/chat/app`, `components`, `lib` or `trpc` deletes a user or exports their data,
 yet the product stores founders' facts, personas and conversations.

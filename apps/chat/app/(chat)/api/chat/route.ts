@@ -58,7 +58,7 @@ import { auth } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { createAnonymousSession } from "@/lib/create-anonymous-session";
 import { CostAccumulator } from "@/lib/credits/cost-accumulator";
-import { canSpend, deductCredits } from "@/lib/db/credits";
+import { deductCredits } from "@/lib/db/credits";
 import { getMcpConnectorsByUserId } from "@/lib/db/mcp-queries";
 import {
   getChatById,
@@ -302,25 +302,15 @@ async function handleChatValidation({
       }
     }
 
-    // CREDITS BEFORE THE TITLE. The title is a charged model call
-    // (`app/(chat)/actions.ts::generateTitleFromUserMessage`), and the turn's
-    // own credit check in `handleUserValidationAndCredits` runs only after
-    // this function returns — so a founder at zero credits was billed for a
-    // title on the way to the 402. Checked after the ownership checks above,
-    // so an unauthorised request still gets its 401, not a balance answer.
+    // NO BALANCE CHECK. The app runs on the operator's own keys and sells
+    // nothing, so `UserCredit.credits` measures spend and never refuses a
+    // turn; it may go below zero.
     //
-    // The title is recorded on the TURN's accumulator, not charged here: on
-    // its own it was rounded up to 1¢ for a fraction of a cent, and with
-    // exactly 1¢ left that charge made the turn's own check refuse the turn
-    // the check below had just admitted. It is now rounded once with the turn
-    // and deducted with it: by `chargeTurnOnce` once the turn's stream exists,
-    // or by `POST`'s `finally` when the request ends before that. This is the
-    // turn's only balance check (`handleUserValidationAndCredits`).
-    const creditError = await checkUserCanSpend(userId);
-    if (creditError) {
-      return { error: creditError, isNewChat, storedTarget: null };
-    }
-
+    // The title is a model call (`app/(chat)/actions.ts::generateTitleFromUserMessage`)
+    // recorded on the TURN's accumulator, not deducted here: on its own it was
+    // rounded up to 1¢ for a fraction of a cent. It is rounded once with the
+    // turn and deducted with it: by `chargeTurnOnce` once the turn's stream
+    // exists, or by `POST`'s `finally` when the request ends before that.
     isNewChat = true;
     const title = await generateTitleFromUserMessage({
       message: userMessage,
@@ -392,15 +382,7 @@ function resolveSelectedModelId({
   return getPrimarySelectedModelId(selectedModel);
 }
 
-async function checkUserCanSpend(userId: string): Promise<Response | null> {
-  const userCanSpend = await canSpend(userId);
-  if (!userCanSpend) {
-    return new Response("Insufficient credits", { status: 402 });
-  }
-  return null;
-}
-
-async function handleUserValidationAndCredits({
+async function handleUserValidation({
   chatId,
   userId,
   userMessage,
@@ -424,16 +406,6 @@ async function handleUserValidationAndCredits({
   });
   if (validationResult.error) {
     return { error: validationResult.error };
-  }
-
-  // A new chat's balance was already checked in this request, before its
-  // title (`handleChatValidation`). Checking again could only refuse a turn
-  // that check admitted, after the chat and the founder's message were saved.
-  if (!validationResult.isNewChat) {
-    const creditError = await checkUserCanSpend(userId);
-    if (creditError) {
-      return { error: creditError };
-    }
   }
 
   return {
@@ -847,10 +819,9 @@ async function createChatStream({
       // the gate judge, the embedding backfill, a persona regeneration — go
       // into a second accumulator and a second deduction, made in `finally` so
       // a pass that throws past its own guards is still charged for what it
-      // spent. No second canSpend: the turn already passed it, and these
-      // passes are what keeps the founder's phase state true. Being rounded
-      // up to a whole cent on its own, this deduction costs the founder less
-      // than 1¢ more per project turn than one rounding with the turn would;
+      // spent. Being rounded up to a whole cent on its own, this deduction
+      // records less than 1¢ more per project turn than one rounding with the
+      // turn would;
       // folding it into the turn is not possible, because the turn's charge
       // does not wait for these passes to end.
       after(async () => {
@@ -2017,7 +1988,7 @@ async function prepareChatPersistenceAndCredits({
   { error: Response } | { isNewChat: boolean; storedTarget: string | null }
 > {
   if (userId) {
-    return await handleUserValidationAndCredits({
+    return await handleUserValidation({
       chatId,
       userId,
       userMessage,

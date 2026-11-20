@@ -291,23 +291,6 @@ export const aiConfigSchema = z
     },
   });
 
-export const pricingConfigSchema = z.object({
-  currency: z.string().optional(),
-  free: z
-    .object({
-      name: z.string(),
-      summary: z.string(),
-    })
-    .optional(),
-  pro: z
-    .object({
-      name: z.string(),
-      monthlyPrice: z.number(),
-      summary: z.string(),
-    })
-    .optional(),
-});
-
 export const anonymousConfigObjectSchema = z.object({
   credits: z.number().describe("Message credits for anonymous users"),
   availableTools: z
@@ -439,7 +422,7 @@ const contactSchema = z.object({
 
 export const configDescriptionSchema = z.object({
   appPrefix: z.string().default("ideacheck"),
-  appName: z.string().default("Founder Idea Check"),
+  appName: z.string().default("IdeaGate"),
   appTitle: z
     .string()
     .optional()
@@ -450,16 +433,11 @@ export const configDescriptionSchema = z.object({
     contact: contactSchema,
   }),
   services: z.object({
-    hosting: z.string(),
     aiProviders: z.array(z.string()),
-    paymentProcessors: z.array(z.string()),
   }),
   features: featuresConfigObjectSchema,
-  pricing: pricingConfigSchema.optional(),
   legal: z.object({
     minimumAge: z.number(),
-    governingLaw: z.string(),
-    refundPolicy: z.string(),
   }),
   policies: z.object({
     privacy: z.object({
@@ -481,7 +459,7 @@ export const configDescriptionSchema = z.object({
 
 export const configSchema = z.object({
   appPrefix: z.string().default("ideacheck"),
-  appName: z.string().default("Founder Idea Check"),
+  appName: z.string().default("IdeaGate"),
   appTitle: z
     .string()
     .optional()
@@ -503,30 +481,20 @@ export const configSchema = z.object({
 
   services: z
     .object({
-      hosting: z.string(),
       aiProviders: z.array(z.string()),
-      paymentProcessors: z.array(z.string()),
     })
     .default({
-      hosting: "Vercel",
       aiProviders: ["OpenAI", "Anthropic", "Google"],
-      paymentProcessors: [],
     }),
 
   features: featuresConfigSchema,
 
-  pricing: pricingConfigSchema.optional(),
-
   legal: z
     .object({
       minimumAge: z.number(),
-      governingLaw: z.string(),
-      refundPolicy: z.string(),
     })
     .default({
       minimumAge: 13,
-      governingLaw: "United States",
-      refundPolicy: "no-refunds",
     }),
 
   policies: z
@@ -560,7 +528,6 @@ export const configSchema = z.object({
 
 // Output types (after defaults applied)
 export type Config = z.infer<typeof configSchema>;
-export type PricingConfig = z.infer<typeof pricingConfigSchema>;
 export type AiConfig = z.infer<typeof aiConfigSchema>;
 export type AnonymousConfig = z.infer<typeof anonymousConfigSchema>;
 export type AttachmentsConfig = z.infer<typeof attachmentsConfigSchema>;

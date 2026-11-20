@@ -9,7 +9,7 @@ import { BRAND_BLUE, BrandMark } from "@/components/brand-mark";
  * The font is the Geist Regular that `next/og` bundles, so the build needs no network.
  */
 export const alt =
-  "Founder Idea Check: test an idea before you build it. Eight phases, and no gate opens without real evidence.";
+  "IdeaGate: test an idea before you build it. Eight phases, and no gate opens without real evidence.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -68,7 +68,7 @@ export default function OpengraphImage() {
     >
       <div style={{ alignItems: "center", display: "flex", gap: 22 }}>
         <BrandMark size={64} />
-        <div style={{ fontSize: 40 }}>Founder Idea Check</div>
+        <div style={{ fontSize: 40 }}>IdeaGate</div>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column" }}>

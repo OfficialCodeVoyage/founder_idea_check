@@ -1,5 +1,5 @@
 /**
- * The Founder Idea Check mark: a gate (an arch) with a check inside it, because every phase of
+ * The IdeaGate mark: a gate (an arch) with a check inside it, because every phase of
  * the conversation ends at a gate that only opens on evidence. Drawn on a 64-unit grid in the
  * app's blue (`--chart-2`, Tailwind blue-600), which keeps white strokes above 5:1.
  *
@@ -19,7 +19,7 @@ export function BrandMark({
 }) {
   return (
     <svg
-      aria-label="Founder Idea Check"
+      aria-label="IdeaGate"
       height={size}
       role="img"
       viewBox="0 0 64 64"

@@ -26,7 +26,7 @@ export const userCredit = pgTable("UserCredit", {
     .primaryKey()
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  /** Balance in cents. Default = $0.50 */
+  /** Starts at 50 and every charge subtracts its cost, so spend is 50 minus this value. A meter, never a limit. */
   credits: integer("credits").notNull().default(50),
 });
 

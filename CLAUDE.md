@@ -2,7 +2,7 @@
 
 ## Claude Code
 
-Founder Idea Check helps a founder test an idea before building it: an eight-phase conversation whose gates refuse
+IdeaGate helps a founder test an idea before building it: an eight-phase conversation whose gates refuse
 to advance without evidence, a research sidecar that collects public demand signals, and an export that hands the
 validated project to a coding agent. It is a fork of ChatJS (Apache-2.0, see `NOTICE`). It runs locally today;
 `apps/chat/vercel.json` targets Vercel, and nothing is deployed.

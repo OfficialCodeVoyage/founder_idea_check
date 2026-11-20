@@ -4,7 +4,7 @@ _Last updated: 2026-11-12 (`main`)_
 <!-- This file is public. Nothing private goes here: no personal data, no local paths, no secrets. -->
 
 ## Current focus
-- Branch: `main`. Founder Idea Check was released publicly on 2026-11-12. Every change now lands through a
+- Branch: `main`. IdeaGate (formerly Founder Idea Check) was released publicly on 2026-11-12. Every change now lands through a
   squash-merged pull request with a green `ci-success`.
 - Next: 1) the open Dependabot updates 2) the market idea-finding spec (`docs/specs/`), then build it.
 - Waiting on owner: nothing.

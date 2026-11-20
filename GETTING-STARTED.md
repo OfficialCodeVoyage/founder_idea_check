@@ -3,8 +3,8 @@
 From `git clone` to your first conversation with the gate, one step at a time. The commands are the same ones the
 [README](README.md) lists; this page adds what you should see after each one, and what to do when you do not.
 
-Everything runs on your machine. Plan on about 15 minutes, most of it the first Docker build, and on an OpenAI API key:
-the app calls OpenAI for every answer.
+Everything runs on your machine. Plan on about 15 minutes, most of it the first Docker build, and on two API keys: the
+app calls Anthropic for every answer, and OpenAI for the fact embeddings and the persona simulation.
 
 ## What you need
 
@@ -13,7 +13,8 @@ the app calls OpenAI for every answer.
 | Bun 1.3.14 or newer | `bun --version` | The repo pins `packageManager: bun@1.3.14`. npm and pnpm refuse to install it. |
 | Node.js 22 or newer | `node --version` | Next.js runs on 20.9, but the file-storage library (files-sdk) needs 22. |
 | Docker with Compose v2 | `docker compose version` | Postgres, Redis and the research service run in containers. |
-| An OpenAI API key | | On an account with billing enabled. |
+| An Anthropic API key | | On an account with billing enabled. Runs the chat, the gate's judge, extraction, titles and research. |
+| An OpenAI API key | | On an account with billing enabled. Runs the fact embeddings and the persona simulation. |
 | macOS, Linux or WSL 2 | | The scripts are written for bash. |
 
 If Bun is missing:
@@ -39,10 +40,12 @@ Run every command from here on in the repository root unless a step says otherwi
 cp .env.example .env.local
 ```
 
-Open `.env.local` and set two values:
+Open `.env.local` and set three values:
 
 - `AUTH_SECRET`: any long random string. `openssl rand -base64 32` prints one.
-- `OPENAI_API_KEY`: from <https://platform.openai.com/api-keys>.
+- `ANTHROPIC_API_KEY`: from <https://platform.claude.com/settings/keys>.
+- `OPENAI_API_KEY`: from <https://platform.openai.com/api-keys>. Without it the app still answers, but fact retrieval
+  falls back to keyword matching and the persona simulation cannot run.
 
 Leave `DATABASE_URL` as it is: it already points at the Postgres that the next step starts. Everything else in the file
 is optional and commented out.
@@ -109,8 +112,8 @@ You should see an environment check, a line naming the address, and then Next.js
 ```
 
 The check prints warnings rather than stopping, and one is expected: it tells you no social sign-in provider is enabled
-and to use `/api/dev-login`, which is what step 6 does. If it lists `aiGateway (openai): OPENAI_API_KEY`, the key is
-missing or empty in `.env.local`. The first page takes a while to compile.
+and to use `/api/dev-login`, which is what step 6 does. If it lists `aiGateway (anthropic): ANTHROPIC_API_KEY`, the key
+is missing or empty in `.env.local`. The first page takes a while to compile.
 
 Use `dev:local`, not `next dev` by hand. It loads the root `.env.local` directly (turbo, which `bun run dev` goes
 through, passes a task only the variables listed in `turbo.json`), and it sets `APP_URL` to the address it serves on.
@@ -160,8 +163,8 @@ and there is no top-up screen, so a long session ends with `Insufficient credits
 docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 2000;'
 ```
 
-That sets the balance to 2000 cents, $20.00; use any number you like. The balance is an estimate of what OpenAI will
-bill you, not what it does bill: your OpenAI account is the real meter.
+That sets the balance to 2000 cents, $20.00; use any number you like. The balance is an estimate of what Anthropic and
+OpenAI will bill you, not what they do bill: your accounts with them are the real meter.
 
 ## What the research can do
 
@@ -198,7 +201,7 @@ gate's judge, fact extraction, titles, follow-up suggestions and research.
 | `EADDRINUSE :::3100` | something else is on the port | `PORT=3210 bun run dev:local`. |
 | Signing out returns `403 INVALID_ORIGIN` | you are browsing at `127.0.0.1`, or at a port the app was not started for | Use `localhost` and the address `dev:local` printed. |
 | A project page sends you back to the home page | you are not signed in | Open <http://localhost:3100/api/dev-login>. |
-| The badge stays **NOT ASSESSED**, or says `no verdict for this turn` | the gate could not run, usually a missing or wrong `OPENAI_API_KEY` | Read the error in the terminal running `dev:local`, fix the key, send another message. |
+| The badge stays **NOT ASSESSED**, or says `no verdict for this turn` | the gate could not run, usually a missing or wrong `ANTHROPIC_API_KEY` | Read the error in the terminal running `dev:local`, fix the key, send another message. |
 | `Insufficient credits` (402) | the local balance is used up | Step 8. |
 | Research lanes report as blocked or refused | the default sources are limited | See [What the research can do](#what-the-research-can-do). |
 | `DATABASE_URL is not defined` from the migrator | you ran it inside `apps/chat`, which has no env file of its own | Run `bun run db:migrate` from the repository root. |

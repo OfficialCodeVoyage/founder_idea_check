@@ -2,6 +2,7 @@ import { hasToolCall, stepCountIs, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
+import { isDeclined } from "@/lib/ai/refused-reply";
 import { createSemaphore } from "@/lib/research/supervisor";
 import { leadResearcherPrompt } from "./prompts";
 import { canStartResearchTopic, recordCut, stopAt } from "./research-clock";
@@ -14,7 +15,10 @@ export async function runSupervisor(
   options: AgentOptions
 ): Promise<string[]> {
   const { clock, config, dataStream, toolCallId, abortSignal } = options;
-  const model = await getLanguageModel(config.research_model as ModelId);
+  const model = await getLanguageModel(
+    config.research_model as ModelId,
+    "research"
+  );
 
   /**
    * BOUNDED PARALLEL, not serial.
@@ -152,10 +156,20 @@ export async function runSupervisor(
 
   const stop = stopAt(clock, clock.findingsDueAt, abortSignal);
   try {
-    await supervisorAgent.generate({
+    const { finishReason } = await supervisorAgent.generate({
       prompt: researchBrief,
       abortSignal: stop.signal,
     });
+    // A DECLINED STEP (Claude's `refusal`, `content-filter`, with no error)
+    // ends the loop as if the lead researcher were done. The report is
+    // written from the topics finished so far, so it is told its coverage
+    // is partial, not handed a thin set of notes as the whole of the research.
+    if (isDeclined(finishReason)) {
+      recordCut(
+        clock,
+        "the lead researcher's model declined to continue, so the research stopped early and its coverage is partial"
+      );
+    }
   } catch (error) {
     // The route's abort ends the request, and any other error is a real
     // failure: both rethrow. Only the planned `findingsDueAt` stop is

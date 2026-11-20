@@ -81,12 +81,17 @@ function buildChatModels(
     });
 }
 
+// THE GATEWAY IS PART OF EVERY KEY, as it is of `fetchModels`'s. Without it a
+// checkout that switched gateways kept serving the old gateway's catalog from
+// `.next/cache` for up to the revalidate window (stale-while-revalidate after
+// that), so every new model id threw "Model ... not found" and chat turns 404ed
+// until the cache refreshed.
 const fetchAllAppModels = cache(
   async (): Promise<AppModelDefinition[]> => {
     const models = await fetchModels();
     return buildAppModels(models);
   },
-  ["all-app-models"],
+  [`all-app-models-${config.ai.gateway}`],
   { revalidate: 3600, tags: ["ai-gateway-models"] }
 );
 
@@ -95,7 +100,7 @@ export const fetchChatModels = cache(
     const appModels = await fetchAllAppModels();
     return buildChatModels(appModels);
   },
-  ["chat-models"],
+  [`chat-models-${config.ai.gateway}`],
   { revalidate: 3600, tags: ["ai-gateway-models"] }
 );
 

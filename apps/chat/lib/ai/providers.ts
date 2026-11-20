@@ -12,8 +12,14 @@ import { getActiveGateway } from "./active-gateway";
 import { anthropicThinkingOptions } from "./anthropic-thinking";
 import type { AppModelId } from "./app-models";
 import { getAppModelDefinition } from "./app-models";
+import { type CallPath, callPathMiddleware } from "./call-paths";
 
-export const getLanguageModel = async (modelId: AppModelId) => {
+/**
+ * The model for one call. `path` is REQUIRED: it is what the call asks of the
+ * model (effort, thinking), applied from the table in `call-paths.ts`, so no
+ * call runs at a model's default by leaving it out.
+ */
+export const getLanguageModel = async (modelId: AppModelId, path: CallPath) => {
   const model = await getAppModelDefinition(modelId);
   const languageProvider = getActiveGateway().createLanguageModel(
     model.apiModelId
@@ -21,6 +27,13 @@ export const getLanguageModel = async (modelId: AppModelId) => {
 
   const middlewares: Parameters<typeof wrapLanguageModel>[0]["middleware"][] =
     [];
+
+  // FIRST, so it is the outermost layer: every middleware after it, the dev
+  // tools recorder included, sees the request with the path's options merged.
+  const callPath = callPathMiddleware(path, model.apiModelId);
+  if (callPath) {
+    middlewares.push(callPath);
+  }
 
   // Add devtools middleware in development
   if (process.env.NODE_ENV === "development") {
@@ -105,6 +118,11 @@ export const getModelProviderOptions = async (
     return { openai: {} };
   }
   if (model.owned_by === "anthropic") {
+    // Effort is not set here: the chat's model comes from
+    // `getLanguageModel(id, "chat")`, which applies it to both variants (on
+    // Opus, Sonnet and Haiku 5.5 the "non-reasoning" one thinks too, so effort
+    // is what bounds a turn either way). This adds the per-model thinking
+    // shape of a `-reasoning` variant on top.
     if (model.reasoning) {
       return {
         anthropic: {

@@ -28,6 +28,8 @@ loadEnvConfig({ path: path.join(HERE, "../../../.env.local") });
 
 const { config } = await import("../lib/config");
 const { getActiveGateway } = await import("../lib/ai/active-gateway");
+const { withCallPath } = await import("../lib/ai/call-paths");
+type LanguageModelV3 = import("@ai-sdk/provider").LanguageModelV3;
 const { PHASE_ONE } = await import("../lib/phases/definitions");
 const { evaluateGate } = await import("../lib/phases/gate");
 const { extractFacts, reconcileFacts } = await import("../lib/phases/extract");
@@ -187,11 +189,22 @@ function pairTurns(turns: Turn[]): Turn[][] {
 async function runScenario(name: keyof typeof SCENARIOS) {
   const scenario = SCENARIOS[name];
   const gateway = getActiveGateway();
-  const chatModel = gateway.createLanguageModel(
-    config.ai.workflows.chat as never
+  // Built from the gateway directly (no Next runtime, so no model catalog),
+  // with the same call-path options `getLanguageModel` applies: the judge at
+  // its effort, not the model's default.
+  const judgeModel = withCallPath(
+    gateway.createLanguageModel(
+      config.ai.workflows.judge as never
+    ) as LanguageModelV3,
+    "judge",
+    config.ai.workflows.judge
   );
-  const cheapModel = gateway.createLanguageModel(
-    config.ai.workflows.title as never
+  const cheapModel = withCallPath(
+    gateway.createLanguageModel(
+      config.ai.workflows.extract as never
+    ) as LanguageModelV3,
+    "extract",
+    config.ai.workflows.extract
   );
 
   process.stdout.write(
@@ -234,7 +247,7 @@ async function runScenario(name: keyof typeof SCENARIOS) {
 
   // 2. The gate.
   const verdict = await evaluateGate(
-    { judge: createModelGateJudge({ model: chatModel, onUsage: meter }) },
+    { judge: createModelGateJudge({ model: judgeModel, onUsage: meter }) },
     {
       phase: PHASE_ONE,
       personaPrompt,

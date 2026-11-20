@@ -147,6 +147,15 @@ export const deepResearch = ({
               answer: researchResult.data,
               format: "clarifying_questions" as const,
             };
+
+          // `problem`, not a report that is an error: the research part
+          // (`components/part/deep-research.tsx`) shows a `problem`'s text,
+          // and shows nothing for a report.
+          case "declined":
+            return {
+              answer: researchResult.data,
+              format: "problem" as const,
+            };
         }
       } catch (error) {
         console.error("Deep research error:", error);

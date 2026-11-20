@@ -19,8 +19,8 @@ import {
  * moved its interviewer to whatever model was picked last, anywhere.
  *
  * WHAT THIS IS NOT. It is NOT the gate's judge. `runPostTurnPhasePass` resolves
- * the adjudicator as `getLanguageModel(config.ai.workflows.chat)` and the
- * extractor as `config.ai.workflows.title`, neither of which is threaded from
+ * the adjudicator as `getLanguageModel(config.ai.workflows.judge)` and the
+ * extractor as `config.ai.workflows.extract`, neither of which is threaded from
  * the composer. `getLanguageModel(selectedModelId)` has exactly one caller
  * outside the config-driven ones: `createCoreChatAgent`. So the leak changes the
  * INTERVIEWER that produces the transcript and the per-turn cost — a real
@@ -74,6 +74,93 @@ function readSeed(
       : (Object.fromEntries(kept) as SelectedModelValue);
   const modelId = getPrimarySelectedModelId(selection);
   return modelId === null ? null : { modelId, selection };
+}
+
+/** A stored model choice, as a client path may send it again. */
+export type UsableStoredModel = ChatSeedModel & {
+  /**
+   * `stored`: the message's own choice, which the catalog still serves.
+   * `composer`: the message named only models the catalog no longer serves,
+   * so the composer's current primary model stands in for it, alone.
+   */
+  source: "stored" | "composer";
+};
+
+/**
+ * A STORED MODEL CHOICE, CHECKED BEFORE ANYTHING SENDS IT AGAIN.
+ *
+ * Every message written before the gateway moved to Anthropic carries a
+ * `gpt-5.6-*` id the catalog no longer has, and the chat route answers a turn
+ * sent with one with 404 "Model not found". So every client path that reuses a
+ * stored `selectedModel` (Retry, the message editor, a parallel response card)
+ * reads it through here, by way of `providers/use-usable-stored-model.ts`:
+ *
+ *  - the first candidate with a model the catalog still serves (unknown ids
+ *    dropped from a parallel selection), same rule as the seed path
+ *    (`readSeed`): `source: "stored"`;
+ *  - else, when a candidate NAMED a model, the composer's current primary
+ *    model, as a single model even when the composer holds a parallel
+ *    selection: the founder's own pick, never a default they did not make,
+ *    and never a fan-out a single-model message did not ask for (`source:
+ *    "composer"`);
+ *  - else null: the message named no model at all, and each caller does what
+ *    it did before this check existed. "Named" is what those callers tested:
+ *    `getPrimarySelectedModelId` returns an id.
+ */
+export function usableStoredModel({
+  candidates,
+  isKnownModel,
+  composerModelId,
+}: {
+  /** Stored values in order of preference; `""` and null count as none. */
+  candidates: readonly (SelectedModelValue | null | undefined)[];
+  isKnownModel: (id: string) => boolean;
+  /** The composer's current primary model (`useStableChatInput`). */
+  composerModelId: AppModelId;
+}): UsableStoredModel | null {
+  let named = false;
+  for (const candidate of candidates) {
+    const seed = readSeed(candidate, isKnownModel);
+    if (seed) {
+      return { ...seed, source: "stored" };
+    }
+    named ||= getPrimarySelectedModelId(candidate) !== null;
+  }
+  return named
+    ? {
+        modelId: composerModelId,
+        selection: composerModelId,
+        source: "composer",
+      }
+    : null;
+}
+
+/**
+ * PURE. What the message editor opens with: the message's usable choice, or
+ * no override at all when the message named none (the editor's provider then
+ * seeds itself, as it always did).
+ */
+export function editorModelOverrides(stored: UsableStoredModel | null): {
+  overrideModelId?: AppModelId;
+  overrideModelSelection?: SelectedModelValue;
+} {
+  return stored
+    ? {
+        overrideModelId: stored.modelId,
+        overrideModelSelection: stored.selection,
+      }
+    : {};
+}
+
+/**
+ * PURE. The model a parallel response card switches the composer to: the
+ * card's own model when the catalog serves it, otherwise none. A card whose
+ * model is gone leaves the composer's choice alone.
+ */
+export function cardModelChange(
+  stored: UsableStoredModel | null
+): AppModelId | null {
+  return stored?.source === "stored" ? stored.modelId : null;
 }
 
 /**

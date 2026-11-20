@@ -116,6 +116,14 @@ export const message = pgTable(
     // parts column removed - parts are now stored in Part table
     attachments: json("attachments").notNull(),
     createdAt: timestamp("createdAt").notNull(),
+    /**
+     * `[]` (or NULL on old rows) for every message, except the server's
+     * refusal marker on an assistant reply the model declined
+     * (`lib/message-conversion.ts::REFUSAL_ANNOTATION`). Written only by the
+     * chat route's end-of-turn save (`updateMessage`'s `refused`, read from
+     * the reply the route's own stream built) and by the chat clone, which
+     * copies a marker it read from here; a client-sent value never reaches it.
+     */
     annotations: json("annotations"),
     selectedModel: json("selectedModel"),
     selectedTool: varchar("selectedTool", { length: 256 }).default(""),

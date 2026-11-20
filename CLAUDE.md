@@ -23,8 +23,10 @@ validated project to a coding agent. It is a fork of ChatJS (Apache-2.0, see `NO
 - Bun 1.3 + turbo 2.9.5 monorepo. `apps/chat`: Next.js 16.3, React 19.2, AI SDK 6, Drizzle 0.45 on Postgres 17 with
   pgvector, better-auth 1.7, tRPC 11, Tailwind 4, Biome through ultracite 7.4.3, vitest 4. `apps/research`: Python
   3.11 FastAPI sidecar. `packages/thread`, `packages/cli`, `packages/registry`: inherited ChatJS packages.
-- Models come from OpenAI through `apps/chat/chat.config.ts` (`gpt-5.6-terra` for chat and the gate judge,
-  `gpt-5.6-luna` for titles, extraction and research).
+- Text models come from Anthropic through `apps/chat/chat.config.ts` (`claude-sonnet-5-5` for chat,
+  `claude-opus-5-5` for the gate judge, `claude-haiku-5-5` for titles, extraction and the research loop; effort and
+  thinking per call path in `lib/ai/call-paths.ts`, applied by `getLanguageModel(id, path)`). Fact embeddings and the
+  sidecar stay on OpenAI.
 - Pins with a reason: Python `<3.12` (kept as tested; OASIS 0.2.6 itself allows `<3.15`) and `mcp<2` (a guard for the
   OASIS extra, `apps/research/pyproject.toml`); `ultracite@7.4.3`
   (an unpinned `bunx ultracite` pulls a newer major); `better-auth`, `@better-auth/core` and `@better-auth/electron` in `apps/chat/package.json`,
@@ -53,8 +55,9 @@ bun run build                    # only right before a push; it runs the DB migr
   `bun run db:migrate` instead (`docs/DATABASE.md`).
 - Env lives in the repo-root `.env.local` (gitignored; never open it). Variable names: the root `.env.example`,
   `apps/chat/lib/env-schema.ts`, `apps/research/app/config.py`.
-- Paid calls: chat turns, the gate judge, extraction, research runs and `bun run eval:gate` all hit OpenAI.
-  Spend shows in `UserCredit.credits` (cents). Ask before any bulk or eval run.
+- Paid calls: chat turns, the gate judge, extraction, research runs and `bun run eval:gate` hit Anthropic; fact
+  embeddings and the sidecar's simulation hit OpenAI. Spend shows in `UserCredit.credits` (cents). Ask before any bulk
+  or eval run.
 
 ### Env deltas
 None: nothing is deployed.

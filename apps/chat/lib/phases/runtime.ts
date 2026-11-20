@@ -21,7 +21,7 @@ import {
 import { getEmbeddingProvider } from "@/lib/embeddings/provider";
 import { embeddingCostCents } from "@/lib/embeddings/text";
 import { createModuleLogger } from "@/lib/logger";
-import { selectActiveThread } from "@/lib/thread-utils";
+import { selectActiveThread, withoutRefusedTurns } from "@/lib/thread-utils";
 import {
   type DocumentToolType,
   documentToolTypes,
@@ -209,7 +209,9 @@ function transcriptPartText(part: MessagePart): string | null {
  */
 export function toTranscript(messages: ChatMessage[]): TranscriptTurn[] {
   const turns: TranscriptTurn[] = [];
-  for (const m of messages) {
+  // A declined reply and the founder message it answered are read by no model
+  // (`withoutRefusedTurns`): not by the judge, the extractor or the persona.
+  for (const m of withoutRefusedTurns(messages)) {
     if (m.role !== "user" && m.role !== "assistant") {
       continue;
     }
@@ -705,9 +707,11 @@ async function runPhasePass({
     origin: r.origin,
   }));
 
-  // Both ids come from config.ai.workflows. workflows.chat is the JUDGE (the
-  // gate is the product, so it gets the stronger model) and workflows.extract
-  // is the fact extractor.
+  // Both ids come from config.ai.workflows. workflows.judge is the JUDGE (the
+  // gate is the product, so it gets the strongest model, on its own knob so
+  // the interview can run on a cheaper one) and workflows.extract is the fact
+  // extractor. There is no fallback model for either: see below for what a
+  // failure to resolve one becomes.
   //
   // The extractor used to read workflows.title, on the reasoning that it is
   // schema-constrained so a cheap model would do. A schema constrains SHAPE,
@@ -720,8 +724,8 @@ async function runPhasePass({
   // throws, and the caller turns that into a written fail-closed BLOCK rather
   // than silence.
   const [gateModel, extractModel] = await Promise.all([
-    getLanguageModel(config.ai.workflows.chat),
-    getLanguageModel(config.ai.workflows.extract),
+    getLanguageModel(config.ai.workflows.judge, "judge"),
+    getLanguageModel(config.ai.workflows.extract, "extract"),
   ]);
 
   const extracted = await extractFacts(
@@ -730,11 +734,21 @@ async function runPhasePass({
         model: extractModel,
         onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.extract),
       }),
-      onError: (error, stage) =>
+      onError: (error, stage) => {
+        // A decline is the model choosing not to read this exchange, not a
+        // fault: nothing is extracted from it and no stored fact changes.
+        if (stage === "extract-declined") {
+          log.warn(
+            { stage, projectId, phaseKey: phase.key },
+            "the extraction model declined this exchange — no facts were taken from it"
+          );
+          return;
+        }
         log.error(
           { err: error, stage, projectId, phaseKey: phase.key },
           "fact extraction failed — the turn continues with zero facts"
-        ),
+        );
+      },
     },
     {
       phase,
@@ -812,7 +826,7 @@ async function runPhasePass({
     {
       judge: createModelGateJudge({
         model: gateModel,
-        onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.chat),
+        onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.judge),
       }),
     },
     {

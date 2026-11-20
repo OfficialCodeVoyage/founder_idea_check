@@ -32,7 +32,7 @@ function createMessage({
       parallelGroupId,
       parallelIndex,
       isPrimaryParallel: parallelIndex === null ? null : parallelIndex === 0,
-      selectedModel: "gpt-5.6-luna",
+      selectedModel: "claude-haiku-5-5",
       activeStreamId,
       selectedTool: undefined,
     },

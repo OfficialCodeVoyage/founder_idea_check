@@ -183,6 +183,16 @@ const messageMetadataSchema = z.object({
     .optional()
     .catch(undefined),
   usage: z.custom<LanguageModelUsage | undefined>((_val) => true).optional(),
+  /**
+   * An assistant reply the model declined (Claude's `refusal` stop reason).
+   * Set by the chat route on the reply's finish chunk
+   * (`lib/ai/refused-reply.ts`), and read back from
+   * the server's marker in `Message.annotations`
+   * (`lib/message-conversion.ts::refusedMetadata`); a value a client sends is
+   * never stored. The reply and the founder message it answers stay on
+   * screen; no model reads them again (`lib/thread-utils.ts::withoutRefusedTurns`).
+   */
+  refused: z.boolean().optional(),
 });
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;

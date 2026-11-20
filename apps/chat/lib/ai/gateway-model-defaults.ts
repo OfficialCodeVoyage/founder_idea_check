@@ -64,6 +64,8 @@ export interface ModelDefaultsFor<G extends GatewayType> {
   };
   workflows: {
     chat: GatewayModelIdMap[G];
+    // No `judge`: an unset `workflows.judge` follows the configured `chat`
+    // model (lib/config-schema.ts::applyDefaults), never a gateway default.
     title: GatewayModelIdMap[G];
     /**
      * The fact extractor. Split off `title` so that retuning what decides which
@@ -416,19 +418,14 @@ const litellmDefaults = {
 const anthropicDefaults = {
   providerOrder: ["anthropic"],
   disabledModels: [],
-  curatedDefaults: [
-    "claude-opus-5",
-    "claude-sonnet-5",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5",
-  ],
-  anonymousModels: ["claude-haiku-4-5"],
+  curatedDefaults: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+  anonymousModels: ["claude-haiku-5-5"],
   workflows: {
-    chat: "claude-sonnet-5",
-    title: "claude-haiku-4-5",
-    extract: "claude-haiku-4-5",
-    pdf: "claude-sonnet-5",
-    chatImageCompatible: "claude-haiku-4-5",
+    chat: "claude-sonnet-5-5",
+    title: "claude-haiku-5-5",
+    extract: "claude-haiku-5-5",
+    pdf: "claude-sonnet-5-5",
+    chatImageCompatible: "claude-haiku-5-5",
   },
   tools: {
     webSearch: { enabled: false },
@@ -439,20 +436,20 @@ const anthropicDefaults = {
       enabled: true,
       types: { text: true, code: true, sheet: true },
     },
-    followupSuggestions: { enabled: false, default: "claude-haiku-4-5" },
-    text: { polish: "claude-haiku-4-5" },
-    sheet: { format: "claude-haiku-4-5", analyze: "claude-haiku-4-5" },
-    code: { edits: "claude-sonnet-4-6" },
+    followupSuggestions: { enabled: false, default: "claude-haiku-5-5" },
+    text: { polish: "claude-haiku-5-5" },
+    sheet: { format: "claude-haiku-5-5", analyze: "claude-haiku-5-5" },
+    code: { edits: "claude-sonnet-5-5" },
     // Anthropic ships no image or video models, so no `default` key is allowed.
     image: { enabled: false },
     video: { enabled: false },
     deepResearch: {
       enabled: false,
-      researchModel: "claude-haiku-4-5",
-      summarizationModel: "claude-haiku-4-5",
-      compressionModel: "claude-haiku-4-5",
-      finalReportModel: "claude-sonnet-5",
-      statusUpdateModel: "claude-haiku-4-5",
+      researchModel: "claude-haiku-5-5",
+      summarizationModel: "claude-haiku-5-5",
+      compressionModel: "claude-haiku-5-5",
+      finalReportModel: "claude-sonnet-5-5",
+      statusUpdateModel: "claude-haiku-5-5",
       allowClarification: true,
       maxResearcherIterations: 1,
       maxResearcherSteps: 6,

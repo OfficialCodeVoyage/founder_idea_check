@@ -71,37 +71,6 @@ function getSearchApi(): SearchAPI {
   return "none";
 }
 
-/** The `gpt-5.6-*` family, with or without a gateway's provider prefix. */
-const GPT_5_6_MODEL = /^(?:openai\/)?gpt-5\.6-/;
-
-/**
- * Provider options for the COMPRESSION call, and for no other: the lowest
- * reasoning effort the model takes, so its reasoning does not eat the output
- * cap. Compression condenses text it is handed, and a model left at its default
- * effort spent part of the 4,000-token cap on reasoning that nothing reads: live
- * QA (re-check 5) saw calls of 3,730, 3,300 and 1,931 output tokens of which
- * 1,459, 516 and 375 were reasoning, one ending 270 short of the cap, and an
- * earlier run ended at exactly the cap with a note cut off. The cap is the time
- * budget (`compression_model_max_tokens`) and is not raised.
- *
- * The `gpt-5.6-*` family is the one this repo has established takes `none` (the
- * sidecar's `RESEARCH_SIM_REASONING_EFFORT` is derived as `none` for it, and
- * `lib/ai/model-capabilities.ts` records the 400 that names it). That holds on
- * the Responses API this call uses, for `gpt-5.6-terra`, the model compression
- * runs on: live QA (re-check 6) sent `reasoningEffort: "none"` on four terra
- * compression calls through the app's own path, and none raised an API error;
- * the four reported 0, 0, 0 and 0 reasoning tokens. Any other model gets no
- * option: whether it takes the key at all is unknown, and a rejected option would
- * fail the whole topic's compression, which is worse than reasoning tokens.
- */
-export function getCompressionProviderOptions(
-  modelId: string
-): { openai: { reasoningEffort: "none" } } | undefined {
-  return GPT_5_6_MODEL.test(modelId)
-    ? { openai: { reasoningEffort: "none" } }
-    : undefined;
-}
-
 export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
   const {
     researchModel,
@@ -157,11 +126,22 @@ export function getDeepResearchConfig(): DeepResearchRuntimeConfig {
     researcher_step_max_tokens: 1500,
     compression_model: compressionModel,
     // The cap is the time budget, not a length target: `compressResearchSystemPrompt`
-    // asks for a note of at most about 2,000 words (about 2,800 tokens) so that it
+    // asks for a note of at most about 2,800 tokens, stated in words at
+    // `WORDS_PER_TOKEN` (`COMPRESSION_NOTE_TOKENS` in prompts.ts), so that it
     // ends well before this. Lower or raise one with the other in mind.
     compression_model_max_tokens: 4000,
     final_report_model: finalReportModel,
-    final_report_model_max_tokens: 6000,
+    /*
+      12,000, NOT 6,000. Live (2026-11-17, Sonnet 5.5) a report hit 6,000 output
+      tokens in its source list, all of them text, and was saved only as a
+      partial document: as the JSON argument of a `createTextDocument` call it
+      took 2.6 characters per token. The prompt asks for at most 80% of this
+      cap, source list included (`research-clock.ts::reportLength`): 9,600
+      tokens, about 86 s at the measured lower bound of 111 tokens per second,
+      inside the report's 120 s. Raising it costs at most 6,000 output tokens
+      more per run (6 cents at Sonnet 5.5's $10 per million).
+    */
+    final_report_model_max_tokens: 12_000,
     status_update_model: statusUpdateModel,
     status_update_model_max_tokens: 4000,
   };

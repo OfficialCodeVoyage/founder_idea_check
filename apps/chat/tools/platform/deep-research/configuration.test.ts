@@ -33,9 +33,10 @@ vi.mock("@/lib/env", () => ({
   env: {},
 }));
 
-const { getCompressionProviderOptions, getDeepResearchConfig } = await import(
-  "./configuration"
-);
+const { getDeepResearchConfig } = await import("./configuration");
+const { callPathProviderOptions } = await import("@/lib/ai/call-paths");
+const getCompressionProviderOptions = (modelId: string) =>
+  callPathProviderOptions("compression", modelId);
 const { researchSystemPrompt } = await import("./prompts");
 
 describe("deep research threads five DISTINCT model roles", () => {
@@ -131,10 +132,13 @@ describe("the compression call does not spend its output cap on reasoning", () =
     );
   });
 
-  it("sends nothing to a model whose handling of the option is not established", () => {
+  it("sends nothing to a model whose handling of the option is not established, and low effort to an older Claude model that takes it", () => {
     expect(getCompressionProviderOptions("gpt-4o-mini")).toBeUndefined();
-    expect(getCompressionProviderOptions("claude-opus-5")).toBeUndefined();
+    expect(getCompressionProviderOptions("claude-haiku-4-5")).toBeUndefined();
     expect(getCompressionProviderOptions("gpt-5.4-mini")).toBeUndefined();
+    expect(getCompressionProviderOptions("claude-opus-5")).toEqual({
+      anthropic: { effort: "low" },
+    });
   });
 
   it("leaves the output cap where it was", () => {

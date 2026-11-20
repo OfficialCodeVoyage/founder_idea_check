@@ -25,6 +25,8 @@ import { keyFromFileUrl } from "@/lib/file-url";
 import { createModuleLogger } from "@/lib/logger";
 import {
   chatMessageToDbMessage,
+  refusalAnnotations,
+  refusedMetadata,
   targetMetadata,
 } from "@/lib/message-conversion";
 import { selectActiveThread } from "@/lib/thread-utils";
@@ -435,6 +437,12 @@ export async function saveChatMessages({
       const dbMessages = messages.map(({ id, chatId, message: msg }) => {
         const dbMsg = chatMessageToDbMessage(msg, chatId);
         dbMsg.id = id;
+        // The clone's messages are read from the database (the chat router's
+        // clone), so a refusal marker here is one the server wrote; it is
+        // copied so the cloned chat leaves the declined turn out too.
+        dbMsg.annotations = refusalAnnotations(
+          msg.role === "assistant" && msg.metadata.refused === true
+        );
         return dbMsg;
       });
       await tx.insert(message).values(dbMessages);
@@ -470,10 +478,18 @@ export async function updateMessage({
   id,
   chatId,
   message: chatMessage,
+  refused,
 }: {
   id: string;
   chatId: string;
   message: ChatMessage;
+  /**
+   * Whether the model declined this reply, as the chat route read it from the
+   * finished reply its own stream built (`lib/ai/refused-reply.ts::finishedReplyRefused`).
+   * The ONLY way the refusal marker is written for a reply
+   * (`REFUSAL_ANNOTATION`): this function never reads it from `message`.
+   */
+  refused: boolean;
 }) {
   try {
     return await db.transaction(async (tx) => {
@@ -485,7 +501,7 @@ export async function updateMessage({
       await tx
         .update(message)
         .set({
-          annotations: dbMessage.annotations,
+          annotations: refusalAnnotations(refused),
           attachments: dbMessage.attachments,
           createdAt: dbMessage.createdAt,
           parentMessageId: dbMessage.parentMessageId,
@@ -578,6 +594,7 @@ async function hydrateMessages(messages: DBMessage[]): Promise<ChatMessage[]> {
           undefined) as ChatMessage["metadata"]["selectedTool"],
         usage: msg.lastContext as ChatMessage["metadata"]["usage"],
         ...targetMetadata(msg.targetCriterionId),
+        ...refusedMetadata(msg.annotations),
       },
     };
   });
@@ -1073,6 +1090,7 @@ export async function getChatMessageWithPartsById({
             undefined) as ChatMessage["metadata"]["selectedTool"],
           usage: dbMessage.lastContext as ChatMessage["metadata"]["usage"],
           ...targetMetadata(dbMessage.targetCriterionId),
+          ...refusedMetadata(dbMessage.annotations),
         },
       },
     };

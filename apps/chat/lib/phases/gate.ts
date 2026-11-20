@@ -1,3 +1,4 @@
+import { isDeclinedCall } from "@/lib/ai/refused-reply";
 import {
   type CriterionClosure,
   type CriterionEvaluation,
@@ -506,6 +507,30 @@ export function failClosedVerdict(
   };
 }
 
+/**
+ * Fail-closed verdict for "the judge model declined to assess the
+ * conversation" (Claude's `refusal`, `isDeclinedCall`).
+ *
+ * STILL A BLOCK, with nothing scored: a judge that declined has judged
+ * nothing, and the only PASS without evidence is `gate.enabled === false`.
+ * Only the words change. "The judge call failed (No output generated.)"
+ * named a plumbing fault where the model had declined, and it told the
+ * founder nothing they could do. The judge reads the whole project transcript,
+ * so the verdict cannot say WHICH message set it off; and a new message does
+ * not take an old one out of that transcript, while editing it does (the
+ * edited branch replaces it on the live path the judge reads).
+ */
+function declinedJudgeVerdict(criteria: GateCriterionMeta[]): GateVerdict {
+  return {
+    ...failClosedVerdict(
+      "the judge model declined to assess this conversation, so nothing was judged",
+      criteria
+    ),
+    nextQuestion:
+      "I could not assess this phase: the judge model declined to assess the conversation. If something you said set that off, editing that message to rephrase it may help, and I will re-check on your next turn.",
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure prompt assembly. Exported so a test can assert the judge was given the
 // right criteria without ever calling a model.
@@ -662,7 +687,8 @@ Return one evaluation per criterion. No more, no fewer. Do not invent criteria.`
  *
  * gate.ts NEVER imports "ai", "@/lib/ai/providers" or "@/lib/db/*". That is the
  * property that makes this whole file runnable under vitest with no API key,
- * no network and no database.
+ * no network and no database. (`isDeclinedCall` comes from
+ * `lib/ai/refused-reply.ts`, which takes only types from "ai".)
  */
 export type GateJudge = (request: GateJudgeRequest) => Promise<unknown>;
 
@@ -687,6 +713,9 @@ export async function evaluateGate(
   try {
     raw = await deps.judge(request);
   } catch (error) {
+    if (isDeclinedCall(error)) {
+      return declinedJudgeVerdict(meta);
+    }
     return failClosedVerdict(
       `the judge call failed (${error instanceof Error ? error.message : String(error)})`,
       meta

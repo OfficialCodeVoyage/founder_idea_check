@@ -14,12 +14,19 @@ import type { AiGatewayModel } from "../ai-gateway-models-schemas";
  * unit-testable with no API key, no network and no Next.js request scope.
  *
  * Pricing is dollars-per-token (list $/1M ÷ 1e6). Cache pricing follows the
- * Anthropic convention used by the existing snapshot: read = 0.1x input,
- * write (5m) = 1.25x input.
+ * Anthropic convention: read = 0.1x input, write (5m) = 1.25x input, except
+ * where a model says otherwise (Opus 5.5 and Sonnet 5.5 read at 0.05x).
+ *
+ * The 5.5 prices were read from the claude-api skill's model table (cached
+ * 2026-11-03) on 2026-11-17: Opus 5.5 $4/$20, Sonnet 5.5 $2/$10 (cache reads
+ * $0.20 and $0.10), Haiku 5.5 $0.10/$0.50, Sonnet 5 $2/$10.
  */
 
 /** Stable placeholder — the catalog is static, so `created` carries no meaning. */
 const CREATED = 1_755_815_280;
+
+/** Haiku 5.5's lower rate card covers a prompt of up to this many tokens. */
+const HAIKU_5_5_PROMPT_TIER_TOKENS = 100_000;
 
 type AnthropicTag = NonNullable<AiGatewayModel["tags"]>[number];
 
@@ -37,6 +44,9 @@ const ANTHROPIC_TAGS: readonly AnthropicTag[] = [
  * date-suffixed, except for the explicitly pinned Haiku 4.5 snapshot.
  */
 export const ANTHROPIC_MODEL_IDS = [
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
   "claude-opus-5",
   "claude-fable-5",
   "claude-opus-4-8",
@@ -85,6 +95,85 @@ function haikuPricing(): AiGatewayModel["pricing"] {
 }
 
 export const ANTHROPIC_MODELS: readonly AnthropicCatalogModel[] = [
+  {
+    id: "claude-opus-5-5",
+    object: "model",
+    created: CREATED,
+    owned_by: "anthropic",
+    name: "Claude Opus 5.5",
+    description:
+      "The current Opus, for demanding reasoning and long-horizon work. The phase gate's judge in this app. Thinking is always on; effort sets its depth.",
+    context_window: 1_000_000,
+    max_tokens: 128_000,
+    type: "language",
+    tags: [...ANTHROPIC_TAGS],
+    pricing: {
+      input: "0.000004",
+      output: "0.00002",
+      input_cache_read: "0.0000002",
+      input_cache_write: "0.000005",
+      web_search: "10",
+    },
+  },
+  {
+    id: "claude-sonnet-5-5",
+    object: "model",
+    created: CREATED,
+    owned_by: "anthropic",
+    name: "Claude Sonnet 5.5",
+    description:
+      "The current Sonnet: frontier capability at mid-tier cost and latency. The default chat model for this app.",
+    context_window: 1_000_000,
+    max_tokens: 128_000,
+    type: "language",
+    tags: [...ANTHROPIC_TAGS],
+    pricing: {
+      input: "0.000002",
+      output: "0.00001",
+      input_cache_read: "0.0000001",
+      input_cache_write: "0.0000025",
+      web_search: "10",
+    },
+  },
+  {
+    id: "claude-haiku-5-5",
+    object: "model",
+    created: CREATED,
+    owned_by: "anthropic",
+    name: "Claude Haiku 5.5",
+    description:
+      "The current Haiku: fast and low-cost, for titles, fact extraction, the research loop and other background workflows.",
+    context_window: 1_000_000,
+    max_tokens: 128_000,
+    type: "language",
+    tags: [...ANTHROPIC_TAGS],
+    /**
+     * TWO RATE CARDS, chosen by prompt length (the Pricing page, read
+     * 2026-11-17): $0.10/$0.50 per 1M tokens for a prompt of up to 100,000
+     * tokens, $0.50/$2.50 for a longer one, on input AND output. The prompt
+     * counts every input token, cache reads and writes included. The tiers are
+     * what credit accounting prices from
+     * (`lib/credits/cost-accumulator.ts::rateFor`); the flat pair is the lower
+     * card, kept for readers that know no tiers. No other model in this
+     * catalog has a prompt-length price: 4.6 and later bill the whole 1M
+     * window at their standard rate.
+     */
+    pricing: {
+      input: "0.0000001",
+      output: "0.0000005",
+      input_cache_read: "0.00000001",
+      input_cache_write: "0.000000125",
+      web_search: "10",
+      input_tiers: [
+        { cost: "0.0000001", min: 0, max: HAIKU_5_5_PROMPT_TIER_TOKENS },
+        { cost: "0.0000005", min: HAIKU_5_5_PROMPT_TIER_TOKENS },
+      ],
+      output_tiers: [
+        { cost: "0.0000005", min: 0, max: HAIKU_5_5_PROMPT_TIER_TOKENS },
+        { cost: "0.0000025", min: HAIKU_5_5_PROMPT_TIER_TOKENS },
+      ],
+    },
+  },
   {
     id: "claude-opus-5",
     object: "model",
@@ -187,12 +276,19 @@ export const ANTHROPIC_MODELS: readonly AnthropicCatalogModel[] = [
     owned_by: "anthropic",
     name: "Claude Sonnet 5",
     description:
-      "Mid-tier Sonnet model balancing frontier capability with cost and latency. The default model for this app.",
+      "The previous Sonnet, balancing frontier capability with cost and latency.",
     context_window: 1_000_000,
     max_tokens: 128_000,
     type: "language",
     tags: [...ANTHROPIC_TAGS],
-    pricing: sonnetPricing(),
+    // $2/$10, not the $3/$15 of the 4.x Sonnets this entry used to share.
+    pricing: {
+      input: "0.000002",
+      output: "0.00001",
+      input_cache_read: "0.0000002",
+      input_cache_write: "0.0000025",
+      web_search: "10",
+    },
   },
   {
     id: "claude-sonnet-4-6",
@@ -253,10 +349,10 @@ export const ANTHROPIC_MODELS: readonly AnthropicCatalogModel[] = [
 ];
 
 /** Sensible mid-tier default for chat and document workflows. */
-export const ANTHROPIC_DEFAULT_MODEL_ID: AnthropicModelId = "claude-sonnet-5";
+export const ANTHROPIC_DEFAULT_MODEL_ID: AnthropicModelId = "claude-sonnet-5-5";
 
 /** Cheapest model, used for titles and other background workflows. */
-export const ANTHROPIC_FAST_MODEL_ID: AnthropicModelId = "claude-haiku-4-5";
+export const ANTHROPIC_FAST_MODEL_ID: AnthropicModelId = "claude-haiku-5-5";
 
 const ANTHROPIC_MODEL_ID_SET: ReadonlySet<string> = new Set(
   ANTHROPIC_MODEL_IDS

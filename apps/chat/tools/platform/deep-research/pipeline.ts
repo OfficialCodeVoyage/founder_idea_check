@@ -2,6 +2,7 @@ import { generateText, type ModelMessage, Output, streamText } from "ai";
 import type { z } from "zod";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
+import { isDeclinedCall } from "@/lib/ai/refused-reply";
 import { truncateMessages } from "@/lib/ai/token-utils";
 import {
   chargeUsageTo,
@@ -18,11 +19,14 @@ import {
   finalReportGenerationPrompt,
   transformMessagesIntoResearchTopicPrompt,
 } from "./prompts";
-import { describeMissingReportDocument } from "./report-outcome";
+import {
+  describeDeclinedStep,
+  describeMissingReportDocument,
+} from "./report-outcome";
 import {
   describeCuts,
   type ResearchClock,
-  reportWordBudget,
+  reportLength,
 } from "./research-clock";
 import { runSupervisor } from "./supervisor-agent";
 import {
@@ -96,7 +100,20 @@ export async function runDeepResearchPipeline(
   };
 
   // Step 1: Clarify with user
-  const clarification = await clarifyWithUser(input.messages, ctx);
+  //
+  // A DECLINED clarify or brief call (`isDeclinedCall`) ends the run in the
+  // wording a declined report uses (`describeDeclinedStep`), not "Deep
+  // research failed with error: ...". Any other error, an abort included,
+  // propagates as before.
+  let clarification: ClarificationResult;
+  try {
+    clarification = await clarifyWithUser(input.messages, ctx);
+  } catch (error) {
+    if (!isDeclinedCall(error)) {
+      throw error;
+    }
+    return declinedRun("look at the research request");
+  }
 
   if (clarification.needsClarification) {
     return {
@@ -116,7 +133,26 @@ export async function runDeepResearchPipeline(
   });
 
   // Step 2: Write research brief
-  const brief = await writeResearchBrief(input.messages, ctx);
+  let brief: ResearchBrief;
+  try {
+    brief = await writeResearchBrief(input.messages, ctx);
+  } catch (error) {
+    if (!isDeclinedCall(error)) {
+      throw error;
+    }
+    // "Starting research" is already on screen, so the run is closed the way
+    // a finished one is.
+    dataStream.write({
+      type: "data-researchUpdate",
+      data: {
+        toolCallId: input.toolCallId,
+        title: "Research stopped",
+        type: "completed",
+        timestamp: Date.now(),
+      },
+    });
+    return declinedRun("write the research brief");
+  }
 
   // Step 3: Supervisor research loop
   const notes = await runSupervisor(brief.research_brief, ctx);
@@ -146,6 +182,11 @@ export async function runDeepResearchPipeline(
   };
 }
 
+/** The result of a run whose clarify or brief step the model declined. */
+function declinedRun(task: string): DeepResearchResult {
+  return { type: "declined", data: describeDeclinedStep(task) };
+}
+
 // Step 1: Clarification
 
 type ClarificationResult =
@@ -162,7 +203,10 @@ async function clarifyWithUser(
     return { needsClarification: false };
   }
 
-  const model = await getLanguageModel(config.research_model as ModelId);
+  const model = await getLanguageModel(
+    config.research_model as ModelId,
+    "research"
+  );
   const contextWindow = await getModelContextWindow(
     config.research_model as ModelId
   );
@@ -214,7 +258,10 @@ async function writeResearchBrief(
   ctx: AgentOptions
 ): Promise<ResearchBrief> {
   const { config, dataStream, toolCallId, costAccumulator, abortSignal } = ctx;
-  const model = await getLanguageModel(config.research_model as ModelId);
+  const model = await getLanguageModel(
+    config.research_model as ModelId,
+    "research"
+  );
   const dataPartId = generateUUID();
 
   dataStream.write({
@@ -244,8 +291,9 @@ async function writeResearchBrief(
   const truncatedMessages = truncateMessages(briefMessages, contextWindow);
 
   // Charged whether or not the reply parses: see `generateReportingUsage`.
-  const output: z.infer<typeof ResearchQuestionSchema> =
-    await generateReportingUsage(
+  let output: z.infer<typeof ResearchQuestionSchema>;
+  try {
+    output = await generateReportingUsage(
       chargeUsageTo(costAccumulator, config.research_model as AppModelId),
       "deep-research-brief",
       () =>
@@ -258,6 +306,24 @@ async function writeResearchBrief(
           abortSignal,
         })
     );
+  } catch (error) {
+    // A declined brief ends the run (`runDeepResearchPipeline`), so its step
+    // is closed rather than left running on screen.
+    if (isDeclinedCall(error)) {
+      dataStream.write({
+        id: dataPartId,
+        type: "data-researchUpdate",
+        data: {
+          toolCallId,
+          title: "Writing research brief",
+          message: "The model declined to write the research brief.",
+          type: "writing",
+          status: "completed",
+        },
+      });
+    }
+    throw error;
+  }
 
   dataStream.write({
     id: dataPartId,
@@ -358,7 +424,12 @@ async function generateFinalReport(
 IMPORTANT: You MUST call the createTextDocument tool with the complete report content. Do not output the report as text - save it using the tool.`;
 
   const result = streamText({
-    model: await getLanguageModel(config.final_report_model as ModelId),
+    // The least thinking the model takes: the cap is the report's time
+    // budget (lib/ai/call-paths.ts, "report").
+    model: await getLanguageModel(
+      config.final_report_model as ModelId,
+      "report"
+    ),
     system: systemPrompt,
     prompt: `Write a comprehensive research report with the title "${reportTitle}" based on the following instructions and findings.
 
@@ -433,30 +504,34 @@ To write the report, call the createTextDocument tool with:
  * Kept out of `finalReportGenerationPrompt` on purpose: that prompt is derived
  * from upstream and THIRD_PARTY-research.md measures how far it differs.
  *
- * Two parts. A word limit from the time actually left before `reportDueAt`
- * (`reportWordBudget`), so a report that starts late is shorter rather than
- * cut off by the route's timer mid-sentence. And, when the run stopped
- * searching early, what was cut, so the report says that the coverage is
- * partial instead of presenting missing evidence as an absence of evidence.
+ * Two parts. A length from the time actually left before `reportDueAt` and
+ * the output cap (`reportLength`): a word limit for the text and, when time is
+ * short, a count for the source list, so a report that starts late is shorter
+ * rather than cut off by the route's timer mid-sentence. And, when anything
+ * was cut (for time, at an output limit, or because a model declined), what
+ * was, so the report says that the coverage is partial instead of presenting
+ * missing evidence as an absence of evidence.
  */
 function reportTimeInstructions(
   clock: ResearchClock,
   maxOutputTokens: number
 ): string {
-  const words = reportWordBudget(clock, maxOutputTokens);
-  const limit = `<Length>\nKeep the whole report, sources list included, under ${words} words. It must be finished in the time left; a complete shorter report is worth more than a longer one that is cut off.\n</Length>`;
+  const { words, maxSources } = reportLength(clock, maxOutputTokens);
+  const sourceCount =
+    maxSources === null ? "" : `, at most ${maxSources} of them`;
+  const limit = `<Length>\nKeep the report under ${words} words, not counting its Sources section. In the Sources section, give each source one short line, "[n] Title: URL", and list only sources the report cites${sourceCount}. It must be finished in the time and space left; a complete shorter report is worth more than a longer one that is cut off.\n</Length>`;
   if (clock.cuts.length === 0) {
     return limit;
   }
   return `${limit}
 
-<Search cut short for time>
-The research did not finish everything it planned, mostly to stop early and leave time for this report:
+<Research cut short>
+The research did not finish everything it planned. Each line says what was cut and why: to leave time for this report, at an output limit, or because a model declined to continue.
 ${describeCuts(clock.cuts)
   .map((line) => `- ${line}`)
   .join("\n")}
-Say so near the top of the report, in a short section titled "Research cut short", in plain words: name what was cut, in your own words, from the list above and nothing more. When a line names topics, name each of those topics (a few words each, in your own words), so the reader can see which part of the question rests on less evidence; when it names none, do not guess one. Say that a search or a topic did not run only if the list says so; a researcher stopped mid-step lost its last step, which is not the same as a search that never ran. Do not present a topic that was not searched as a topic with no evidence.
-</Search cut short for time>`;
+Say so near the top of the report, in a short section titled "Research cut short", in plain words: name what was cut, in your own words, from the list above and nothing more, and give each cut the reason its line gives (do not say time was the reason unless the line does). When a line names topics, name each of those topics (a few words each, in your own words), so the reader can see which part of the question rests on less evidence; when it names none, do not guess one. Say that a search or a topic did not run only if the list says so; a researcher stopped mid-step lost its last step, which is not the same as a search that never ran. Do not present a topic that was not searched as a topic with no evidence.
+</Research cut short>`;
 }
 
 function messagesToString(messages: ModelMessage[]): string {

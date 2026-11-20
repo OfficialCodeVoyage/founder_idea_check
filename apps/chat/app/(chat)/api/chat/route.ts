@@ -27,6 +27,12 @@ import {
   streamFollowupSuggestions,
 } from "@/lib/ai/followup-suggestions";
 import { systemPrompt } from "@/lib/ai/prompts";
+import {
+  finishedReplyRefused,
+  insertRefusalNotice,
+  isDeclined,
+  refusedFinishMetadata,
+} from "@/lib/ai/refused-reply";
 import { CHAT_REQUEST_BUDGET_MS } from "@/lib/ai/request-budget";
 import { getStreamErrorMessage, isAbortError } from "@/lib/ai/stream-errors";
 import { calculateMessagesTokens } from "@/lib/ai/token-utils";
@@ -605,6 +611,12 @@ async function createChatStream({
   // model on ai@6.0.219: an AbortError out of `execute`, then `Error(<the text>)`),
   // and that echo is part of the same stop.
   let stopEchoMessage: string | null = null;
+  // The model call's own last finish reason said it declined, read in
+  // `execute` to skip the follow-ups. Set from the step callback inside the
+  // model stream, so it is settled before `result.response` is, and nothing
+  // waits on the UI stream for it. The stored marker and the post-turn skip
+  // read the finished reply itself (`finishedReplyRefused`), not this flag.
+  let turnRefused = false;
 
   // WHEN THE TURN'S SPENDING IS ALL RECORDED. The model's "main-chat" usage is
   // recorded step by step by a transform inside `streamText`
@@ -661,6 +673,9 @@ async function createChatStream({
             log.error(errorLogFields(error), "streamText error");
           },
           onChunk,
+          onStepFinishReason: (finishReason) => {
+            turnRefused = isDeclined(finishReason);
+          },
           onContextTrimmed: (omittedMessages) => {
             // Never silent: this is the one place the assistant is knowingly
             // shown less than the whole conversation, and the phase gate judges
@@ -685,34 +700,49 @@ async function createChatStream({
         };
 
         dataStream.merge(
-          result.toUIMessageStream({
-            sendReasoning: true,
-            messageMetadata: ({ part }) => {
-              // send custom information to the client on start:
-              if (part.type === "start") {
-                return initialMetadata;
-              }
+          result
+            .toUIMessageStream({
+              sendReasoning: true,
+              messageMetadata: ({ part }) => {
+                // send custom information to the client on start:
+                if (part.type === "start") {
+                  return initialMetadata;
+                }
 
-              // when the message is finished, send additional information.
-              // The usage here is for the client only: the turn's
-              // "main-chat" cost is recorded step by step inside
-              // `createCoreChatAgent` (`createMainChatUsageMeter`), because
-              // an aborted turn, or one a provider error ends in a later
-              // step, never reaches this part.
-              if (part.type === "finish") {
-                return {
-                  ...initialMetadata,
-                  usage: part.totalUsage,
-                  activeStreamId: null,
-                };
-              }
-            },
-          })
+                // when the message is finished, send additional information.
+                // The usage here is for the client only: the turn's
+                // "main-chat" cost is recorded step by step inside
+                // `createCoreChatAgent` (`createMainChatUsageMeter`), because
+                // an aborted turn, or one a provider error ends in a later
+                // step, never reaches this part.
+                if (part.type === "finish") {
+                  return {
+                    ...initialMetadata,
+                    usage: part.totalUsage,
+                    activeStreamId: null,
+                    // A DECLINED REPLY IS SAID, NOT SAVED BLANK, and this is
+                    // the one place it is recognised: the mark rides on the
+                    // finish chunk, the notice is written right before it, and
+                    // the stored marker is read from the finished reply
+                    // (`lib/ai/refused-reply.ts`). No model reads the turn
+                    // again (`withoutRefusedTurns`).
+                    ...refusedFinishMetadata(part.finishReason),
+                  };
+                }
+              },
+            })
+            .pipeThrough(insertRefusalNotice(generateUUID()))
         );
         await result.consumeStream();
 
         const response = await result.response;
         const responseMessages = response.messages;
+        if (turnRefused) {
+          log.warn(
+            { chatId, messageId, selectedModelId },
+            "the model declined to answer: the reply carries the refusal notice and the gate is skipped"
+          );
+        }
 
         // Generate and stream follow-up suggestions, except after an aborted
         // turn (`shouldSuggestFollowups`).
@@ -720,6 +750,7 @@ async function createChatStream({
           shouldSuggestFollowups({
             enabled: config.ai.tools.followupSuggestions.enabled,
             turnAborted: abortController.signal.aborted,
+            turnRefused,
           })
         ) {
           const followupSuggestionsResult = generateFollowupSuggestions([
@@ -744,8 +775,12 @@ async function createChatStream({
     },
     generateId: () => messageId,
     onFinish: async ({ isAborted, messages }) => {
+      // From the finished reply itself, so the stored marker and the notice
+      // saved with it come from the same chunks (`finishedReplyRefused`).
+      const refused = finishedReplyRefused(messages);
       await finalizeMessageAndCredits({
         messages,
+        refused,
         stopCause: turnStopCause(abortController, requestDeadlineAt),
         userId,
         isAnonymous,
@@ -764,8 +799,13 @@ async function createChatStream({
       //  - isAnonymous: no project, so no phase and no fact store.
       //  - isPrimaryParallel === false: parallel responses fire onFinish more
       //    than once per user message; only the primary may write facts.
+      //  - refused: the model declined, so there is no interviewer reply
+      //    to judge. The founder message it declined is left out of every
+      //    later model read too, the extractor's included
+      //    (`withoutRefusedTurns`); the founder rephrases, and the rephrased
+      //    message is what the next pass learns from.
       // Runs inside `after()` so it never delays the flushed response.
-      if (isAborted || isAnonymous || isPrimaryParallel === false) {
+      if (isAborted || isAnonymous || isPrimaryParallel === false || refused) {
         return;
       }
       const finishedChat = await getChatById({ id: chatId });
@@ -1649,6 +1689,7 @@ async function chargeTurnOnce({
 
 async function finalizeMessageAndCredits({
   messages,
+  refused,
   stopCause,
   userId,
   isAnonymous,
@@ -1661,6 +1702,8 @@ async function finalizeMessageAndCredits({
   isPrimaryParallel,
 }: {
   messages: ChatMessage[];
+  /** The finished reply carries the refusal mark (`finishedReplyRefused`). */
+  refused: boolean;
   /** Why the turn ended early, or null when it ran to its end or failed. */
   stopCause: TurnStopCause | null;
   userId: string | null;
@@ -1698,6 +1741,7 @@ async function finalizeMessageAndCredits({
   try {
     await persistFinishedAssistantMessage({
       messages,
+      refused,
       stopCause,
       userId,
       isAnonymous,
@@ -1732,6 +1776,7 @@ async function finalizeMessageAndCredits({
  */
 async function persistFinishedAssistantMessage({
   messages,
+  refused,
   stopCause,
   userId,
   isAnonymous,
@@ -1742,6 +1787,7 @@ async function persistFinishedAssistantMessage({
   isPrimaryParallel,
 }: {
   messages: ChatMessage[];
+  refused: boolean;
   stopCause: TurnStopCause | null;
   userId: string | null;
   isAnonymous: boolean;
@@ -1773,6 +1819,11 @@ async function persistFinishedAssistantMessage({
     await updateMessage({
       id: assistantMessage.id,
       chatId,
+      // The END-OF-TURN SAVE is where the refusal marker is written: the row
+      // was inserted empty when the turn began. From the finished reply this
+      // request's own stream built (`finishedReplyRefused`), never from a
+      // message a client sent.
+      refused,
       message: {
         ...assistantMessage,
         metadata: {

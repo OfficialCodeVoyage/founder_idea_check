@@ -12,7 +12,7 @@ import {
   planResearchClock,
   REPORT_ALLOWANCE_MS,
   recordCut,
-  reportWordBudget,
+  reportLength,
   SEARCH_STEP_TIMEOUT_MS,
   searchStepTimeoutMs,
 } from "./research-clock";
@@ -58,11 +58,20 @@ describe("planResearchClock", () => {
   it("asks a report that starts late for fewer words", () => {
     const onTime = { ...clock, now: () => clock.findingsDueAt };
     const late = { ...clock, now: () => clock.findingsDueAt + 60_000 };
-    expect(reportWordBudget(late, 6000)).toBeLessThan(
-      reportWordBudget(onTime, 6000)
+    expect(reportLength(late, 12_000).words).toBeLessThan(
+      reportLength(onTime, 12_000).words
     );
-    // Never more than the model's own output ceiling allows.
-    expect(reportWordBudget(onTime, 1000)).toBeLessThanOrEqual(750);
+    // Never more than the output ceiling or the time left allows: the text at
+    // the report's measured 0.35 words per token, plus the source lines at 53
+    // tokens each, within 80% of the cap and within the writing time (late:
+    // 45 s at 100 tokens a second).
+    const tokensFor = ({
+      words,
+      maxSources,
+    }: ReturnType<typeof reportLength>) =>
+      words / 0.35 + (maxSources ?? 80) * 53;
+    expect(tokensFor(reportLength(onTime, 1000))).toBeLessThanOrEqual(800);
+    expect(tokensFor(reportLength(late, 12_000))).toBeLessThanOrEqual(4500);
   });
 });
 

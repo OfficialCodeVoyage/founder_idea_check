@@ -11,22 +11,23 @@ Sidecar variables are read in `apps/research/app/config.py` and `apps/research/a
 ## APIs & External Services
 
 **Model provider (chat, judge, extraction, research, titles):**
-- OpenAI - the selected gateway (`ai.gateway: "openai"` in `apps/chat/chat.config.ts`; `DEFAULT_GATEWAY` in
-  `apps/chat/lib/ai/gateways/registry.ts`).
-  - SDK/Client: `@ai-sdk/openai` through `apps/chat/lib/ai/gateways/openai-gateway.ts`
-  - Auth: `OPENAI_API_KEY` (read straight from `process.env`, not through `lib/env`, so scripts and tests can load the registry)
-  - Model list: `GET https://api.openai.com/v1/models`, revalidated hourly; with no key a static fallback table is used
-    (`apps/chat/lib/ai/gateways/fallback-models.ts`). Context windows and prices come from `apps/chat/lib/ai/model-capabilities.ts`
-    because the endpoint reports neither.
-  - Model ids per workflow: `apps/chat/chat.config.ts` (`gpt-5.6-terra` for chat and the gate judge, `gpt-5.6-luna` for titles,
-    extraction and the research loop). Ids are typed per gateway, so changing the gateway means changing them too.
+- Anthropic - the selected gateway (`ai.gateway: "anthropic"` in `apps/chat/chat.config.ts`). `DEFAULT_GATEWAY` in
+  `apps/chat/lib/ai/gateways/registry.ts` stays `"openai"`; it applies only to a config with no `ai` block.
+  - SDK/Client: `@ai-sdk/anthropic` through `apps/chat/lib/ai/gateways/anthropic-gateway.ts`
+  - Auth: `ANTHROPIC_API_KEY`, optional `ANTHROPIC_BASE_URL` (read straight from `process.env`, not through `lib/env`, so
+    scripts and tests can load the registry)
+  - Model list: a static catalog with prices (`apps/chat/lib/ai/gateways/anthropic-models.ts`), because `GET /v1/models`
+    reports no prices; `apps/chat/lib/ai/models.generated.ts` is a snapshot of it.
+  - Model ids per workflow: `apps/chat/chat.config.ts` (`claude-sonnet-5-5` for chat, `claude-opus-5-5` for the gate judge,
+    `claude-haiku-5-5` for titles, extraction and the research loop). Ids are typed per gateway, so changing the gateway means
+    changing them too.
   - Cost: each turn is settled in cents by `apps/chat/lib/credits/`, against `UserCredit.credits` (`apps/chat/lib/db/credits.ts`).
 - OpenAI embeddings - `text-embedding-3-small`, 1536 dimensions, via `apps/chat/lib/embeddings/provider.ts`; uses `OPENAI_API_KEY`.
   With no key `getEmbeddingProvider()` returns `null` and fact selection falls back to a keyword ranker (ADR 0002 in
   `docs/ADR/0002-postgres-pgvector-for-embeddings.md`).
 - Other gateways, wired but not selected (`apps/chat/lib/ai/gateways/`, requirements in `apps/chat/lib/config-requirements.ts`):
   - `vercel` - `AI_GATEWAY_API_KEY` or `VERCEL_OIDC_TOKEN`
-  - `anthropic` - `ANTHROPIC_API_KEY`, optional `ANTHROPIC_BASE_URL`
+  - `openai` - `OPENAI_API_KEY`; prices and windows from `apps/chat/lib/ai/model-capabilities.ts`
   - `openrouter` - `OPENROUTER_API_KEY`
   - `openai-compatible` - `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_API_KEY`
   - `litellm` - `LITELLM_BASE_URL`, `LITELLM_API_KEY`

@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
+import { DeclinedCallError } from "@/lib/ai/refused-reply";
 import { PHASE_ONE, PHASES } from "./definitions";
 import {
   buildGatePrompt,
@@ -395,6 +396,21 @@ describe("evaluateGate — the injected seam", () => {
     expect(verdict.decision).toBe("BLOCK");
     expect(verdict.reason).toMatch(RE_FAILED_CLOSED);
     expect(verdict.reason).toMatch(RE_NO_API_KEY);
+  });
+
+  it("stays a BLOCK when the judge model declines, and says rephrasing may help", async () => {
+    // A decline is still nothing judged: BLOCK, nothing scored, never a PASS
+    // and never partial credit. Only the words say what happened.
+    const judge: GateJudge = () =>
+      Promise.reject(new DeclinedCallError("phase-gate"));
+    const verdict = await evaluateGate({ judge }, input);
+
+    expect(verdict.decision).toBe("BLOCK");
+    expect(verdict.perCriterion).toEqual([]);
+    expect(verdict.obstacle?.kind).toBe("judge-incomplete");
+    expect(verdict.reason).toMatch(RE_FAILED_CLOSED);
+    expect(verdict.reason).toContain("declined");
+    expect(verdict.nextQuestion).toContain("rephrase");
   });
 
   it("fails CLOSED when the judge returns an unrecognized shape", async () => {

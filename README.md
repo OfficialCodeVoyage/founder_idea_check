@@ -69,9 +69,11 @@ what comes back as leads to follow up, not as proof. The sources, their defaults
 
 ## Quick start
 
-You need [Bun](https://bun.sh) 1.3.14 or newer, Node.js 22 or newer, Docker with Compose v2, and an
-[OpenAI API key](https://platform.openai.com/api-keys) on an account with billing enabled. The scripts are written for
-bash, so use macOS or Linux, or WSL 2 on Windows.
+You need [Bun](https://bun.sh) 1.3.14 or newer, Node.js 22 or newer, Docker with Compose v2, and two API keys, each on
+an account with billing enabled: an [Anthropic API key](https://platform.claude.com/settings/keys) for the chat, the
+gate's judge, fact extraction, titles and research, and an [OpenAI API key](https://platform.openai.com/api-keys) for
+the fact embeddings and the research service's persona simulation. The scripts are written for bash, so use macOS or
+Linux, or WSL 2 on Windows.
 
 ```bash
 git clone https://github.com/OfficialCodeVoyage/founder_idea_check.git
@@ -80,8 +82,8 @@ bun install
 cp .env.example .env.local
 ```
 
-Open `.env.local` and set two values: `AUTH_SECRET` (generate one with `openssl rand -base64 32`) and
-`OPENAI_API_KEY`. Leave `DATABASE_URL` as it is. Then:
+Open `.env.local` and set three values: `AUTH_SECRET` (generate one with `openssl rand -base64 32`),
+`ANTHROPIC_API_KEY` and `OPENAI_API_KEY`. Leave `DATABASE_URL` as it is. Then:
 
 ```bash
 docker compose up -d --wait   # Postgres with pgvector, Valkey (Redis-compatible), and the research service
@@ -99,15 +101,17 @@ signing out and other authenticated form posts fail with a 403.
 
 ## What it costs and what leaves your machine
 
-- Every chat turn, the gate's judge, fact extraction, fact embeddings and research call OpenAI with your key, so you
-  pay OpenAI directly. The chat and the gate use `gpt-5.6-terra`, titles and fact extraction use `gpt-5.6-luna`, and
-  research uses both.
+- Every chat turn, the gate's judge, fact extraction, titles and research call Anthropic with your key, and the fact
+  embeddings and the persona simulation call OpenAI with yours, so you pay both directly. The chat uses
+  `claude-sonnet-5-5`, the gate's judge `claude-opus-5-5`, titles and fact extraction `claude-haiku-5-5`, and research
+  uses Haiku and Sonnet.
 - The app keeps its own spending cap as a credit balance in your local database. A new account starts with about
   $0.50 and there is no top-up screen, so you will want to raise it; [`GETTING-STARTED.md`](GETTING-STARTED.md) shows
   how.
 - Your projects, chats and facts live in the Postgres container on your machine. What leaves it: your messages and
-  facts go to OpenAI to produce answers, and research queries go from your machine to the public sources you have
-  enabled. The app sends no analytics and no telemetry.
+  facts go to Anthropic to produce answers, facts go to OpenAI to be embedded (and to simulate personas when you run a
+  simulation), and research queries go from your machine to the public sources you have enabled. The app sends no
+  analytics and no telemetry.
 
 ## More
 

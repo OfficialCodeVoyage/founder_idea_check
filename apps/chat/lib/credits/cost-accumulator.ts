@@ -1,6 +1,7 @@
 import type { AppModelDefinition, AppModelId } from "../ai/app-models";
 import { getAppModelDefinition } from "../ai/app-models";
 import { lookupPrices } from "../ai/model-capabilities";
+import type { PricingTier } from "../ai/model-data";
 
 /** Minimal usage info needed for cost calculation */
 export interface UsageInfo {
@@ -20,6 +21,34 @@ function calculateLLMCost(
   const outputCost =
     (usage.outputTokens ?? 0) * Number.parseFloat(pricing.output);
   return (inputCost + outputCost) * 100;
+}
+
+/**
+ * PURE. The per-token rate for one call: the tier whose prompt-size range
+ * holds the call's input tokens when the model publishes tiers, else the flat
+ * rate.
+ *
+ * Claude Haiku 5.5 is the case (`lib/ai/gateways/anthropic-models.ts`): a
+ * prompt over 100,000 tokens pays five times the rate on input AND output, so
+ * both sides are picked by the prompt's size. Its prompt counts every input
+ * token, cache reads and writes included, which is what the AI SDK reports as
+ * `inputTokens`. A tier's upper bound is inclusive ("up to 100,000"), and the
+ * first tier that holds the count wins. Each entry is priced on its own, as
+ * the provider bills each request; that is right only while an entry holds one
+ * request's usage, which is how the callers record it today (per step on the
+ * multi-step paths).
+ */
+function rateFor(
+  flat: string,
+  tiers: readonly PricingTier[] | undefined,
+  promptTokens: number
+): string {
+  const tier = tiers?.find(
+    (candidate) =>
+      promptTokens >= candidate.min &&
+      (candidate.max === undefined || promptTokens <= candidate.max)
+  );
+  return tier?.cost ?? flat;
 }
 
 /** One entry that could not be turned into cents, and why. */
@@ -60,11 +89,20 @@ function priceFor(
   model: AppModelDefinition | null | undefined
 ): { known: true; value: number } | { known: false; reason: string } {
   if (model?.pricing?.input && model?.pricing?.output) {
+    const promptTokens = entry.usage.inputTokens ?? 0;
     return {
       known: true,
       value: calculateLLMCost(entry.usage, {
-        input: model.pricing.input,
-        output: model.pricing.output,
+        input: rateFor(
+          model.pricing.input,
+          model.pricing.input_tiers,
+          promptTokens
+        ),
+        output: rateFor(
+          model.pricing.output,
+          model.pricing.output_tiers,
+          promptTokens
+        ),
       }),
     };
   }

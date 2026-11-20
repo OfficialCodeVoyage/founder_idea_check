@@ -43,13 +43,13 @@ const log = createModuleLogger("tools/deep-research/research-clock");
  * with less than 25 s (`MIN_RESEARCH_TOPIC_MS`: one researcher model step plus
  * one short search).
  *
- * THE 120 s REPORT ALLOWANCE IS AN ESTIMATE, not a measurement: the report
- * model's throughput has not been measured on this route. It assumes 15 s
- * before the first token and 40 output tokens per second after it, which
- * writes about 4,200 tokens (about 3,100 words) in 120 s — below the 6,000-token
- * ceiling in configuration.ts. `reportWordBudget` turns whatever time is
- * actually left into a word limit stated in the report prompt, so a report
- * that starts late is asked to be shorter rather than being cut off.
+ * THE 120 s REPORT ALLOWANCE, MEASURED (2026-11-17, Claude Sonnet 5.5): the
+ * report's 6,000 output tokens arrived in 30 to 45 s, at least about 111
+ * tokens per second. It is assumed here at 100 tokens per second after 15 s to
+ * the first token: 105 s of writing holds 10,500 tokens, more than the
+ * report's target (`reportLength`, at most 80% of its 12,000-token cap in
+ * configuration.ts), so time does not cut a report that starts on time, and a
+ * report that starts late is asked to be shorter rather than being cut off.
  */
 
 export const WRAP_UP_ALLOWANCE_MS = 15_000;
@@ -61,12 +61,53 @@ export const SEARCH_STEP_TIMEOUT_MS = 30_000;
 export const MIN_SEARCH_STEP_MS = 10_000;
 export const MIN_RESEARCH_TOPIC_MS = 25_000;
 
-/** Assumed report-model latency and speed. See the arithmetic above. */
+/** Report-model latency and speed. See the arithmetic above. */
 const REPORT_FIRST_TOKEN_MS = 15_000;
-const REPORT_TOKENS_PER_SECOND = 40;
-const WORDS_PER_TOKEN = 0.75;
-/** Below this a report cannot say anything useful; asked for anyway. */
-const MIN_REPORT_WORDS = 400;
+const REPORT_TOKENS_PER_SECOND = 100;
+/**
+ * WORDS PER OUTPUT TOKEN IN PLAIN TEXT on Claude Sonnet 5.5: 0.55, not the
+ * 0.75 that suits OpenAI's tokenizer. The rate the compression note's word
+ * limit is stated at (`prompts.ts::COMPRESSION_NOTE_TOKENS`); live compression
+ * notes asked for at this rate ended at 2,019 to 2,885 of their 4,000 tokens.
+ * NOT the report's rate (`REPORT_WORDS_PER_TOKEN`).
+ */
+export const WORDS_PER_TOKEN = 0.55;
+/**
+ * WORDS PER OUTPUT TOKEN IN THE REPORT, MEASURED: 0.35. The report is the JSON
+ * argument of a `createTextDocument` call, escaped markdown with a numbered
+ * source list of URLs, and costs far more tokens per word than plain text.
+ * Live (2026-11-17, Sonnet 5.5): about 2,100 words and 15,584 characters took
+ * the whole 6,000-token cap, all of it text (0 reasoning tokens), 2.6
+ * characters per token. At the 0.55 assumed before, the report was asked for
+ * up to 3,300 words, hit the cap in its source list, and never became a
+ * document.
+ */
+const REPORT_WORDS_PER_TOKEN = 0.35;
+/**
+ * THE SOURCE LIST, PAID FOR APART FROM THE WORD LIMIT. A source line ("[21]
+ * Title: URL") is few words and many tokens: the measured lines averaged 134
+ * characters, about 52 tokens at 2.6 characters per token (53 when the run's
+ * own text is split between prose and list). A list of 80 sources is about
+ * 4,200 tokens, so the word limit is stated for the report WITHOUT its source
+ * list, and this many tokens are kept for the list.
+ */
+const SOURCE_LIST_TOKENS = 4200;
+/** Tokens one source line takes, measured as above. */
+const TOKENS_PER_SOURCE_LINE = 53;
+/**
+ * The report is asked for at most this share of its output cap, list
+ * included. The rest is margin for a model that runs past its word limit, and
+ * for thinking: none on Sonnet 5.5 at the report's least thinking, but Opus 5.5
+ * cannot turn it off.
+ */
+const REPORT_TARGET_SHARE_OF_CAP = 0.8;
+/**
+ * The least a report is asked for. Only a report with under about 5 s of
+ * writing time left gets this without it fitting; the route's 15 s wrap-up is
+ * the slack.
+ */
+const MIN_REPORT_WORDS = 100;
+const MIN_REPORT_SOURCES = 3;
 
 /**
  * One thing a cut left behind: the research topic it hit (null when the cut is
@@ -184,10 +225,12 @@ function clipTopic(topic: string): string {
  * prompt and nothing else, so when a run was cut short nobody could say which of
  * the cuts had fired or how far into the request it was. The reasons are the
  * strings the callers in the researcher, the supervisor and the search tool
- * pass. Most are about time; two are not (a researcher's first reply cut off at
- * its output limit, and a researcher's condensed notes cut off at theirs), and are
- * recorded here all the same because the report has to say that a topic went
- * unresearched or that its notes are incomplete.
+ * pass. Most are about time. The others are not: an output limit (a
+ * researcher's first reply, or its condensed notes, cut off at the cap) or a
+ * model that declined to continue (a researcher, its compression or the lead
+ * researcher). They are recorded here all the same because the report has to
+ * say that a topic went unresearched or that its findings are incomplete, and
+ * each line carries its own reason, so the report never blames time for them.
  */
 export function recordCut(
   clock: ResearchClock,
@@ -275,18 +318,57 @@ export function stopAt(
   };
 }
 
-/** The word limit stated in the report prompt, from the time actually left. */
-export function reportWordBudget(
+/** How long the report may be: its text in words, and its source list. */
+export type ReportLength = {
+  /** The report's text, not counting its source list. */
+  words: number;
+  /**
+   * At most this many sources, when time is too short for a full list; null
+   * when the full list fits and no count is stated.
+   */
+  maxSources: number | null;
+};
+
+/**
+ * PURE apart from reading `now`. The report's length, from BOTH the time
+ * actually left and the output cap: the tokens either allows (the cap's at
+ * `REPORT_TARGET_SHARE_OF_CAP`) are shared between the source list and the
+ * text, so the two together fit both.
+ *
+ *  - With room for the whole list (`SOURCE_LIST_TOKENS`) and as much again,
+ *    the list gets its reserve and no count is stated: on time with the
+ *    12,000-token cap, 9,600 tokens, 5,400 for the text, 1,800 words.
+ *  - With less, the list gets half of what fits and a stated count of cited
+ *    sources (`TOKENS_PER_SOURCE_LINE` each), the text the other half.
+ *
+ * Text tokens are turned into words at the report's measured rate
+ * (`REPORT_WORDS_PER_TOKEN`), rounded down to a hundred.
+ */
+export function reportLength(
   clock: ResearchClock,
   maxOutputTokens: number
-): number {
+): ReportLength {
   const writingMs = msUntil(clock, clock.reportDueAt) - REPORT_FIRST_TOKEN_MS;
-  const tokens = Math.min(
-    maxOutputTokens,
-    Math.floor((writingMs / 1000) * REPORT_TOKENS_PER_SECOND)
+  const tokens = Math.max(
+    0,
+    Math.min(
+      Math.floor(maxOutputTokens * REPORT_TARGET_SHARE_OF_CAP),
+      Math.floor((writingMs / 1000) * REPORT_TOKENS_PER_SECOND)
+    )
   );
-  return Math.max(
+  const fullList = tokens >= 2 * SOURCE_LIST_TOKENS;
+  const listTokens = fullList ? SOURCE_LIST_TOKENS : Math.floor(tokens / 2);
+  const words = Math.max(
     MIN_REPORT_WORDS,
-    Math.floor((tokens * WORDS_PER_TOKEN) / 100) * 100
+    Math.floor(((tokens - listTokens) * REPORT_WORDS_PER_TOKEN) / 100) * 100
   );
+  return {
+    words,
+    maxSources: fullList
+      ? null
+      : Math.max(
+          MIN_REPORT_SOURCES,
+          Math.floor(listTokens / TOKENS_PER_SOURCE_LINE)
+        ),
+  };
 }

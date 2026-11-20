@@ -5,6 +5,7 @@ import {
   Output,
 } from "ai";
 import type { AppModelId } from "@/lib/ai/app-models";
+import { DeclinedCallError, isDeclined } from "@/lib/ai/refused-reply";
 import type { CostAccumulator } from "@/lib/credits/cost-accumulator";
 import type { FactExtractor } from "./extract";
 import type { GateJudge } from "./gate";
@@ -26,10 +27,16 @@ import { ExtractionOutputSchema, JudgeOutputSchema } from "./types";
  * gate.ts re-validates: normalizeEvaluation() downgrades any malformed
  * evaluation to `not-evaluable`, and decideGate() fails closed on it.
  *
- * Ignored by providers that do not understand it, so this stays correct if the
- * gateway is switched back to Anthropic.
+ * Ignored by providers that do not understand it, so it stays correct on the
+ * Anthropic gateway.
+ *
+ * Effort is NOT set here: it comes with the model, from
+ * `getLanguageModel(id, "judge" | "extract" | "persona")`
+ * (`lib/ai/call-paths.ts`), and merges with these options key by key. The gate
+ * eval (`evals/gate-calibration.eval.ts`) asks for its model the same way as
+ * the live gate (`runtime.ts`), so the two send the same request.
  */
-const LENIENT_SCHEMA_OPTIONS = {
+export const LENIENT_SCHEMA_OPTIONS = {
   openai: { strictJsonSchema: false },
 } as const;
 
@@ -114,22 +121,42 @@ function reportUsage(
  * `tools/platform/deep-research/pipeline.ts` fail the run as they did); only
  * the charge changes. Any other error is re-thrown untouched: a call that failed
  * before the provider answered has no usage to report.
+ *
+ * A DECLINED CALL (Claude's `refusal`, `content-filter`) is recognised HERE,
+ * once, and re-thrown as `DeclinedCallError` (`lib/ai/refused-reply.ts`), so
+ * each caller can say "the model declined" instead of "the call failed". It
+ * has to be here: an EMPTY declined reply never reaches the parser (the SDK
+ * parses only a `stop` or a non-empty reply), so `generateText` resolves and
+ * it is reading `output` that throws, as `NoOutputGeneratedError`, with no
+ * finish reason on it. So the finish reason is read off the resolved result,
+ * after its usage is reported and before `output` is touched. A PARTIAL
+ * declined reply fails to parse and arrives as `NoObjectGeneratedError` with
+ * the finish reason on it. Either way the usage is reported exactly once, and
+ * a decline is still a rejection, so every caller stays fail closed. A
+ * declined reply that happened to parse is not used either: a refusal is not
+ * an answer, whatever shape its text has.
  */
 export async function generateReportingUsage<T>(
   onUsage: UsageSink | undefined,
   functionId: string,
-  call: () => Promise<{ usage: CallUsage; output: T }>
+  call: () => Promise<{ usage: CallUsage; finishReason: string; output: T }>
 ): Promise<T> {
-  let response: { usage: CallUsage; output: T };
+  let response: { usage: CallUsage; finishReason: string; output: T };
   try {
     response = await call();
   } catch (error) {
     if (NoObjectGeneratedError.isInstance(error)) {
       reportUsage(onUsage, functionId, error.usage);
+      if (isDeclined(error.finishReason)) {
+        throw new DeclinedCallError(functionId, { cause: error });
+      }
     }
     throw error;
   }
   reportUsage(onUsage, functionId, response.usage);
+  if (isDeclined(response.finishReason)) {
+    throw new DeclinedCallError(functionId);
+  }
   return response.output;
 }
 

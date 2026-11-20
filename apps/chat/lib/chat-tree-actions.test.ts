@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage } from "@/lib/ai/types";
+import { usableStoredModel } from "@/lib/ai/chat-seed-model";
+import type { ChatMessage, SelectedModelValue } from "@/lib/ai/types";
 import {
   getRetryMessageInput,
   removeTrailingAssistantMessage,
@@ -9,7 +10,7 @@ function message({
   id,
   parentMessageId = null,
   role,
-  selectedModel = "gpt-5.6-terra",
+  selectedModel = "claude-sonnet-5-5",
 }: {
   id: string;
   parentMessageId?: string | null;
@@ -29,6 +30,18 @@ function message({
   } as ChatMessage;
 }
 
+const retryCatalog = {
+  usableModel: (
+    candidates: readonly (SelectedModelValue | null | undefined)[]
+  ) =>
+    usableStoredModel({
+      candidates,
+      isKnownModel: (modelId: string) =>
+        ["claude-sonnet-5-5", "claude-haiku-5-5"].includes(modelId),
+      composerModelId: "claude-sonnet-5-5",
+    }),
+};
+
 describe("getRetryMessageInput", () => {
   it("builds a retry message from an assistant response and trims before the parent user message", () => {
     const root = message({ id: "root", role: "user" });
@@ -36,12 +49,13 @@ describe("getRetryMessageInput", () => {
       id: "assistant",
       parentMessageId: root.id,
       role: "assistant",
-      selectedModel: "gpt-5.6-luna",
+      selectedModel: "claude-haiku-5-5",
     });
 
     const result = getRetryMessageInput({
       messageId: assistant.id,
       messages: [root, assistant],
+      ...retryCatalog,
     });
 
     expect(result).toMatchObject({
@@ -56,7 +70,7 @@ describe("getRetryMessageInput", () => {
           parallelGroupId: null,
           parallelIndex: null,
           parentMessageId: null,
-          selectedModel: "gpt-5.6-luna",
+          selectedModel: "claude-haiku-5-5",
         },
       },
     });
@@ -69,6 +83,7 @@ describe("getRetryMessageInput", () => {
     const result = getRetryMessageInput({
       messageId: assistant.id,
       messages: [root, assistant],
+      ...retryCatalog,
     });
 
     expect(result.ok).toBe(true);
@@ -83,7 +98,11 @@ describe("getRetryMessageInput", () => {
     });
 
     expect(
-      getRetryMessageInput({ messageId: assistant.id, messages: [assistant] })
+      getRetryMessageInput({
+        messageId: assistant.id,
+        messages: [assistant],
+        ...retryCatalog,
+      })
     ).toEqual({ ok: false, reason: "parent_not_found" });
   });
 });

@@ -9,7 +9,7 @@ CLAUDE.md — rules live there (and in `.claude/rules/`), geography lives here.
 Founder Idea Check tests a startup idea before anyone builds it: an eight-phase conversation whose gates refuse to
 advance without evidence, a Python research sidecar that collects public demand signals, persona simulation, and an
 export that hands the validated project to a coding agent. A Bun/turbo monorepo forked from ChatJS (Apache-2.0):
-Next.js 16 + Postgres/pgvector + OpenAI models. It runs locally; nothing is deployed.
+Next.js 16 + Postgres/pgvector + Anthropic models (OpenAI for embeddings). It runs locally; nothing is deployed.
 
 ## Directory map
 | Dir | Purpose | Edit guidance |

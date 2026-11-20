@@ -491,8 +491,9 @@ function truncateLastMessageIfNeeded(
  * budget. That is exactly how a `context_window` of 0 — the placeholder
  * `toAiGatewayModel` in lib/ai/gateways/openai-gateway.ts writes because
  * OpenAI's /v1/models reports no context window — silently disabled the entire
- * deep-research pipeline: every model in models.generated.ts carries 0, so
- * every `truncateMessages` call in it discarded every message.
+ * deep-research pipeline: every model in the openai snapshot of
+ * models.generated.ts carried 0, so every `truncateMessages` call in it
+ * discarded every message.
  *
  * Keeping the newest message, trimmed, is the honest failure: the caller gets a
  * degraded prompt it can still act on rather than an opaque error.

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   generateText,
   type ModelMessage,
@@ -6,9 +7,13 @@ import {
 } from "ai";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
-import { truncateMessages } from "@/lib/ai/token-utils";
+import { isDeclined } from "@/lib/ai/refused-reply";
+import { countTextTokens } from "@/lib/ai/token-utils";
 import { createModuleLogger } from "@/lib/logger";
-import { getCompressionProviderOptions } from "./configuration";
+import {
+  buildCompressionPrompt,
+  compressionFrameTags,
+} from "./compression-input";
 import {
   compressResearchSimpleHumanMessage,
   compressResearchSystemPrompt,
@@ -27,7 +32,12 @@ export async function runResearcher(
   const { audience, clock, config, dataStream, toolCallId, abortSignal } =
     options;
 
-  const model = await getLanguageModel(config.research_model as ModelId);
+  // The least thinking the model takes, so a step's thinking leaves its cap to
+  // the tool call (lib/ai/call-paths.ts, "researcherStep").
+  const model = await getLanguageModel(
+    config.research_model as ModelId,
+    "researcherStep"
+  );
   // `audience` rides along so the sidecar arm can rank its lanes against the
   // founder's buyer. The cloud arms ignore it: Tavily and Firecrawl are single
   // opaque lanes, so there is nothing to rank. `clock` lets the sidecar arm
@@ -162,10 +172,32 @@ export async function runResearcher(
     // The closing reply hit the output cap. It is notes, and the findings are
     // condensed from the search results, so the cut-off text is dropped and
     // nothing else is lost: no retry, no error, and no "cut short" for time.
+    // A DECLINED STEP (Claude's `refusal`, `content-filter`, empty or partial
+    // and no error) ends the loop the same way, and its reply is dropped too:
+    // compression would only be handed a refusal to condense.
+    const declined = isDeclined(finishReason);
     researchMessages =
-      finishReason === "length"
+      finishReason === "length" || declined
         ? withoutTruncatedReply(response.messages)
         : response.messages;
+    // Unlike a cut-off reply, a declined one is a cut: the researcher meant to
+    // go on. The report is told, with the topic, whether any search ran before
+    // it; with none, the topic ends as NOT RESEARCHED below and the paid
+    // compression call is skipped.
+    if (declined) {
+      log.warn(
+        { stepsFinished, searched: researchMessages.length > 0 },
+        "a researcher's model declined to continue"
+      );
+      recordCut(
+        clock,
+        researchMessages.length > 0
+          ? DECLINED_TOPIC_REASON
+          : "a researcher's model declined to research its topic, so that topic was not researched",
+        {},
+        topic
+      );
+    }
     // EXCEPT WHEN THERE WAS NO SEARCH BEHIND IT. A researcher whose very first
     // reply hit the cap (the model wrote prose, or reasoned, instead of
     // searching) has nothing left once that reply is dropped, and the topic ends
@@ -206,7 +238,7 @@ export async function runResearcher(
   // an empty transcript would be paid for nothing.
   const compressed =
     researchMessages.length === 0
-      ? `NOT RESEARCHED: no search for this topic finished (the search time ran out, or the researcher's first reply was cut off). Topic: ${topic}`
+      ? `NOT RESEARCHED: no search for this topic finished (the search time ran out, or the researcher's first reply was cut off or declined). Topic: ${topic}`
       : await compressResearch(researchMessages, options, topic);
 
   dataStream.write({
@@ -241,32 +273,59 @@ async function compressResearch(
   topic: string
 ): Promise<string> {
   const { config, abortSignal } = options;
-  const model = await getLanguageModel(config.compression_model as ModelId);
+  // The lowest reasoning effort the model takes, so reasoning does not eat the
+  // output cap (lib/ai/call-paths.ts, "compression").
+  const model = await getLanguageModel(
+    config.compression_model as ModelId,
+    "compression"
+  );
 
-  const messages: ModelMessage[] = [
-    {
-      role: "system" as const,
-      content: compressResearchSystemPrompt({ date: getTodayStr() }),
-    },
-    ...researchMessages,
-    {
-      role: "user" as const,
-      content: compressResearchSimpleHumanMessage,
-    },
-  ];
-
+  // Tag names no fetched page can know: drawn now, after every search ran
+  // (`compressionFrameTags`), and named in both the system prompt and the
+  // user message.
+  const tags = compressionFrameTags(randomBytes(6).toString("hex"));
+  const system = compressResearchSystemPrompt({ date: getTodayStr(), tags });
   const contextWindow = await getModelContextWindow(
     config.compression_model as ModelId
   );
-  // ISSUE #189: this is the only truncateMessages call site with real history,
-  // and it drops the oldest turns silently. Left as-is deliberately — a research
-  // loop is stateless between runs, so nothing durable is lost here. The phase
-  // workflow solves the same problem the other way: lib/phases/extract.ts
-  // distils turns into project facts and lib/phases/context.ts re-injects them,
-  // ranked and budgeted, into every system prompt, so state survives truncation
-  // instead of being raced by it. Use that pattern if this loop ever needs to
-  // remember something across calls.
-  const truncatedMessages = truncateMessages(messages, contextWindow);
+  // ONE user message, the research as text: no tool blocks and no assistant
+  // turn are replayed (see compression-input.ts for the two 400s that caused).
+  //
+  // ISSUE #189: this is the only place with real history to fit into a window.
+  // Over budget, `buildCompressionPrompt` leaves out the OLDEST search results
+  // first and always keeps the topic, every call line and the closing
+  // instruction; what it left out is logged below. Left as a cut rather than a
+  // carry-over deliberately — a research loop is stateless between runs, so
+  // nothing durable is lost here. The phase workflow solves the same problem
+  // the other way: lib/phases/extract.ts distils turns into project facts and
+  // lib/phases/context.ts re-injects them, ranked and budgeted, into every
+  // system prompt, so state survives truncation instead of being raced by it.
+  // Use that pattern if this loop ever needs to remember something across calls.
+  const input = buildCompressionPrompt({
+    topic,
+    messages: researchMessages,
+    tags,
+    system,
+    instruction: compressResearchSimpleHumanMessage,
+    contextWindow,
+    maxOutputTokens: config.compression_model_max_tokens,
+    countTokens: countTextTokens,
+  });
+  if (
+    input.resultsLeftOut > 0 ||
+    input.newestResultCut ||
+    input.entriesDropped > 0
+  ) {
+    log.warn(
+      {
+        resultsLeftOut: input.resultsLeftOut,
+        newestResultCut: input.newestResultCut,
+        entriesDropped: input.entriesDropped,
+        contextWindow,
+      },
+      "research log was over the compression model's window: the oldest results were left out"
+    );
+  }
 
   // Compression must finish by `compressionDueAt` so the report keeps its
   // time (research-clock.ts). Stopped there, the researcher's own words and
@@ -280,11 +339,9 @@ async function compressResearch(
   try {
     response = await generateText({
       model,
-      messages: truncatedMessages,
+      system,
+      prompt: input.prompt,
       maxOutputTokens: config.compression_model_max_tokens,
-      // The lowest reasoning effort the model takes, so reasoning does not eat
-      // the output cap (see `getCompressionProviderOptions`).
-      providerOptions: getCompressionProviderOptions(config.compression_model),
       experimental_telemetry: createTelemetry("compressResearch", options),
       maxRetries: 3,
       abortSignal: stop.signal,
@@ -308,6 +365,25 @@ async function compressResearch(
       response.usage,
       "deep-research-compress"
     );
+  }
+
+  // A DECLINED COMPRESSION IS A CUT, NEVER EMPTY NOTES. Claude's `refusal`
+  // stop reason arrives as `content-filter`, with no error and an empty or
+  // partial text. Returned as it came, that was this topic's findings: the
+  // report dropped the topic and its "Research cut short" section never named
+  // it. So it is recorded as a cut for this topic, and the notes say what
+  // happened, after whatever text did arrive. Checked before `length`: a
+  // declined call is not a full one.
+  if (isDeclined(response.finishReason)) {
+    log.warn(
+      { outputTokens: response.usage?.outputTokens },
+      "the compression model declined to condense a researcher's findings"
+    );
+    recordCut(options.clock, DECLINED_TOPIC_REASON, {}, topic);
+    const partial = response.text.trim();
+    return partial.length > 0
+      ? `${partial}\n\n${COMPRESSION_DECLINED_NOTE}`
+      : COMPRESSION_DECLINED_NOTE;
   }
 
   // THE CAP IS NOT RAISED (it is the time budget: `compression_model_max_tokens`
@@ -345,6 +421,20 @@ const COMPRESSION_CUT_OFF_REASON =
 /** The last line of compressed notes that were cut off at the output cap. */
 const COMPRESSION_CUT_OFF_NOTE =
   "[These notes were cut off at the output limit and are incomplete: findings and sources from the end of this researcher's work are missing.]";
+
+/**
+ * The cut the report is told about when a model declined partway through a
+ * topic (`content-filter`): the researcher after some searches, or the
+ * compression of its findings. ONE reason for both, so a topic whose
+ * researcher and compression both declined is one line in the report's "Research
+ * cut short", not two (`recordCut` keeps one occurrence per topic).
+ */
+const DECLINED_TOPIC_REASON =
+  "a model declined to continue on a topic partway through, so that topic's findings are missing or incomplete";
+
+/** The notes of a topic whose compression the model declined. */
+const COMPRESSION_DECLINED_NOTE =
+  "[The model declined to condense this researcher's findings, so they are missing or incomplete here.]";
 
 /**
  * Enough of the raw transcript to cite from, bounded so that several of these

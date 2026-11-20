@@ -369,7 +369,7 @@ N+1's system prompt.
 - Purpose: a plan of deadlines derived from one request budget so a long research run finishes its report before the
   route aborts.
 - Examples: `apps/chat/tools/platform/deep-research/research-clock.ts`, `apps/chat/lib/ai/request-budget.ts`.
-- Pattern: mutable `cuts` list; `stopAt` builds an abort signal for a deadline; `reportWordBudget` sizes the report.
+- Pattern: mutable `cuts` list; `stopAt` builds an abort signal for a deadline; `reportLength` sizes the report (text and source list).
 
 **StreamWriter data parts:**
 - Purpose: typed side channel on the UI message stream (`data-chatConfirmed`, `data-researchUpdate`,
@@ -384,9 +384,10 @@ N+1's system prompt.
   configured off in this fork; their code remains. Documents and deep research are on.
 
 **Gateway provider:**
-- Purpose: one place that maps a model id to a provider client.
+- Purpose: one place that maps a model id to a provider client, with the call path's effort and thinking applied
+  (`getLanguageModel(id, path)`; the table is `apps/chat/lib/ai/call-paths.ts`).
 - Examples: `apps/chat/lib/ai/providers.ts::getLanguageModel`, `apps/chat/lib/ai/active-gateway.ts`,
-  `apps/chat/lib/ai/gateways/registry.ts` (`DEFAULT_GATEWAY = "openai"`), `apps/chat/lib/ai/app-models.ts`.
+  `apps/chat/lib/ai/gateways/registry.ts` (`DEFAULT_GATEWAY = "openai"`, used only by a config with no `ai` block), `apps/chat/lib/ai/app-models.ts`.
 
 ## Entry Points
 

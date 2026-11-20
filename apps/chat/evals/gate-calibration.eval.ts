@@ -32,7 +32,9 @@ import { type GateFixture, PHASE_ONE_FIXTURES } from "./fixtures/gate-phase-01";
  * Revisit if we ever need to grade the assistant's PROSE (its refusal copy) —
  * that is a rubric job and promptfoo would earn its place there.
  *
- * MODEL: pinned to config.ai.workflows.chat, the same model the live gate uses.
+ * MODEL: pinned to config.ai.workflows.judge, the same model the live gate uses,
+ * and through `getLanguageModel(..., "judge")` and `createModelGateJudge` the
+ * same request (effort included).
  * Calibrating a model the product does not run would measure nothing. If these
  * numbers come out lenient, the first lever is raising THIS model, not editing
  * prompts.
@@ -40,7 +42,9 @@ import { type GateFixture, PHASE_ONE_FIXTURES } from "./fixtures/gate-phase-01";
  * COST, measured rather than estimated (see the token totals this eval prints):
  * 12 fixtures x 2 runs = 24 judge calls = ~90,700 input + ~23,300 output
  * tokens, i.e. ~3,780 in / ~970 out per gate call. That per-call figure is the
- * one worth remembering: it is what every assessed founder turn costs.
+ * one worth remembering: it is what every assessed founder turn costs. Both
+ * figures, and both RESULTS blocks below, were measured on gpt-5.6-terra; the
+ * judge is now claude-opus-5-5, whose output count includes its thinking.
  *
  * RESULTS as of 2026-08-19 on gpt-5.6-terra:
  *   no bad transcript advances  100%   (4/4 bad BLOCK on both runs)
@@ -62,7 +66,7 @@ import { type GateFixture, PHASE_ONE_FIXTURES } from "./fixtures/gate-phase-01";
  * August; an A/B run with and without the marker instruction would tell.
  */
 
-const GATE_MODEL_ID = config.ai.workflows.chat;
+const GATE_MODEL_ID = config.ai.workflows.judge;
 
 /** Two runs of the identical input. Determinism is a scored property here. */
 const RUNS_PER_FIXTURE = 2;
@@ -88,7 +92,7 @@ type FixtureResult = {
 };
 
 async function runFixture(fixture: GateFixture): Promise<FixtureResult> {
-  const model = await getLanguageModel(GATE_MODEL_ID);
+  const model = await getLanguageModel(GATE_MODEL_ID, "judge");
   const usage: ModelUsage[] = [];
   const judge = createModelGateJudge({
     model,

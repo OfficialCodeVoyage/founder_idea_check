@@ -184,8 +184,8 @@ const UNKNOWN_CONTEXT_WINDOW_FALLBACK = 128_000;
  * A non-positive `context_window` means THE GATEWAY DID NOT REPORT ONE, not
  * that the model accepts zero tokens. OpenAI's /v1/models carries no context
  * window, so `toAiGatewayModel` in lib/ai/gateways/openai-gateway.ts writes 0
- * as a placeholder — and every one of the 126 models in models.generated.ts
- * currently has it.
+ * as a placeholder — and every one of the 126 models in models.generated.ts had
+ * it while that snapshot was taken from the openai gateway.
  *
  * Returning that 0 unchanged is what disabled deep research outright:
  * `truncateMessages(messages, 0)` discarded every message and `generateText`
@@ -193,9 +193,9 @@ const UNKNOWN_CONTEXT_WINDOW_FALLBACK = 128_000;
  * an unreported value must not be defaulted to it.
  */
 export async function getModelContextWindow(modelId: ModelId): Promise<number> {
-  // The static table first. It is the only source that actually knows: OpenAI's
-  // /v1/models carries no context window, and models.generated.ts is a snapshot
-  // OF that endpoint, so both report 0 for every model. Consulting the table
+  // The static table first. It is the only source that actually knows on the
+  // openai gateway: OpenAI's /v1/models carries no context window, and a
+  // models.generated.ts taken from that endpoint reports 0 for every model. Consulting the table
   // here rather than relying on the gateway merge also means a stale snapshot
   // cannot reintroduce the 0.
   const known = lookupContextWindow(modelId);

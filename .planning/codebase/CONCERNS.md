@@ -172,7 +172,7 @@ in the last section.
 - Risk: anonymous turns can still make the server fetch public URLs: file and image parts go through
   `apps/chat/lib/utils/download-assets.ts` with no cap on how many, each up to 10 MB and 15 s
   (`apps/chat/lib/utils/public-url-fetch.ts`), re-fetched every turn for the parts inside the 24,000-token context.
-- Current mitigation: anonymous users get only `gpt-5.6-luna` and no tools (`ai.anonymousModels`, `anonymous.availableTools`).
+- Current mitigation: anonymous users get only `claude-haiku-5-5` and no tools (`ai.anonymousModels`, `anonymous.availableTools`).
 - Recommendations: for a public deployment, set `anonymous.credits` to 0 or remove the path, require Redis, count on a trusted
   address (the platform's header, not the first entry), and cap URL-bearing parts per turn.
 
@@ -239,9 +239,9 @@ project plus all their `Part` rows (including `tool_input` and `tool_output` JSO
 (`GATE_TRANSCRIPT_BUDGET_TOKENS`). Cost grows with project age. Fix: bound the read by the budget in SQL, or keep a rolling
 transcript.
 
-**Per-turn model cost:** the judge runs on `gpt-5.6-terra` after every turn. The comment in `apps/chat/chat.config.ts`
-attaches roughly $0.80 to that choice across an eight-phase project, more than the 50-cent default balance before chat
-turns and research are counted.
+**Per-turn model cost:** the judge runs on `claude-opus-5-5` at effort `high` after every turn ($4 / $20 per 1M tokens,
+thinking billed as output). On `gpt-5.6-terra` that choice cost roughly $0.80 across an eight-phase project, already more
+than the 50-cent default balance before chat turns and research are counted; the Opus figure is not measured yet.
 
 **Connection pool:** `apps/chat/lib/db/client.ts` calls `postgres(env.DATABASE_URL)` with defaults, one pool per instance;
 prepared statements are on, which a transaction-mode pooler rejects. Set `max` and `prepare` for the host.

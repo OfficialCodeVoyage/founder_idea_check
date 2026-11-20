@@ -9,15 +9,11 @@ import {
 // completed still got follow-up suggestions, a paid call.
 describe("shouldSuggestFollowups", () => {
   it("skips an aborted turn and keeps a normal one", () => {
-    expect(shouldSuggestFollowups({ enabled: true, turnAborted: true })).toBe(
-      false
-    );
-    expect(shouldSuggestFollowups({ enabled: true, turnAborted: false })).toBe(
-      true
-    );
-    expect(shouldSuggestFollowups({ enabled: false, turnAborted: false })).toBe(
-      false
-    );
+    const turn = { enabled: true, turnAborted: false, turnRefused: false };
+    expect(shouldSuggestFollowups({ ...turn, turnAborted: true })).toBe(false);
+    expect(shouldSuggestFollowups(turn)).toBe(true);
+    expect(shouldSuggestFollowups({ ...turn, enabled: false })).toBe(false);
+    expect(shouldSuggestFollowups({ ...turn, turnRefused: true })).toBe(false);
   });
 });
 

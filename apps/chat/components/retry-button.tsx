@@ -9,6 +9,7 @@ import {
   useChatStatus,
   useChatStoreApi,
 } from "@/lib/stores/base";
+import { useUsableStoredModel } from "@/providers/use-usable-stored-model";
 
 export function RetryButton({
   messageId,
@@ -20,6 +21,7 @@ export function RetryButton({
   const { setMessages, sendMessage } = useChatActions<ChatMessage>();
   const chatStore = useChatStoreApi<ChatMessage>();
   const status = useChatStatus();
+  const usableModel = useUsableStoredModel();
 
   const handleRetry = useCallback(() => {
     if (!sendMessage) {
@@ -30,6 +32,7 @@ export function RetryButton({
     const retryInput = getRetryMessageInput({
       messageId,
       messages: chatStore.getState().messages,
+      usableModel,
     });
 
     if (!retryInput.ok) {
@@ -51,7 +54,7 @@ export function RetryButton({
     sendMessage(retryInput.message, {});
 
     toast.success("Retrying message...");
-  }, [sendMessage, messageId, setMessages, chatStore]);
+  }, [sendMessage, messageId, setMessages, chatStore, usableModel]);
 
   if (status === "streaming" || status === "submitted") {
     return null;

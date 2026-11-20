@@ -1,4 +1,5 @@
-import { type ChatMessage, getPrimarySelectedModelId } from "@/lib/ai/types";
+import type { UsableStoredModel } from "@/lib/ai/chat-seed-model";
+import type { ChatMessage, SelectedModelValue } from "@/lib/ai/types";
 
 export type RetryMessageResult =
   | {
@@ -18,9 +19,14 @@ export type RetryMessageResult =
 export function getRetryMessageInput({
   messageId,
   messages,
+  usableModel,
 }: {
   messageId: string;
   messages: ChatMessage[];
+  /** The stored-model check every client path uses (`useUsableStoredModel`). */
+  usableModel: (
+    candidates: readonly (SelectedModelValue | null | undefined)[]
+  ) => UsableStoredModel | null;
 }): RetryMessageResult {
   const currentMessage = messages.find((message) => message.id === messageId);
   if (!currentMessage) {
@@ -44,13 +50,18 @@ export function getRetryMessageInput({
     return { ok: false, reason: "parent_not_user" };
   }
 
-  const retryModelId =
-    getPrimarySelectedModelId(currentMessage.metadata?.selectedModel) ||
-    getPrimarySelectedModelId(parentMessage.metadata?.selectedModel);
+  // A stored model may be one the catalog no longer has: read through the one
+  // check every client path uses, which puts the composer's choice in its
+  // place. A retry sends one model.
+  const retryModel = usableModel([
+    currentMessage.metadata?.selectedModel,
+    parentMessage.metadata?.selectedModel,
+  ]);
 
-  if (!retryModelId) {
+  if (!retryModel) {
     return { ok: false, reason: "model_not_found" };
   }
+  const retryModelId = retryModel.modelId;
 
   return {
     ok: true,

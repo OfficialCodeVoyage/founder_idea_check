@@ -12,12 +12,14 @@ import { GATEWAY_MODEL_DEFAULTS } from "./ai/gateway-model-defaults";
 import type { ToolName } from "./ai/types";
 
 /**
- * The fork's default. Upstream chat-js defaults to "vercel", which needs an
- * AI_GATEWAY_API_KEY this project does not use — a self-hoster who deletes the
- * `gateway` line from chat.config.ts would get a config that cannot resolve a
- * single model, and the error surfaces as a failed chat turn rather than as a
- * config error. "openai" matches what chat.config.ts actually sets and what
- * GETTING-STARTED.md documents.
+ * The fork's default, used only by a config with no `ai` block at all:
+ * `defineConfig` requires `ai.gateway` whenever `ai` is given, and
+ * chat.config.ts names `gateway: "anthropic"`. Upstream chat-js defaults to
+ * "vercel", which needs an AI_GATEWAY_API_KEY this project does not use, so a
+ * config without the block could not resolve a single model, and the error
+ * would surface as a failed chat turn rather than as a config error. "openai"
+ * needs only OPENAI_API_KEY, which this app needs anyway for the fact
+ * embeddings and the research sidecar.
  */
 const DEFAULT_GATEWAY = "openai" as const satisfies GatewayType;
 
@@ -157,6 +159,13 @@ function createAiSchema<G extends GatewayType>(g: G) {
     workflows: z
       .object({
         chat: gatewayModelId<G>(),
+        /**
+         * THE PHASE GATE'S JUDGE, split off `chat` so the verdict can run on a
+         * stronger model than the interview. It decides every PASS/WARN/BLOCK
+         * (`lib/phases/runtime.ts::runPostTurnPhasePass`), so a change here
+         * changes every verdict; `bun run eval:gate` measures it.
+         */
+        judge: gatewayModelId<G>(),
         title: gatewayModelId<G>(),
         /**
          * The FACT EXTRACTOR, split off `title` deliberately.
@@ -275,6 +284,11 @@ export const aiConfigSchema = z
     gateway: DEFAULT_GATEWAY,
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
     ...GATEWAY_MODEL_DEFAULTS[DEFAULT_GATEWAY],
+    workflows: {
+      ...GATEWAY_MODEL_DEFAULTS[DEFAULT_GATEWAY].workflows,
+      // The one rule, as in `applyDefaults`: an unset judge is the chat model.
+      judge: GATEWAY_MODEL_DEFAULTS[DEFAULT_GATEWAY].workflows.chat,
+    },
   });
 
 export const pricingConfigSchema = z.object({
@@ -679,14 +693,24 @@ export function applyDefaults(input: ConfigInput): Config {
   const gateway = input.ai?.gateway ?? DEFAULT_GATEWAY;
   const gatewayDefaults = GATEWAY_MODEL_DEFAULTS[gateway];
   const aiInput = input.ai as Record<string, unknown> | undefined;
+  const workflowsInput = aiInput?.workflows as
+    | Record<string, unknown>
+    | undefined;
+  const workflows = { ...gatewayDefaults.workflows, ...workflowsInput };
 
   const mergedAi = {
     gateway,
     ...gatewayDefaults,
     ...aiInput,
     workflows: {
-      ...gatewayDefaults.workflows,
-      ...(aiInput?.workflows as Record<string, unknown> | undefined),
+      ...workflows,
+      // AN UNSET JUDGE FOLLOWS THE CONFIGURED CHAT MODEL. The judge was
+      // `chat` until it got its own knob, so a config that names `chat` and no
+      // `judge` keeps its gate on the model it chose. The gateway defaults
+      // table has no `judge` row on purpose: one would move every PASS/WARN/
+      // BLOCK verdict to a model nobody picked, with no error. `aiConfigSchema`'s
+      // `.default()` applies the same rule.
+      judge: workflowsInput?.judge ?? workflows.chat,
     },
     tools: mergeToolsConfig(
       gatewayDefaults.tools,

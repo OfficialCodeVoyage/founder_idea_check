@@ -4,8 +4,8 @@ import { config } from "@/lib/config";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: config.appName,
-    // A home-screen label truncates after about 12 characters; the full name does not fit.
-    short_name: "Idea Check",
+    // A home-screen label truncates after about 12 characters; the name fits whole.
+    short_name: config.appName,
     description: config.appDescription,
     start_url: "/",
     display: "standalone",

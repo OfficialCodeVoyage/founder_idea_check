@@ -154,17 +154,19 @@ sign-in, create an OAuth app, put `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET` in `
 5. **Export repo**, in the strip, opens a dialog that previews every generated file and lets you download them one at a
    time. It works from the first fact on, and says in writing what is missing.
 
-## 8. Raise your credit balance
+## 8. Check what it has spent
 
-The app keeps a spending cap as a balance in your local database, in cents. A new user starts with 50 (that is $0.50)
-and there is no top-up screen, so a long session ends with `Insufficient credits` (HTTP 402). Raise it:
+The app records an estimate of what each account has spent as a number in your local database, in cents. A new user
+starts at 50, and every turn, title, gate check and simulation subtracts its estimated cost. It is a meter, never a
+limit: nothing stops when it reaches zero, it simply goes negative, and the app does not show it. To read it:
 
 ```bash
-docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 2000;'
+docker exec ic-pg psql -U postgres -d ideacheck -c 'select "userId", credits from "UserCredit";'
 ```
 
-That sets the balance to 2000 cents, $20.00; use any number you like. The balance is an estimate of what Anthropic and
-OpenAI will bill you, not what they do bill: your accounts with them are the real meter.
+Spend since the start is 50 minus that number, in cents. It is an estimate of what Anthropic and OpenAI will bill you,
+not what they do bill: your accounts with them are the real meter, and the monthly spend limit you set on each key is
+the only cap.
 
 ## What the research can do
 
@@ -202,7 +204,6 @@ gate's judge, fact extraction, titles, follow-up suggestions and research.
 | Signing out returns `403 INVALID_ORIGIN` | you are browsing at `127.0.0.1`, or at a port the app was not started for | Use `localhost` and the address `dev:local` printed. |
 | A project page sends you back to the home page | you are not signed in | Open <http://localhost:3100/api/dev-login>. |
 | The badge stays **NOT ASSESSED**, or says `no verdict for this turn` | the gate could not run, usually a missing or wrong `ANTHROPIC_API_KEY` | Read the error in the terminal running `dev:local`, fix the key, send another message. |
-| `Insufficient credits` (402) | the local balance is used up | Step 8. |
 | Research lanes report as blocked or refused | the default sources are limited | See [What the research can do](#what-the-research-can-do). |
 | `DATABASE_URL is not defined` from the migrator | you ran it inside `apps/chat`, which has no env file of its own | Run `bun run db:migrate` from the repository root. |
 
@@ -213,7 +214,7 @@ gate's judge, fact extraction, titles, follow-up suggestions and research.
 | `bun run dev:local` | dev server on port 3100 (`PORT=` to change it), env loaded, `APP_URL` set |
 | `bun run dev` | dev server on port 3000 through turbo and the worktree port wrapper |
 | `bun run db:migrate` | apply the migrations to a new database |
-| `bun run db:seed` | optional: creates the dev user, a balance row and a project called Demo idea |
+| `bun run db:seed` | optional: creates the dev user, its spend-meter row and a project called Demo idea |
 | `bun run verify` | lint and type-check; run it before you say work is done |
 | `bun run test:unit` | the TypeScript unit tests |
 | `bun run test:types` | `tsc --noEmit` everywhere; do not run it while a dev server is running |

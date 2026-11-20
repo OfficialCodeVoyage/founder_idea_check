@@ -215,8 +215,8 @@ database unless you point its `DATABASE_URL` somewhere else.
   `docker exec -i ic-pg psql -U postgres -d ideacheck < <file>.sql`. If you use `db:push` to experiment, treat the
   database as throwaway and reset it with `docker compose down -v`.
 - **Look at it:** `docker exec -it ic-pg psql -U postgres -d ideacheck`.
-- **Demo data:** `bun run db:seed` is optional and idempotent. It creates the `dev@localhost` user, a balance row and a
-  project called Demo idea with phase 1 active.
+- **Demo data:** `bun run db:seed` is optional and idempotent. It creates the `dev@localhost` user, its spend-meter row
+  and a project called Demo idea with phase 1 active.
 
 ## Checks
 
@@ -255,14 +255,17 @@ bun run lint
   to keywords and the simulation cannot run.
 - `cd apps/chat && bun run eval:gate` runs the gate calibration against the real judge: about 24 calls on the judge
   model, `claude-opus-5-5` at effort `high`. Run it deliberately, never as a habit.
-- The app also keeps a local spending cap, `UserCredit.credits`, in cents. A new user starts with 50 and nothing tops it
-  up. Raise it with
-  `docker exec ic-pg psql -U postgres -d ideacheck -c 'update "UserCredit" set credits = 2000;'`.
+- The app also records an estimate of each account's spend in `UserCredit.credits`, in cents. A new user starts at 50,
+  and every turn, title, post-turn pass and simulation subtracts its estimated cost (`lib/db/credits.ts::deductCredits`).
+  It is a meter, never a limit: nothing reads it to refuse anything, it goes negative, and the UI does not show it. Read
+  it with `docker exec ic-pg psql -U postgres -d ideacheck -c 'select "userId", credits from "UserCredit";'`.
+- So a copy has no spend cap of its own for signed-in users: the monthly spend limit on the Anthropic and OpenAI keys
+  is the only one. Set it before exposing a copy with open sign-in (Google, GitHub or Vercel OAuth credentials set).
+  Anonymous visitors keep their cookie message count, rate limit and model allow-list (`chat.config.ts` →
+  `anonymous`).
 
 ## Rough edges
 
-- There is no credit top-up screen, so a long session ends in a bare `Insufficient credits` (HTTP 402) until you raise
-  the balance as above.
 - When the gate cannot run (a missing or wrong key, a model id the gateway does not serve) the phase strip says
   `no verdict for this turn` or shows a fail-closed BLOCK. The reason is in the log of the terminal running the app.
 - Switching `ai.gateway` in `chat.config.ts` without running `bun run fetch:models` leaves

@@ -105,9 +105,13 @@ signing out and other authenticated form posts fail with a 403.
   embeddings and the persona simulation call OpenAI with yours, so you pay both directly. The chat uses
   `claude-sonnet-5-5`, the gate's judge `claude-opus-5-5`, titles and fact extraction `claude-haiku-5-5`, and research
   uses Haiku and Sonnet.
-- The app keeps its own spending cap as a credit balance in your local database. A new account starts with about
-  $0.50 and there is no top-up screen, so you will want to raise it; [`GETTING-STARTED.md`](GETTING-STARTED.md) shows
-  how.
+- The app records an estimate of what each account has spent, in cents, in your local database (`UserCredit.credits`,
+  which starts at 50). It is a meter, never a limit: nothing stops when it reaches zero, and the app shows no balance.
+  Your Anthropic and OpenAI accounts are the real bill.
+- **A copy has no spend cap of its own for signed-in users.** The monthly spend limit you set on your API keys, at
+  Anthropic and at OpenAI, is the only cap. Do not expose a copy to the public internet with sign-in open (Google,
+  GitHub or Vercel OAuth credentials set) without setting that limit. Visitors who are not signed in still have their
+  own message and rate limits.
 - Your projects, chats and facts live in the Postgres container on your machine. What leaves it: your messages and
   facts go to Anthropic to produce answers, facts go to OpenAI to be embedded (and to simulate personas when you run a
   simulation), and research queries go from your machine to the public sources you have enabled. The app sends no

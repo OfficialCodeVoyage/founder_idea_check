@@ -71,7 +71,7 @@ full repository paths.
 | Sidecar client | The one network seam to `apps/research` for signals; speaks and validates the wire format | `apps/chat/lib/signals/sidecar.ts` |
 | Simulation | Pure seeding, divergence and verdict logic; socket to the sidecar; action that records the run | `apps/chat/lib/research/simulation.ts`, `apps/chat/lib/research/sidecar-simulation.ts`, `apps/chat/app/actions/run-simulation.ts` |
 | Export | Pure `buildHandoff` returns every path and byte; a server action hands the plan to the browser | `apps/chat/lib/export/handoff.ts`, `apps/chat/app/actions/build-handoff.ts` |
-| Credits | Per-turn cost accumulator, the chat model's per-step usage meter, settlement in cents, balance reads and deductions | `apps/chat/lib/credits/cost-accumulator.ts`, `apps/chat/lib/credits/main-chat-usage.ts`, `apps/chat/lib/db/credits.ts` |
+| Credits | Per-turn cost accumulator, the chat model's per-step usage meter, settlement in cents, deductions and refunds | `apps/chat/lib/credits/cost-accumulator.ts`, `apps/chat/lib/credits/main-chat-usage.ts`, `apps/chat/lib/db/credits.ts` |
 | Data layer | Drizzle schema, queries, migrator | `apps/chat/lib/db/schema.ts`, `apps/chat/lib/db/queries.ts`, `apps/chat/lib/db/phase-queries.ts`, `apps/chat/lib/db/migrate.ts` |
 | Auth | better-auth session, cookie cache, social providers; page guard in the proxy | `apps/chat/lib/auth.ts`, `apps/chat/proxy.ts` |
 | Client chat state | Per-chat runtime store, message tree, persistence and data-stream slices | `apps/chat/lib/stores/`, `apps/chat/lib/runtime-registry/`, `apps/chat/lib/app-chat-runtime.ts` |
@@ -298,7 +298,7 @@ N+1's system prompt.
    `createSidecarSimulationRunner` (`apps/chat/lib/research/sidecar-simulation.ts`): `POST /v1/simulate`, 300 s ceiling.
 3. The sidecar imports OASIS lazily inside `run_simulation` (`apps/research/app/simulation/oasis_runner.py`); absence is
    the named failure `oasis-not-installed`. Fewer than two reactions is a named failure, not a verdict.
-4. The app judges with `judgeSimulation` (not-assessed arm has no `usable` field). `addCredits` refunds the reserve when
+4. The app judges with `judgeSimulation` (not-assessed arm has no `usable` field). `addCredits` refunds the charge when
    `simulationReachedModel` is false: a kind in `SIMULATION_NEVER_STARTED_KINDS`, or a `no-reactions` run in which every
    expected agent call failed. `insertSimulationRun` then records a run that happened (`usable` null when nothing was
    measured), whatever was refunded, and `revalidatePath` refreshes the screen. Output is hard-wired

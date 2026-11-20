@@ -158,7 +158,8 @@ sign-in, create an OAuth app, put `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET` in `
 
 The app records an estimate of what each account has spent as a number in your local database, in cents. A new user
 starts at 50, and every turn, title, gate check and simulation subtracts its estimated cost. It is a meter, never a
-limit: nothing stops when it reaches zero, it simply goes negative, and the app does not show it. To read it:
+limit: nothing stops when it reaches zero, it simply goes negative, and the app does not show it. A user's row
+appears with their first charge. To read it:
 
 ```bash
 docker exec ic-pg psql -U postgres -d ideacheck -c 'select "userId", credits from "UserCredit";'

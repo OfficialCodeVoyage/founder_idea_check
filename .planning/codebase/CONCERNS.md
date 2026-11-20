@@ -94,8 +94,8 @@ in the last section.
   model providers' handling of founder text. The "last updated" date predates this fork.
 - Fix approach: write text that matches what the product stores and sends before anyone else signs in.
 
-**Dead code:** `apps/chat/lib/db/credits.ts::_addCredits` has no caller; the `TODO` markers in `apps/chat/components/` and
-`apps/chat/tools/platform/documents/create-text-document.ts` are UI polish.
+**Dead code:** `apps/chat/lib/credits/format-credit-balance.ts` has no caller (kept with its test); the `TODO` markers
+in `apps/chat/components/` and `apps/chat/tools/platform/documents/create-text-document.ts` are UI polish.
 
 **Authorization lives at call sites, not in the queries (rank 1's cause):**
 - Files: `apps/chat/lib/db/queries.ts` (`getChatById`, `getProjectById`, `updateProject`, `deleteProject`, `deleteChatById`,

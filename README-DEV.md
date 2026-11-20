@@ -257,8 +257,9 @@ bun run lint
   model, `claude-opus-5-5` at effort `high`. Run it deliberately, never as a habit.
 - The app also records an estimate of each account's spend in `UserCredit.credits`, in cents. A new user starts at 50,
   and every turn, title, post-turn pass and simulation subtracts its estimated cost (`lib/db/credits.ts::deductCredits`).
-  It is a meter, never a limit: nothing reads it to refuse anything, it goes negative, and the UI does not show it. Read
-  it with `docker exec ic-pg psql -U postgres -d ideacheck -c 'select "userId", credits from "UserCredit";'`.
+  It is a meter, never a limit: nothing reads it to refuse anything, it goes negative, and the UI does not show it. The
+  row is created by the first charge (or `db:seed`). Read it with
+  `docker exec ic-pg psql -U postgres -d ideacheck -c 'select "userId", credits from "UserCredit";'`.
 - So a copy has no spend cap of its own for signed-in users: the monthly spend limit on the Anthropic and OpenAI keys
   is the only one. Set it before exposing a copy with open sign-in (Google, GitHub or Vercel OAuth credentials set).
   Anonymous visitors keep their cookie message count, rate limit and model allow-list (`chat.config.ts` →

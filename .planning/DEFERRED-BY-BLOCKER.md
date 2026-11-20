@@ -59,7 +59,7 @@ deployer checklist of `.planning/codebase/CONCERNS.md`.
 ### SWEEP-F7 — Most selectable models have no price, so their calls are logged but not charged
 **Raised:** 2026-11-12, same review. **Status:** OPEN
 The price table covers the configured workflow models; any other gateway model a user selects is logged as unpriced
-and not deducted. Per-turn spend stays gated by `canSpend`.
+and not deducted. Nothing gates per-turn spend: `UserCredit.credits` only records it.
 **Clearing condition:** restrict selectable models to priced ones, or refuse an unpriced model.
 
 ### SWEEP-F8 — Post-turn work assumes the request survives

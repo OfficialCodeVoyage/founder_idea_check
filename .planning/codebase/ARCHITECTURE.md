@@ -162,8 +162,8 @@ N+1's system prompt.
    no zod), `resolveSelectedModelId`, `validateAndSetupSession` (better-auth session, else `handleAnonymousSession`
    rate limit and credit cookie), `prepareChatPersistenceAndCredits` (`handleChatValidation`: chat and message
    ownership, a new chat may only be filed under the requester's own project, title via
-   `generateTitleFromUserMessage` in `apps/chat/app/(chat)/actions.ts`, `saveChatIfNotExists`, `saveMessageIfNotExists`, then
-   `canSpend`), `prepareChatExecutionInputs` (`calculateMessagesTokens` against `MAX_INPUT_TOKENS`,
+   `generateTitleFromUserMessage` in `apps/chat/app/(chat)/actions.ts`, `saveChatIfNotExists`, `saveMessageIfNotExists`; no
+   balance check), `prepareChatExecutionInputs` (`calculateMessagesTokens` against `MAX_INPUT_TOKENS`,
    `getThreadUpToMessageId`, MCP connectors when enabled), `consumeAnonymousCreditBeforeStream`.
 3. The route arms an abort timer from `CHAT_REQUEST_BUDGET_MS` (`apps/chat/lib/ai/request-budget.ts`, 290 s) and passes
    the same deadline to tools as `requestDeadlineAt`.
@@ -292,9 +292,8 @@ N+1's system prompt.
 
 1. The simulation screen calls `runProjectSimulation` (`apps/chat/app/actions/run-simulation.ts`): session, project
    ownership, pitch bounds, persona versions and founder-filled seats, `toSimulationPersonas`
-   (`apps/chat/lib/personas/simulation-input.ts`), the seat cap, then `reserveCredits` (`apps/chat/lib/db/credits.ts`), which
-   deducts the estimate (`estimateSimulationCostCents`) atomically while the balance is positive, or refuses with
-   `insufficient-credits`.
+   (`apps/chat/lib/personas/simulation-input.ts`), the seat cap, then `deductCredits` (`apps/chat/lib/db/credits.ts`), which
+   records the estimate (`estimateSimulationCostCents`) up front and never refuses.
 2. `runSimulation` (`apps/chat/lib/research/simulation.ts`) validates seats and calls the injected runner
    `createSidecarSimulationRunner` (`apps/chat/lib/research/sidecar-simulation.ts`): `POST /v1/simulate`, 300 s ceiling.
 3. The sidecar imports OASIS lazily inside `run_simulation` (`apps/research/app/simulation/oasis_runner.py`); absence is
@@ -431,8 +430,7 @@ N+1's system prompt.
   `cloneSharedChat`.
 - `apps/chat/trpc/routers/project.router.ts`: `list`, `create`, `getById`, `update`, `setInstructions`, `remove`.
 - `apps/chat/trpc/routers/phase.router.ts`: `getState` (polled by the rail), `currentLedger`, `attempts`.
-- `apps/chat/trpc/routers/credits.router.ts`: `getAvailableCredits`.
-  `apps/chat/trpc/routers/settings.router.ts`: `getModelPreferences`, `setModelEnabled`.
+- `apps/chat/trpc/routers/settings.router.ts`: `getModelPreferences`, `setModelEnabled`.
 - `apps/chat/trpc/routers/document.router.ts`: `getDocuments`, `getPublicDocuments` (public), `saveDocument`.
   `apps/chat/trpc/routers/vote.router.ts`: `getVotes`, `voteMessage`.
 - `apps/chat/trpc/routers/mcp.router.ts`: connector CRUD, `testConnection`, `discover`, `authorize`, `checkAuth`;
@@ -546,8 +544,9 @@ the session itself. The sidecar authenticates callers with `RESEARCH_SIDECAR_TOK
 (`apps/research/app/main.py::require_caller`, `docs/ADR/0005-sidecar-caller-auth.md`).
 **Configuration:** `apps/chat/chat.config.ts` validated by `apps/chat/lib/config-schema.ts`, read through `apps/chat/lib/config.ts`; env
 through `apps/chat/lib/env.ts` from `apps/chat/lib/env-schema.ts`; sidecar env in `apps/research/app/config.py`.
-**Cost:** `CostAccumulator` per turn and per post-turn pass, `canSpend` before a turn; a simulation reserves its estimate
-before the run and is refunded only when `simulationReachedModel` is false (reserve, run, refund).
+**Cost:** `CostAccumulator` per turn and per post-turn pass, deducted from `UserCredit.credits`, a spend meter that
+nothing reads to refuse a request (no balance check, no balance in the UI); a simulation deducts its estimate before
+the run and is refunded only when `simulationReachedModel` is false (deduct, run, refund).
 
 ## Where docs and code disagree
 

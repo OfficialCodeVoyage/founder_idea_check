@@ -5,19 +5,24 @@ import { memo, useState } from "react";
 import { MultimodalInput } from "@/components/multimodal-input";
 import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@/lib/ai/types";
+import { useCurrentChatRoute } from "@/lib/chat-route";
 import { useLastMessageId } from "@/lib/stores/hooks-base";
 import { cn } from "@/lib/utils";
 import { IdeaStart } from "./idea-start";
 
 /**
- * THE HOME SCREEN. It opens on the idea test, because a home-screen chat has no
- * project, so no phases and no gate: sending an idea from here creates a
- * project and opens its first chat (`./use-start-idea-test.ts`). A plain chat
- * stays one click away for a question that is not an idea, with the composer
- * it always had.
+ * THE WELCOME SCREEN of a chat that is not in a project. On the home route
+ * (`/`) it opens on the idea test, because a home-screen chat has no project,
+ * so no phases and no gate: sending an idea from here creates a project and
+ * opens its first chat (`./use-start-idea-test.ts`). A plain chat stays one
+ * click away for a question that is not an idea, with the composer it always
+ * had.
  *
- * Only `/` renders this. A project with no messages yet renders `ProjectHome`
- * (`components/chat/chat-content.tsx`), which is untouched.
+ * `ChatContent` also mounts this, hidden, under every plain `/chat/<id>`, and
+ * shows it when such a chat has no messages. There it stays the plain
+ * composer: that URL already names a chat outside any project, so an idea sent
+ * from it would move a project-less chat under a project URL. A project with
+ * no messages yet renders `ProjectHome` instead, untouched.
  */
 function PureChatWelcome({
   chatId,
@@ -32,6 +37,7 @@ function PureChatWelcome({
   isActive: boolean;
 }) {
   const parentMessageId = useLastMessageId();
+  const isHomeRoute = useCurrentChatRoute().type === "home";
   const [mode, setMode] = useState<"idea" | "chat">("idea");
 
   return (
@@ -41,7 +47,7 @@ function PureChatWelcome({
       className={cn("flex min-h-0 flex-1 flex-col overflow-y-auto", className)}
     >
       <div className="mx-auto mt-auto w-full p-2 @[500px]:px-4 @[500px]:pb-6 pb-4 md:my-auto md:max-w-3xl">
-        {mode === "idea" ? (
+        {isHomeRoute && mode === "idea" ? (
           <IdeaStart chatId={chatId} onOpenPlainChat={() => setMode("chat")} />
         ) : (
           <>
@@ -60,16 +66,18 @@ function PureChatWelcome({
               parentMessageId={parentMessageId}
               status={status}
             />
-            <div className="mt-4 text-center">
-              <Button
-                className="h-auto p-0"
-                onClick={() => setMode("idea")}
-                type="button"
-                variant="link"
-              >
-                Test an idea instead
-              </Button>
-            </div>
+            {isHomeRoute ? (
+              <div className="mt-4 text-center">
+                <Button
+                  className="h-auto p-0"
+                  onClick={() => setMode("idea")}
+                  type="button"
+                  variant="link"
+                >
+                  Test an idea instead
+                </Button>
+              </div>
+            ) : null}
           </>
         )}
       </div>

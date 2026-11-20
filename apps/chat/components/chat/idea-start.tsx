@@ -13,6 +13,7 @@ import { InternalLink } from "@/components/internal-link";
 import { SuggestedActions } from "@/components/suggested-actions";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { PHASES } from "@/lib/phases/definitions";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/providers/session-provider";
@@ -33,7 +34,7 @@ function PhaseTrack() {
           <span
             className={cn(
               "h-1.5 w-2.5 rounded-full",
-              phase.order === 1 ? "bg-primary" : "bg-border"
+              phase.order === 1 ? "bg-primary" : "bg-muted-foreground/35"
             )}
             key={phase.key}
           />
@@ -45,6 +46,22 @@ function PhaseTrack() {
       </p>
     </div>
   );
+}
+
+function startHint({
+  isMobile,
+  isSignedIn,
+}: {
+  isMobile: boolean;
+  isSignedIn: boolean;
+}) {
+  if (!isSignedIn) {
+    return "Each idea is saved as a project on your account, so testing one needs you signed in.";
+  }
+  if (isMobile) {
+    return "The idea is saved as a project you can rename.";
+  }
+  return "Enter starts the test, Shift+Enter adds a line. The idea is saved as a project you can rename.";
 }
 
 export function IdeaStart({
@@ -65,6 +82,7 @@ export function IdeaStart({
   const { data: session, isPending: isSessionPending } = useSession();
   const isSignedIn = Boolean(session?.user);
   const startIdeaTest = useStartIdeaTest(chatId);
+  const isMobile = useIsMobile();
 
   const hasText = description.trim().length > 0;
   const canStart = isSignedIn && hasText && !isStarting;
@@ -92,11 +110,11 @@ export function IdeaStart({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !event.nativeEvent.isComposing
-    ) {
+    // The composer's rule (`multimodal-input.tsx`): a phone keyboard has no
+    // Shift, so there Return adds a line and only Ctrl+Enter sends. A stray
+    // Return must not create a project from half an idea.
+    const wantsSend = isMobile ? event.ctrlKey : !event.shiftKey;
+    if (event.key === "Enter" && wantsSend && !event.nativeEvent.isComposing) {
       event.preventDefault();
       start();
     }
@@ -147,7 +165,7 @@ export function IdeaStart({
           ref={textareaRef}
           value={description}
         />
-        <div className="flex items-center justify-between gap-3 px-3 pt-1 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 pt-1 pb-3">
           <PhaseTrack />
           {isSignedIn || isSessionPending ? (
             <Button
@@ -173,9 +191,7 @@ export function IdeaStart({
         </div>
       </form>
       <p className="mt-2 text-muted-foreground text-xs" id={hintId}>
-        {isSignedIn || isSessionPending
-          ? "Enter starts the test, Shift+Enter adds a line. The idea is saved as a project you can rename."
-          : "Each idea is saved as a project on your account, so testing one needs you signed in."}
+        {startHint({ isMobile, isSignedIn: isSignedIn || isSessionPending })}
       </p>
 
       <SuggestedActions

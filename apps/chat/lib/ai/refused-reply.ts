@@ -4,7 +4,7 @@ import type { ChatMessage } from "@/lib/ai/types";
 
 type ChatChunk = InferUIMessageChunk<ChatMessage>;
 
-/**
+/*
  * A DECLINED REPLY, RECOGNISED ONCE: from the finish part of the chat model's
  * own stream. Claude's `refusal` stop reason arrives as `content-filter` with
  * an empty (or cut-off) reply and no error. That one event drives all three
@@ -24,6 +24,11 @@ type ChatChunk = InferUIMessageChunk<ChatMessage>;
  * notice comes before the finish chunk that carries the mark, so a reply
  * that holds the mark always holds the notice, and a cancel before them
  * leaves neither. What a declined turn is charged is unchanged.
+ */
+
+/**
+ * The `finish` chunk's metadata for a call that ended with this finish reason:
+ * `{ refused: true }` when it was declined, otherwise nothing.
  */
 export function refusedFinishMetadata(
   finishReason: FinishReason

@@ -263,6 +263,26 @@ After a reload mid-reply, a Stop pressed before the resume's `start` chunk arriv
 `lib/stores/with-threads.ts::addMessageToTree`, `hooks/use-complete-data-part.ts::useCompleteDataPart` and `hooks/chat-sync-hooks.ts::useSaveMessageMutation` each find a message by id in a `ChatMessage[]` and replace or append it. A later change to one (keeping order, merging metadata) can drift from the others.
 **Clearing condition:** one shared helper used by all three, with their callers' behaviour unchanged.
 
+### SWEEP-F39 — Retry on a reply with no usable stored model says "Cannot determine which model to retry"
+**Raised:** 2026-11-20, `feat/claude-gateway-261117`, code review. **Status:** OPEN (low, pre-existing)
+When neither the assistant reply nor its parent founder message names a usable model (`getAllMessagesByChatId` writes `""` for a stored `selectedModel` that fails `isSelectedModelValue`), `lib/chat-tree-actions.ts::getRetryMessageInput` returns `model_not_found` and `components/retry-button.tsx::RetryButton` shows "Cannot determine which model to retry". Main does the same. On such rows the message editor gets no model override and uses the global default.
+**Clearing condition:** Retry on such a reply uses the composer's current model, as it already does for a model the catalog dropped.
+
+### SWEEP-F40 — A report cut off mid-document says "nothing was saved" while a partial document was saved
+**Raised:** 2026-11-20, `feat/claude-gateway-261117`, live deep-research run on Claude before the report-cap fix. **Status:** OPEN (low, pre-existing)
+When the report model reaches its output cap while streaming the `createTextDocument` input, the call never completes, so `tools/platform/deep-research/report-outcome.ts::describeMissingReportDocument` sees no tool call and says the model ended "without ever calling createTextDocument, so nothing was saved". The chat route's dead-input-stream salvage (`lib/artifacts/text/salvage.ts`) meanwhile wrote a document titled "[PARTIAL — stream died] …" and the `createTextDocument` part says so, so the same reply contradicts itself. Seen once: 15,584 characters saved as a partial document while the research result said nothing was saved.
+**Clearing condition:** the deep-research outcome notices a started but unfinished `createTextDocument` (or the salvaged partial document) and says a partial document was saved.
+
+### SWEEP-F41 — The deep-research token budgets for Claude use an unmeasured 1.3 ratio, and the other prompts use none
+**Raised:** 2026-11-20, `feat/claude-gateway-261117`, code review. **Status:** OPEN (low, not reachable on the 1M window with today's logs)
+`tools/platform/deep-research/compression-input.ts` scales the o200k token count by a working figure for Claude's tokenizer (`CLAUDE_TOKENS_PER_O200K_TOKEN`), not measured on this repo's text. The clarify, brief and final-report calls in `tools/platform/deep-research/pipeline.ts` still use `truncateMessages` with the unscaled o200k count against the same Claude window. A log that is mostly CJK text, URLs or encoded data can count more than the figure allows and be refused as too long, which loses that topic's findings.
+**Clearing condition:** the ratio is measured on real research logs (or the provider's token-count endpoint is used), and every deep-research prompt that is cut to a budget uses it.
+
+### SWEEP-F42 — Haiku 5.5's long-context price tier is chosen per accumulator entry, and nothing enforces one request per entry
+**Raised:** 2026-11-20, `feat/claude-gateway-261117`, code review. **Status:** OPEN (low, no caller does this today)
+`lib/credits/cost-accumulator.ts::rateFor` picks the 5x rate for a Haiku 5.5 entry whose `inputTokens` is over 100,000. That is right for one request per entry; a caller that records a summed multi-step `totalUsage` against that model would price every step at the high tier and overcharge about five times. Every current Haiku caller records per step.
+**Clearing condition:** per-request usage is carried into `addLLMCost` (or a guard test fails when a caller passes a multi-step total for a model with tiers).
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { InternalLink } from "@/components/internal-link";
-import { useGetCredits } from "@/hooks/chat-sync-hooks";
+import { useAnonymousCredits } from "@/hooks/chat-sync-hooks";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/providers/session-provider";
 import { Button } from "../ui/button";
@@ -87,7 +87,7 @@ export function LimitDisplay({
   className?: string;
   forceVariant?: "credits" | "model" | "image";
 }) {
-  const { credits, isLoadingCredits } = useGetCredits();
+  const remaining = useAnonymousCredits();
   const { data: session } = useSession();
   const isAuthenticated = !!session?.user;
   const [dismissed, setDismissed] = useState(false);
@@ -100,17 +100,10 @@ export function LimitDisplay({
   const variant = forceVariant ?? "credits";
   const config = VARIANT_CONFIG[variant];
 
-  // Credits variant relies on credits API state
-  if (variant === "credits" && isLoadingCredits) {
-    return null;
-  }
-
   // Don't show if dismissed
   if (config.dismissible && dismissed) {
     return null;
   }
-
-  const remaining = credits ?? 0;
 
   // Only show when approaching or at limit (credits variant)
   const isAtLimit = remaining <= 0;

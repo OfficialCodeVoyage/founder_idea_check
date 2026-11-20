@@ -13,7 +13,7 @@ describe("formatCreditBalance", () => {
   });
 
   it("does NOT render an unknown balance as zero", () => {
-    // `useGetCredits` returns undefined while loading and after a failure. The
+    // The balance query returned undefined while loading and after a failure. The
     // old inline `credits ?? 0` told the founder they were broke.
     expect(formatCreditBalance(undefined)).toBe(UNKNOWN_BALANCE);
     expect(formatCreditBalance(null)).toBe(UNKNOWN_BALANCE);

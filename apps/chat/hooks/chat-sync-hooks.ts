@@ -291,46 +291,6 @@ export function useCloneChat() {
   });
 }
 
-/**
- * WHEN THE BALANCE IS READ AGAIN AFTER A TURN. A turn is charged by the server
- * AFTER its stream has closed (`chargeTurnOnce`, handed to `after()`), and a
- * Stop is acted on up to a second after it is pressed, so the refetch made the
- * moment the client's stream ends reads the balance from before the charge: the
- * sidebar kept $996.95 for a database that said $996.94 until a reload (live QA,
- * re-check 5). The project turn's second charge (the extraction and gate calls)
- * lands later still: it runs in `after()` once the reply has closed, and live QA
- * (re-check 6) saw it land 14.6 s after the turn's own charge, so the sidebar
- * balance stayed 4 credits high until a reload with only the 2 s and 10 s reads.
- * So the balance is read at the end of the turn and four times more, the last two
- * (30 s, 60 s) for the post-turn passes. Each read is one small query for a balance
- * the sidebar already shows, and `invalidateQueries` fetches nothing when no
- * component is watching it.
- */
-const CREDITS_REFETCH_AFTER_TURN_MS = [2000, 10_000, 30_000, 60_000] as const;
-
-/**
- * The reads scheduled by the latest turn. A newer turn's end replaces them (it
- * schedules its own, which read the balance after every charge so far), so
- * back-to-back turns never stack timers. They are deliberately NOT cleared when
- * `ChatSync` unmounts: a read is a call on the QueryClient, which outlives the
- * component, and the user who leaves a chat seconds after a reply is the one whose
- * sidebar still needs the post-turn charge.
- */
-let pendingCreditsRefetches: ReturnType<typeof setTimeout>[] = [];
-
-function refetchCreditsAfterTurn(
-  qc: ReturnType<typeof useQueryClient>,
-  queryKey: QueryKey
-) {
-  for (const timer of pendingCreditsRefetches) {
-    clearTimeout(timer);
-  }
-  qc.invalidateQueries({ queryKey });
-  pendingCreditsRefetches = CREDITS_REFETCH_AFTER_TURN_MS.map((delayMs) =>
-    setTimeout(() => qc.invalidateQueries({ queryKey }), delayMs)
-  );
-}
-
 export function useSaveMessageMutation() {
   const { data: session } = useSession();
   const isAuthenticated = !!session?.user;
@@ -365,10 +325,6 @@ export function useSaveMessageMutation() {
     onSuccess: async (_data, { message, chatId }) => {
       if (message.role === "assistant") {
         if (isAuthenticated) {
-          refetchCreditsAfterTurn(
-            qc,
-            trpc.credits.getAvailableCredits.queryKey()
-          );
           await Promise.all([
             qc.invalidateQueries({
               queryKey: trpc.chat.getAllChats.queryKey(),
@@ -522,17 +478,17 @@ export function useGetChatById(
   });
 }
 
-export function useGetCredits() {
+/**
+ * The messages an anonymous visitor has left, read from their session cookie.
+ * A message count, not money, and only for the not-signed-in path: a signed-in
+ * user has no balance to show, because the app sells nothing and runs on the
+ * operator's own keys (`UserCredit.credits` only records spend).
+ */
+export function useAnonymousCredits() {
   const { data: session } = useSession();
   const isAuthenticated = !!session?.user;
-  const trpc = useTRPC();
 
-  const { data: creditsData, isLoading: isLoadingCredits } = useQuery({
-    ...trpc.credits.getAvailableCredits.queryOptions(),
-    enabled: isAuthenticated,
-  });
-
-  // Use a query for anonymous credits so we can invalidate it
+  // A query so `useSaveMessageMutation` can invalidate it after each message.
   const { data: anonymousCredits } = useQuery({
     queryKey: ANONYMOUS_CREDITS_KEY,
     queryFn: () => {
@@ -543,15 +499,5 @@ export function useGetCredits() {
     staleTime: 0,
   });
 
-  if (!isAuthenticated) {
-    return {
-      credits: anonymousCredits ?? ANONYMOUS_LIMITS.CREDITS,
-      isLoadingCredits: false,
-    };
-  }
-
-  return {
-    credits: creditsData?.credits,
-    isLoadingCredits,
-  };
+  return anonymousCredits ?? ANONYMOUS_LIMITS.CREDITS;
 }

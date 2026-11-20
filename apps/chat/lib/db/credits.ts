@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "./client";
 import { userCredit } from "./schema";
 
@@ -8,37 +8,10 @@ async function ensureUserCreditRow(userId: string) {
 }
 
 /**
- * Get user's current credit balance (in cents).
- */
-export async function getCredits(userId: string): Promise<number> {
-  let rows = await db
-    .select({ credits: userCredit.credits })
-    .from(userCredit)
-    .where(eq(userCredit.userId, userId))
-    .limit(1);
-
-  if (rows.length === 0) {
-    await ensureUserCreditRow(userId);
-    rows = await db
-      .select({ credits: userCredit.credits })
-      .from(userCredit)
-      .where(eq(userCredit.userId, userId))
-      .limit(1);
-  }
-
-  return rows[0]?.credits ?? 0;
-}
-
-/**
- * Check if user has positive credits (can spend).
- */
-export async function canSpend(userId: string): Promise<boolean> {
-  const credits = await getCredits(userId);
-  return credits > 0;
-}
-
-/**
- * Deduct credits from user. Allows going slightly negative for in-progress operations.
+ * Records `amount` cents of spend against the user. `UserCredit.credits` is a
+ * spend meter, not a balance anyone pays into: the app runs on the operator's
+ * own provider keys and sells nothing, so nothing reads it to refuse a turn,
+ * a tool or a simulation, and it may go below zero.
  */
 export async function deductCredits(
   userId: string,
@@ -54,32 +27,8 @@ export async function deductCredits(
 }
 
 /**
- * Deducts `amount` only if the balance is positive, in one statement, and
- * says whether it did. For a paid call whose cost is taken BEFORE it runs
- * (`app/actions/run-simulation.ts::runProjectSimulation`): `canSpend` followed
- * by `deductCredits` lets concurrent requests all pass the check on the same
- * last cent, while Postgres re-checks this WHERE after taking the row lock, so
- * only the first of them is admitted. Like `deductCredits` it may leave the
- * balance slightly negative when `amount` exceeds what is left.
- */
-export async function reserveCredits(
-  userId: string,
-  amount: number
-): Promise<boolean> {
-  await ensureUserCreditRow(userId);
-  const rows = await db
-    .update(userCredit)
-    .set({
-      credits: sql`${userCredit.credits} - ${amount}`,
-    })
-    .where(and(eq(userCredit.userId, userId), gt(userCredit.credits, 0)))
-    .returning({ credits: userCredit.credits });
-  return rows.length > 0;
-}
-
-/**
- * Add credits to user: hands back a `reserveCredits` amount for a call that
- * turned out never to reach the model.
+ * Takes back a `deductCredits` amount recorded up front for a call that turned
+ * out never to reach the model (`app/actions/run-simulation.ts::runProjectSimulation`).
  */
 export async function addCredits(
   userId: string,

@@ -27,7 +27,7 @@ import type { ModelMessage, ToolResultPart } from "ai";
  * figure, not measured on this repo's text; on an OpenAI model it only makes
  * the budget stricter.
  */
-export const CLAUDE_TOKENS_PER_O200K_TOKEN = 1.3;
+const CLAUDE_TOKENS_PER_O200K_TOKEN = 1.3;
 
 type LogEntry = {
   kind: "call" | "result" | "note";
@@ -70,9 +70,7 @@ export function compressionFrameTags(nonce: string): CompressionFrameTags {
  * researcher's own text. Thinking is skipped: it is not what compression
  * condenses, and a reasoning part carries nothing a later model can read.
  */
-export function researchLogEntries(
-  messages: readonly ModelMessage[]
-): LogEntry[] {
+function researchLogEntries(messages: readonly ModelMessage[]): LogEntry[] {
   const callNumbers = new Map<string, number>();
   const entries: LogEntry[] = [];
   const note = (text: string) => {
@@ -155,7 +153,7 @@ function trimToTokens(
   return trimmed;
 }
 
-export type CompressionPrompt = {
+type CompressionPrompt = {
   /** The one user message: topic, log, closing instruction. */
   prompt: string;
   /** How many results' bodies were left out, oldest first. */

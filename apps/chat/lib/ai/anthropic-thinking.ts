@@ -96,7 +96,7 @@ export function anthropicThinkingOptions(
     : { type: "enabled", budgetTokens: LEGACY_THINKING_BUDGET_TOKENS };
 }
 
-export type AnthropicEffort = "low" | "medium" | "high";
+type AnthropicEffort = "low" | "medium" | "high";
 
 /**
  * HOW HARD EACH CALL PATH THINKS, CHOSEN RATHER THAN DEFAULTED.
@@ -137,7 +137,7 @@ export const CALL_EFFORT = {
  * the thinking shape. Unlike `supportsAdaptiveThinking`, an unparseable id gets
  * NO effort: it may not be a Claude model at all.
  */
-export function supportsEffort(apiModelId: string): boolean {
+function supportsEffort(apiModelId: string): boolean {
   return (
     parseClaudeVersion(apiModelId) !== null &&
     supportsAdaptiveThinking(apiModelId)
@@ -152,7 +152,7 @@ export function anthropicEffortOptions(
   return supportsEffort(apiModelId) ? { anthropic: { effort } } : undefined;
 }
 
-export type AnthropicLeastThinkingOptions = {
+type AnthropicLeastThinkingOptions = {
   anthropic: {
     effort: "low";
     thinking?: { type: "between_tools" } | { type: "disabled" };

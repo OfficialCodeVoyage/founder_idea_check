@@ -1,12 +1,24 @@
+import Link from "next/link";
 import { config } from "@/lib/config";
 import { ISSUES_URL } from "@/lib/project-links";
 
+/**
+ * This policy is written for software that a person runs on their own
+ * computer with their own keys, not for a hosted service. Every sentence is a
+ * claim about this repository's design, so keep each one checkable:
+ * - "no analytics or telemetry": `instrumentation.ts` registers nothing and no
+ *   analytics package is installed;
+ * - "stored in the operator's database": chats, facts, documents and sessions
+ *   are tables in `lib/db/schema.ts`, and nothing is written elsewhere;
+ * - "sent to the AI providers": `config.services.aiProviders`, under the
+ *   operator's own keys (`chat.config.ts`);
+ * - "public sources": the research sidecar's source list
+ *   (`apps/research/README.md`).
+ * If a deployment of this app is ever offered to other people, this page is not
+ * enough for it and must be rewritten by whoever runs it.
+ */
 export default function PrivacyPage() {
-  const _currencySymbolMap: Record<string, string> = {
-    USD: "$",
-    EUR: "€",
-    GBP: "£",
-  };
+  const providers = config.services.aiProviders.join(", ");
 
   return (
     <main className="prose dark:prose-invert container mx-auto max-w-3xl py-10">
@@ -18,143 +30,98 @@ export default function PrivacyPage() {
       ) : null}
 
       <p>
-        At {config.organization.name}, we respect your privacy and are committed
-        to protecting your personal data. This Privacy Policy explains how we
-        collect, use, and safeguard your information when you use our service.
+        {config.appName} runs on a computer that its operator controls, the
+        person who installed it. The {config.organization.name} maintainers run
+        no server for it, collect nothing from it and receive no data from it.
+        This page says where your data goes when you use a copy.
       </p>
 
-      <h2>Information We Collect</h2>
-      <p>We may collect the following types of information:</p>
+      <h2>What is stored, and where</h2>
+      <p>
+        Everything you enter and everything {config.appName} produces is stored
+        in the database the operator configured, which by default is a database
+        on the same computer. That covers:
+      </p>
       <ul>
         <li>
-          <strong>Search Queries</strong>: The questions and searches you submit
-          to our service.
+          Your chats and messages, the project facts and evidence taken from
+          them, research results, documents and exports.
         </li>
         <li>
-          <strong>Usage Data</strong>: Information about how you interact with
-          our service, including features used and time spent on the platform.
+          Your sign-in details: name and email address, or the profile that your
+          sign-in provider returns.
         </li>
         <li>
-          <strong>Device Information</strong>: Information about your device,
-          browser type, IP address, and operating system.
-        </li>
-        <li>
-          <strong>Account Information</strong>: Email address and profile
-          information when you create an account.
-        </li>
-        <li>
-          <strong>Subscription Data</strong>: Information about your
-          subscription status and billing history (but not payment details).
-        </li>
-        <li>
-          <strong>Cookies and Similar Technologies</strong>: We use cookies and
-          similar tracking technologies to enhance your experience and collect
-          usage information.
+          Sign-in sessions, which can record the IP address and browser of the
+          device that signed in.
         </li>
       </ul>
       <p>
-        <strong>Important Note on Payment Data</strong>:{" "}
-        {config.organization.name} does not collect, store, or process any
-        payment card details, bank information, or other sensitive payment data.
-        All payment information is handled directly by our payment processors (
-        {config.services.paymentProcessors.join(", ")}) and is subject to their
-        respective privacy policies and security standards.
+        The operator can read all of it. Deleting a chat in the app removes it
+        from that database, and the operator can remove everything by deleting
+        the database. The maintainers cannot see or delete it.
       </p>
 
-      <h2>How We Use Your Information</h2>
-      <ul>
-        <li>To provide and improve our service</li>
-        <li>To understand how users interact with our platform</li>
-        <li>To personalize and enhance your experience</li>
-        <li>To monitor and analyze usage patterns and trends</li>
-        <li>To detect, prevent, and address technical issues</li>
-      </ul>
-
-      <h2>Data Sharing and Disclosure</h2>
-      <p>We may share your information in the following circumstances:</p>
-      <ul>
-        <li>
-          <strong>Service Providers</strong>: With third-party service providers
-          who help us operate, improve, and analyze our service.
-        </li>
-        <li>
-          <strong>Hosting</strong>: {config.services.hosting} hosts our
-          infrastructure.
-        </li>
-        <li>
-          <strong>AI Processing Partners</strong>: We utilize services from
-          companies including {config.services.aiProviders.join(", ")} to
-          process queries and provide results.
-        </li>
-        <li>
-          <strong>Payment Processors</strong>: We use{" "}
-          {config.services.paymentProcessors.join(", ")} to process payments and
-          manage subscriptions. These providers handle all payment data directly
-          and have their own privacy policies governing payment information.
-        </li>
-        <li>
-          <strong>Compliance with Laws</strong>: When required by applicable
-          law, regulation, legal process, or governmental request.
-        </li>
-        <li>
-          <strong>Business Transfers</strong>: In connection with a merger,
-          acquisition, or sale of assets.
-        </li>
-      </ul>
+      <h2>What is sent to AI providers</h2>
       <p>
-        <strong>Payment Data</strong>: When you make a payment, your payment
-        information is transmitted directly to our payment processors and is not
-        stored on our servers. We only receive confirmation of successful
-        payments and subscription status updates.
+        To work, {config.appName} sends text to {providers}, using the
+        operator&apos;s own API keys: your messages, along with the project
+        facts, documents and research text that give them context. Each
+        provider&apos;s own privacy policy and retention terms govern what it
+        does with that text. Check them, and the settings of the operator&apos;s
+        account with each.
       </p>
 
-      <h2>Data Security</h2>
+      <h2>What is sent to public sources</h2>
       <p>
-        We implement appropriate technical and organizational measures to
-        protect your personal information. However, no method of transmission
-        over the Internet or electronic storage is 100% secure, and we cannot
-        guarantee absolute security.
+        The research step turns your idea into short search queries and sends
+        them to public sources: Hacker News and a web search (a SearXNG that the
+        operator runs, or DuckDuckGo) by default, and GitHub or a public archive
+        of Reddit posts when the operator turns those on. Those sites see the
+        queries and the operator&apos;s IP address, not your account.
       </p>
 
-      <h2>Your Rights</h2>
-      <p>Depending on your location, you may have the right to:</p>
-      <ul>
-        <li>Access the personal information we hold about you</li>
-        <li>Request correction or deletion of your personal information</li>
-        <li>Object to or restrict certain processing activities</li>
-        <li>Data portability</li>
-        <li>Withdraw consent where applicable</li>
-      </ul>
-
-      <h2>Children's Privacy</h2>
+      <h2>Cookies</h2>
       <p>
-        Our service is not directed to children under the age of
-        {` ${config.legal.minimumAge}`}. We do not knowingly collect personal
-        information from children under
-        {` ${config.legal.minimumAge}`}. If you are a parent or guardian and
-        believe your child has provided us with personal information, please
-        contact us.
+        {config.appName} sets only the cookies it needs to work: your sign-in
+        session, an anonymous session when you use it without signing in, and
+        your sidebar and model choices. It sets no advertising or tracking
+        cookies.
       </p>
 
-      <h2>Changes to This Privacy Policy</h2>
+      <h2>No analytics</h2>
       <p>
-        We may update our Privacy Policy from time to time. We will notify you
-        of any changes by posting the new Privacy Policy on this page and
-        updating the "Last updated" date.
+        {config.appName} has no analytics, tracking or telemetry of its own, and
+        it does not report usage to the maintainers.
       </p>
 
-      <h2>Contact Us</h2>
+      <h2>Your choices</h2>
       <p>
-        If you have any questions about this Privacy Policy, please contact us
-        at:{" "}
+        Because the data sits in the operator&apos;s database, the operator is
+        the one who can give you a copy of it, correct it or delete it. If you
+        are the operator, that includes the people you let sign in.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        {config.appName} is a tool for people building products and is not
+        directed to children under {config.legal.minimumAge}.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        This policy changes with the software. The date at the top shows the
+        last change. The <Link href="/terms">Terms of Service</Link> explain who
+        runs a copy and what the licence allows.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions about the software:{" "}
         {config.organization.contact.privacyEmail ?? (
           <a href={ISSUES_URL}>{ISSUES_URL}</a>
         )}
-      </p>
-
-      <p>
-        By using {config.appName}, you agree to our Privacy Policy and our Terms
-        of Service.
+        . The maintainers cannot answer for a copy that someone else runs.
       </p>
     </main>
   );

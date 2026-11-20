@@ -3,7 +3,7 @@ import { defineConfig } from "@/lib/config-schema";
 const isProd = process.env.NODE_ENV === "production";
 
 /**
- * Founder Idea Check configuration
+ * IdeaGate configuration
  *
  * Edit this file to customize your app. The schema and every default live in
  * `lib/config-schema.ts`.
@@ -12,23 +12,27 @@ const isProd = process.env.NODE_ENV === "production";
  * `lib/url.ts::getBaseUrl` (APP_URL, then the Vercel URLs, then localhost).
  */
 const config = defineConfig({
+  // `appPrefix` is an identifier, not a display name: it prefixes the Redis
+  // resumable-stream keys, the logger binding and the file-storage path
+  // (`lib/constants.ts::FILE_STORAGE_PREFIX`). It stays "ideacheck" when the
+  // product name changes, so keys and stored paths written earlier still match.
   appPrefix: "ideacheck",
-  appName: "Founder Idea Check",
-  appTitle: "Founder Idea Check - validate your idea before you build it",
+  appName: "IdeaGate",
+  appTitle: "IdeaGate - test your idea before you build it",
   appDescription:
     "Test a startup idea before you build it: an eight-phase conversation whose gates refuse to advance without evidence, backed by public demand research.",
   organization: {
-    name: "Founder Idea Check",
+    name: "IdeaGate",
     // No mailbox is published for this project: the privacy and terms pages
     // point to the issue tracker (`lib/project-links.ts`) until one is set.
     contact: {},
   },
   services: {
-    hosting: "Vercel",
-    // Anthropic runs every text model; OpenAI still serves the fact
-    // embeddings (lib/embeddings/provider.ts) and the research sidecar.
+    // Shown on the privacy and terms pages as the providers that receive a
+    // person's text, under the operator's own keys. Anthropic runs every text
+    // model; OpenAI still serves the fact embeddings
+    // (lib/embeddings/provider.ts) and the research sidecar.
     aiProviders: ["Anthropic", "OpenAI"],
-    paymentProcessors: [],
   },
   features: {
     attachments: false, // needs Vercel Blob; re-enable when storage is wired
@@ -36,17 +40,15 @@ const config = defineConfig({
   },
   legal: {
     minimumAge: 13,
-    governingLaw: "United States",
-    refundPolicy: "no-refunds",
   },
   policies: {
     privacy: {
       title: "Privacy Policy",
-      lastUpdated: "July 24, 2025",
+      lastUpdated: "November 20, 2026",
     },
     terms: {
       title: "Terms of Service",
-      lastUpdated: "July 24, 2025",
+      lastUpdated: "November 20, 2026",
     },
   },
   // AUTHENTICATION BLOCK ONLY — changed by the key-ready-devx pass.

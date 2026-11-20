@@ -85,8 +85,7 @@ Rules (strictly follow all):
  * rounding in `CostAccumulator.settle` applies to this call separately: a
  * title costs a small fraction of a cent and is charged 1¢. That is why the
  * route path does not come here but records the call on the turn's
- * accumulator, and why `/api/chat/prepare` admits a title only on a balance
- * that still admits the turn after it. NEVER THROWS: a failed charge is
+ * accumulator. NEVER THROWS: a failed charge is
  * logged, and the chat is still created with its title — refusing the
  * founder's first message because a credit write failed would be the worse
  * failure.

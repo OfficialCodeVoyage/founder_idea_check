@@ -2,6 +2,7 @@ import { generateText, type ModelMessage, Output, streamText } from "ai";
 import type { z } from "zod";
 import type { AppModelId, ModelId } from "@/lib/ai/app-models";
 import { getLanguageModel } from "@/lib/ai/providers";
+import { isDeclinedCall } from "@/lib/ai/refused-reply";
 import { truncateMessages } from "@/lib/ai/token-utils";
 import {
   chargeUsageTo,
@@ -18,7 +19,10 @@ import {
   finalReportGenerationPrompt,
   transformMessagesIntoResearchTopicPrompt,
 } from "./prompts";
-import { describeMissingReportDocument } from "./report-outcome";
+import {
+  describeDeclinedStep,
+  describeMissingReportDocument,
+} from "./report-outcome";
 import {
   describeCuts,
   type ResearchClock,
@@ -96,7 +100,20 @@ export async function runDeepResearchPipeline(
   };
 
   // Step 1: Clarify with user
-  const clarification = await clarifyWithUser(input.messages, ctx);
+  //
+  // A DECLINED clarify or brief call (`isDeclinedCall`) ends the run with the
+  // same kind of result as a declined report: a report that is an error, in
+  // the shared wording (`describeDeclinedStep`), not "Deep research failed
+  // with error: ...". Any other error, an abort included, propagates as before.
+  let clarification: ClarificationResult;
+  try {
+    clarification = await clarifyWithUser(input.messages, ctx);
+  } catch (error) {
+    if (!isDeclinedCall(error)) {
+      throw error;
+    }
+    return declinedRun("look at the research request");
+  }
 
   if (clarification.needsClarification) {
     return {
@@ -116,7 +133,26 @@ export async function runDeepResearchPipeline(
   });
 
   // Step 2: Write research brief
-  const brief = await writeResearchBrief(input.messages, ctx);
+  let brief: ResearchBrief;
+  try {
+    brief = await writeResearchBrief(input.messages, ctx);
+  } catch (error) {
+    if (!isDeclinedCall(error)) {
+      throw error;
+    }
+    // "Starting research" is already on screen, so the run is closed the way
+    // a finished one is.
+    dataStream.write({
+      type: "data-researchUpdate",
+      data: {
+        toolCallId: input.toolCallId,
+        title: "Research stopped",
+        type: "completed",
+        timestamp: Date.now(),
+      },
+    });
+    return declinedRun("write the research brief");
+  }
 
   // Step 3: Supervisor research loop
   const notes = await runSupervisor(brief.research_brief, ctx);
@@ -143,6 +179,14 @@ export async function runDeepResearchPipeline(
   return {
     type: "report",
     data: reportResult,
+  };
+}
+
+/** The result of a run whose clarify or brief step the model declined. */
+function declinedRun(task: string): DeepResearchResult {
+  return {
+    type: "report",
+    data: { status: "error", error: describeDeclinedStep(task) },
   };
 }
 
@@ -250,8 +294,9 @@ async function writeResearchBrief(
   const truncatedMessages = truncateMessages(briefMessages, contextWindow);
 
   // Charged whether or not the reply parses: see `generateReportingUsage`.
-  const output: z.infer<typeof ResearchQuestionSchema> =
-    await generateReportingUsage(
+  let output: z.infer<typeof ResearchQuestionSchema>;
+  try {
+    output = await generateReportingUsage(
       chargeUsageTo(costAccumulator, config.research_model as AppModelId),
       "deep-research-brief",
       () =>
@@ -264,6 +309,24 @@ async function writeResearchBrief(
           abortSignal,
         })
     );
+  } catch (error) {
+    // A declined brief ends the run (`runDeepResearchPipeline`), so its step
+    // is closed rather than left running on screen.
+    if (isDeclinedCall(error)) {
+      dataStream.write({
+        id: dataPartId,
+        type: "data-researchUpdate",
+        data: {
+          toolCallId,
+          title: "Writing research brief",
+          message: "The model declined to write the research brief.",
+          type: "writing",
+          status: "completed",
+        },
+      });
+    }
+    throw error;
+  }
 
   dataStream.write({
     id: dataPartId,

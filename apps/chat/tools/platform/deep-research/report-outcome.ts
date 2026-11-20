@@ -32,7 +32,7 @@ export async function describeMissingReportDocument(result: {
   // Declined (Claude's `refusal`): said as such, like every other declined
   // call, not as a model that chose to write prose.
   if (isDeclined(finishReason)) {
-    return `The report model declined to write the report (finish reason: ${finishReason}), so nothing was saved and there is no document to open.`;
+    return describeDeclinedStep("write the report");
   }
   const attempts = (await result.toolCalls).filter(
     (call) => call.toolName === "createTextDocument"
@@ -44,4 +44,16 @@ export async function describeMissingReportDocument(result: {
 
   const prose = (await result.text).trim();
   return `The report model ended (finish reason: ${finishReason}) without ever calling createTextDocument, so nothing was saved. It emitted ${prose.length} characters of plain text instead of a document.`;
+}
+
+/**
+ * WHAT A RUN SAYS WHEN A MODEL DECLINED ONE OF ITS WHOLE-RUN STEPS (Claude's
+ * `refusal`, `content-filter`): the report above, and the clarify and brief
+ * steps in `pipeline.ts::runDeepResearchPipeline`. ONE sentence for all three,
+ * so a declined run reads the same whichever step declined, and it says what
+ * the founder can do. A topic a researcher declined partway through is a cut
+ * in a finished report, not this.
+ */
+export function describeDeclinedStep(task: string): string {
+  return `The model declined to ${task} (finish reason: content-filter), so nothing was saved and there is no document to open. Rephrasing the request may help.`;
 }

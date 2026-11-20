@@ -55,11 +55,19 @@ export default function PrivacyPage() {
           Sign-in sessions, which can record the IP address and browser of the
           device that signed in.
         </li>
+        <li>
+          Short-lived working data in Redis when the operator configures it, and
+          in the computer&apos;s memory otherwise: the buffer of a reply that is
+          still streaming, so that reloading the page can resume it, and
+          rate-limit counters, which for visitors who are not signed in are
+          keyed by IP address. These entries expire on their own.
+        </li>
       </ul>
       <p>
         The operator can read all of it. Deleting a chat in the app removes it
-        from that database, and the operator can remove everything by deleting
-        the database. The maintainers cannot see or delete it.
+        from the database, but not from the short-lived entries above before
+        they expire. The operator can remove everything by deleting the database
+        and clearing Redis. The maintainers cannot see or delete it.
       </p>
 
       <h2>What is sent to AI providers</h2>

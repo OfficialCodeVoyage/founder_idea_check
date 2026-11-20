@@ -30,7 +30,7 @@ in the last section.
 | 12 | The per-user spend meter has no screen; reading it takes a database query | operator cannot see spend per user | Missing |
 | 13 | Gate calibrated on phase 1 only; missing prompts degrade to empty text; one extraction pass per turn | verdict quality | Fragile |
 | 14 | Migrations skip outside Vercel; no from-zero replay in CI | schema drift | Fragile |
-| 15 | Inherited privacy text; inherited dead surfaces (MCP, images, Electron, CLI templates) | public legal text, maintenance | Tech debt |
+| 15 | Inherited dead surfaces (MCP, images, Electron, CLI templates) | maintenance | Tech debt |
 | 16 | Test gaps on every route-level authorization check | regressions in 1 to 4 | Test gaps |
 | 17 | Push-guard hook gaps (`SWEEP-F1` to `SWEEP-F4`) | contributor tooling | Tech debt |
 
@@ -86,13 +86,6 @@ in the last section.
   not linted or type-checked by `scripts/verify.sh` (only `packages/thread` is).
 - Fix approach: delete each feature with its config flag, or move it behind a documented opt-in; extend `verify.sh` or drop
   the packages from the public repository.
-
-**Privacy and terms pages are the ChatJS template (rank 15):**
-- Files: `apps/chat/app/privacy/page.tsx`, `apps/chat/chat.config.ts` (`policies.*.lastUpdated`, `services`).
-- Issue: the privacy page prints an empty list where payment processors go (`config.services.paymentProcessors` is `[]`),
-  lists subscription and billing data this app never holds, and says nothing about stored project facts, demand signals or the
-  model providers' handling of founder text. The "last updated" date predates this fork.
-- Fix approach: write text that matches what the product stores and sends before anyone else signs in.
 
 **Dead code:** `apps/chat/lib/credits/format-credit-balance.ts` has no caller (kept with its test); the `TODO` markers
 in `apps/chat/components/` and `apps/chat/tools/platform/documents/create-text-document.ts` are UI polish.

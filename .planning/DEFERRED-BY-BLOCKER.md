@@ -308,6 +308,26 @@ The judge reads the whole project transcript, so a decline caused by one early m
 `tools/platform/deep-research/report-outcome.ts::describeDeclinedStep` always ends "so nothing was saved and there is no document to open", and its finish-reason text is fixed instead of read from the call.
 **Clearing condition:** the "no document" clause is built only for the report step, and the real finish reason is printed.
 
+### SWEEP-F48 — A failure after the idea test creates its project makes a retry create a second project
+**Raised:** 2026-11-20, `feat/ideagate-selfhost-261120`, code review. **Status:** OPEN (low)
+`components/chat/use-start-idea-test.ts` creates the project first, and `components/chat/idea-start.tsx::IdeaStart` treats any later throw (the opening model, the draft submission, `sendMessage`) as "could not create a project" and clears its latch, so the next Enter creates another project for the same idea and the first stays in the sidebar.
+**Clearing condition:** the created project id is kept so a retry reuses it, or a failure after creation opens `/project/<id>` instead.
+
+### SWEEP-F49 — The idea-test send is not registered as a send flight
+**Raised:** 2026-11-20, `feat/ideagate-selfhost-261120`, code review. **Status:** OPEN (low)
+`components/chat/use-start-idea-test.ts` sends without `lib/send-draft-chat-submission.ts::trackSendFlight`, so the project chat's composer sees no send in flight for the first frames after the route changes, and an Enter or gate-card click in that window can send a second turn.
+**Clearing condition:** the hook registers the send as `useSendDraftChatSubmission` does, or `useStartProvisionalChat` takes an optional project id and the copied send steps are removed.
+
+### SWEEP-F50 — The `/?modelId=` link is ignored by the new home screen
+**Raised:** 2026-11-20, `feat/ideagate-selfhost-261120`, code review. **Status:** OPEN (low)
+`components/chat/chat-route-host.tsx::getOverrideModelId` still reads the model from the URL on the home route, but the idea box has no model selector and the project chat starts on the configured interviewer model.
+**Clearing condition:** the link's model reaches the idea test, or the home screen opens the plain chat when the link names a model.
+
+### SWEEP-F51 — `formatCreditBalance` has no caller and its test keeps it
+**Raised:** 2026-11-20, `feat/ideagate-selfhost-261120`, code review. **Status:** OPEN (low, needs the owner)
+`lib/credits/format-credit-balance.ts` and its test are unused since the balance display was removed. `scripts/test-integrity.sh` fails a deleted test file unless the pull request carries the `test-removal-approved` label.
+**Clearing condition:** both files are deleted in a pull request that carries that label.
+
 <!-- Entry shape:
 ### SWEEP-F1 — <one-line title>
 **Raised:** YYYY-MM-DD, <branch / context>. **Status:** OPEN

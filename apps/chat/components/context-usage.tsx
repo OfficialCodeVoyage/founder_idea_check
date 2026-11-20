@@ -2,14 +2,12 @@
 
 import type { LanguageModelUsage } from "ai";
 import { useMemo } from "react";
-import type { ModelId as TokenLensModelId } from "tokenlens";
 import { getContextWindow } from "tokenlens";
 import {
   Context,
   ContextCacheUsage,
   ContextContent,
   ContextContentBody,
-  ContextContentFooter,
   ContextContentHeader,
   ContextInputUsage,
   ContextOutputUsage,
@@ -102,7 +100,6 @@ function ContextUsage({
   return (
     <Context
       maxTokens={contextMax}
-      modelId={selectedModelId.split("/").join(":") as TokenLensModelId}
       usage={usage as LanguageModelUsage | undefined}
       usedTokens={usedTokens}
     >
@@ -124,7 +121,6 @@ function ContextUsage({
           <ContextReasoningUsage />
           <ContextCacheUsage />
         </ContextContentBody>
-        <ContextContentFooter />
       </ContextContent>
     </Context>
   );

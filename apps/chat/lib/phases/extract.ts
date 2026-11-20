@@ -1,3 +1,4 @@
+import { isDeclinedCall } from "@/lib/ai/refused-reply";
 import { DOCUMENT_MARKER_NOTE, renderFacts, renderTranscript } from "./gate";
 import {
   type ExtractedFact,
@@ -25,7 +26,10 @@ export type ExtractDeps = {
    */
   onError?: (
     error: unknown,
-    stage: "extract-call-failed" | "extract-schema-mismatch"
+    stage:
+      | "extract-call-failed"
+      | "extract-declined"
+      | "extract-schema-mismatch"
   ) => void;
 };
 
@@ -200,7 +204,14 @@ export async function extractFacts(
     // be SILENT: "the extractor 500'd" and "this turn genuinely said nothing"
     // both produce zero facts, and without this the only visible symptom is a
     // gate BLOCK for "nothing established", pointing at the wrong cause.
-    deps.onError?.(error, "extract-call-failed");
+    //
+    // A DECLINED call (`isDeclinedCall`) is not a failure and is reported as
+    // its own stage: the model would not read this exchange, so nothing is
+    // taken from it, and the facts already stored stay exactly as they are.
+    deps.onError?.(
+      error,
+      isDeclinedCall(error) ? "extract-declined" : "extract-call-failed"
+    );
     return [];
   }
 

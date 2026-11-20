@@ -1,5 +1,6 @@
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
+import { DeclinedCallError } from "@/lib/ai/refused-reply";
 import {
   createModelFactExtractor,
   createModelGateJudge,
@@ -184,6 +185,48 @@ describe("createModelGateJudge", () => {
         inputTokens: 900,
         outputTokens: 30,
         totalTokens: 930,
+      },
+    ]);
+  });
+
+  it("charges a declined reply and rejects it as a decline, not a failure", async () => {
+    // Claude's `refusal` with an empty reply: the SDK never parses it, and
+    // reading `output` would throw "No output generated." with no finish
+    // reason. The adapter reads the finish reason first.
+    const spent: ModelUsage[] = [];
+    const judge = createModelGateJudge({
+      model: new MockLanguageModelV3({
+        doGenerate: () =>
+          Promise.resolve({
+            content: [],
+            finishReason: {
+              unified: "content-filter" as const,
+              raw: "refusal",
+            },
+            usage: {
+              inputTokens: {
+                total: 700,
+                noCache: 700,
+                cacheRead: 0,
+                cacheWrite: 0,
+              },
+              outputTokens: { total: 2, text: 2, reasoning: 0 },
+            },
+            warnings: [],
+          }),
+      }),
+      onUsage: (usage) => spent.push(usage),
+    });
+
+    await expect(
+      judge({ system: "s", prompt: "p", criteria: [] })
+    ).rejects.toBeInstanceOf(DeclinedCallError);
+    expect(spent).toEqual([
+      {
+        functionId: "phase-gate",
+        inputTokens: 700,
+        outputTokens: 2,
+        totalTokens: 702,
       },
     ]);
   });

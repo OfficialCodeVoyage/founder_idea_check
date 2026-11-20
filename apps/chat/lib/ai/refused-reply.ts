@@ -47,6 +47,46 @@ export function isDeclined(finishReason: string | undefined): boolean {
 }
 
 /**
+ * A STRUCTURED-OUTPUT CALL THE MODEL DECLINED: the gate judge, the fact
+ * extractor, the persona generator, and deep research's clarify and brief
+ * steps. Thrown by `lib/phases/model-adapters.ts::generateReportingUsage`,
+ * the one wrapper those calls share and the only place that still sees the
+ * call's finish reason; every caller asks `isDeclinedCall`.
+ *
+ * WHY A TYPE OF ITS OWN. The SDK reports such a decline in two shapes, and
+ * neither says "declined" on its face: an empty reply leaves `output` unset
+ * and reading it throws `NoOutputGeneratedError`, which carries no finish
+ * reason at all; a partial reply fails to parse and throws
+ * `NoObjectGeneratedError` with `finishReason: "content-filter"`. Both used
+ * to reach the callers as "the call failed", so a gate BLOCK, a lost
+ * extraction and a failed research run all named a plumbing fault where the
+ * model had in fact declined, and the founder was never told that rephrasing
+ * could help.
+ *
+ * Lives here, not beside the wrapper, because the pure seams that catch it
+ * (`lib/phases/gate.ts`, `lib/phases/extract.ts`) must not import "ai": this
+ * file only takes types from it.
+ */
+export class DeclinedCallError extends Error {
+  /** Which seam's call was declined, e.g. "phase-gate". */
+  readonly functionId: string;
+
+  constructor(functionId: string, options?: { cause?: unknown }) {
+    super(
+      `the model declined to answer (${functionId}, finish reason: content-filter)`,
+      options
+    );
+    this.name = "DeclinedCallError";
+    this.functionId = functionId;
+  }
+}
+
+/** PURE. Whether a structured-output call failed because the model declined. */
+export function isDeclinedCall(error: unknown): error is DeclinedCallError {
+  return error instanceof DeclinedCallError;
+}
+
+/**
  * The transform the chat model's UI stream goes through: on a `finish` chunk
  * whose metadata says `refused`, it writes the notice right before that chunk.
  * Nothing waits on it: what else a declined turn skips is read from the model

@@ -734,11 +734,21 @@ async function runPhasePass({
         model: extractModel,
         onUsage: chargeUsageTo(costAccumulator, config.ai.workflows.extract),
       }),
-      onError: (error, stage) =>
+      onError: (error, stage) => {
+        // A decline is the model choosing not to read this exchange, not a
+        // fault: nothing is extracted from it and no stored fact changes.
+        if (stage === "extract-declined") {
+          log.warn(
+            { stage, projectId, phaseKey: phase.key },
+            "the extraction model declined this exchange — no facts were taken from it"
+          );
+          return;
+        }
         log.error(
           { err: error, stage, projectId, phaseKey: phase.key },
           "fact extraction failed — the turn continues with zero facts"
-        ),
+        );
+      },
     },
     {
       phase,
